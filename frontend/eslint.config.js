@@ -11,7 +11,8 @@ export default tseslint.config(
   {
     files: ['**/*.vue'],
     languageOptions: { parserOptions: { parser: tseslint.parser } },
-    rules: { 'vue/multi-word-component-names': 'off' },
+    // TypeScript checks identifiers and DOM globals in Vue's script setup.
+    rules: { 'vue/multi-word-component-names': 'off', 'no-undef': 'off' },
   },
   {
     files: ['vite.config.ts'],
