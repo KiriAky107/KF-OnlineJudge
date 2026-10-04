@@ -1,0 +1,105 @@
+:root {
+  font-family: Inter, 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  color: #18243c;
+  background: #f5f7fc;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --el-color-primary: #2563eb;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 6vw;
+  border-bottom: 1px solid #e4e9f2;
+  background: #fff;
+}
+.brand {
+  font-weight: 800;
+  font-size: 24px;
+  color: #2563eb;
+}
+.brand span {
+  font-size: 17px;
+  margin-left: 10px;
+  color: #18243c;
+}
+.header-caption,
+.app-footer {
+  color: #65738b;
+  font-size: 14px;
+}
+.app-main {
+  width: min(100% - 40px, 1040px);
+  margin: 0 auto;
+  flex: 1;
+}
+.welcome {
+  padding: 80px 0;
+  max-width: 720px;
+}
+h1 {
+  font-size: clamp(32px, 5vw, 52px);
+  line-height: 1.3;
+  letter-spacing: -1px;
+  margin: 24px 0;
+}
+.welcome-description {
+  color: #65738b;
+  font-size: 17px;
+  line-height: 1.8;
+  max-width: 620px;
+}
+.connection-card {
+  margin-top: 40px;
+  border-radius: 14px;
+}
+.connection-row {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+}
+.connection-row h2 {
+  font-size: 16px;
+  margin: 0 0 8px;
+}
+.connection-row p {
+  font-size: 14px;
+  color: #65738b;
+  margin: 0;
+}
+.app-footer {
+  padding: 24px 6vw;
+}
+@media (max-width: 600px) {
+  .header-caption {
+    display: none;
+  }
+  .welcome {
+    padding-top: 48px;
+  }
+  .connection-row {
+    flex-wrap: wrap;
+  }
+}

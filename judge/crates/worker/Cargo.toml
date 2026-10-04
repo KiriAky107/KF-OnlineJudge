@@ -1,0 +1,16 @@
+[package]
+name = "kf-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+kf-contracts.workspace = true
+kf-engine.workspace = true
+kf-sandbox.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

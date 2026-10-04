@@ -1,0 +1,35 @@
+# In-progress planning and engineering documents stay local; never publish to Gitea.
+/docs
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!*.env.example
+*.pem
+*.key
+
+# Tool caches and generated build output
+.cache/
+.tools/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+node_modules/
+dist/
+target/
+*.egg-info/
+
+# Local data and editor state
+.Trash-*/
+.idea/
+.vscode/
+.DS_Store
+*.log
+deploy/data/
+experiments/results/
+!experiments/results/.gitkeep

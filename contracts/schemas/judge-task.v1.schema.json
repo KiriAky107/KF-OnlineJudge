@@ -1,0 +1,30 @@
+{
+  "$id": "urn:kf-oj:judge-task:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A wake-up notification, not execution authority or the source of task state.",
+  "properties": {
+    "evaluation_id": {
+      "format": "uuid",
+      "title": "Evaluation Id",
+      "type": "string"
+    },
+    "kind": {
+      "const": "judge.evaluation",
+      "title": "Kind",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "evaluation_id"
+  ],
+  "title": "JudgeTaskNotification",
+  "type": "object"
+}
