@@ -55,6 +55,39 @@ export const router = createRouter({
       component: () => import('../views/RankingsView.vue'),
     },
     {
+      path: '/discussions',
+      meta: { title: '讨论' },
+      component: () => import('../views/DiscussionsView.vue'),
+    },
+    {
+      path: '/discussions/:id',
+      meta: { title: '讨论详情' },
+      component: () => import('../views/DiscussionDetailView.vue'),
+    },
+    { path: '/teams', meta: { title: '团队' }, component: () => import('../views/TeamsView.vue') },
+    {
+      path: '/teams/create',
+      meta: { title: '创建团队' },
+      component: () => import('../views/CreateTeamView.vue'),
+    },
+    {
+      path: '/users/:username',
+      meta: { title: '个人主页' },
+      component: () => import('../views/ProfileView.vue'),
+    },
+    { path: '/login', meta: { title: '登录' }, component: () => import('../views/AuthView.vue') },
+    {
+      path: '/register',
+      meta: { title: '注册' },
+      component: () => import('../views/AuthView.vue'),
+    },
+    {
+      path: '/logout',
+      meta: { title: '退出登录' },
+      component: () => import('../views/LogoutView.vue'),
+    },
+    { path: '/about', meta: { title: '关于' }, component: () => import('../views/AboutView.vue') },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       meta: { title: '页面不存在' },
