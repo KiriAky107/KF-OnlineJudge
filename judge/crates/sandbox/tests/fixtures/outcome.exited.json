@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "run_id": "run-001",
+  "termination": {"kind": "exited", "code": 0},
+  "usage": {
+    "cpu_time_us": {"state": "measured", "value": 1000},
+    "wall_time_us": {"state": "measured", "value": 2000},
+    "memory_peak_bytes": {"state": "measured", "value": 4096},
+    "memory_events": {"state": "measured", "value": {"max": 0, "oom": 0, "oom_kill": 0, "oom_group_kill": 0}}
+  },
+  "stdout": {"artifact_id": null, "observed_bytes": {"state": "measured", "value": 0}, "retained_bytes": 0, "truncated": false, "reached_eof": true},
+  "stderr": {"artifact_id": null, "observed_bytes": {"state": "measured", "value": 0}, "retained_bytes": 0, "truncated": false, "reached_eof": true},
+  "artifacts": [],
+  "limits": [],
+  "cancelled_at_wall_time_us": null,
+  "errors": [],
+  "cleanup": "complete"
+}
