@@ -4,3 +4,4 @@
 //! Until that work is verified, the CLI cannot execute any user program.
 
 pub mod probe;
+pub mod spec;

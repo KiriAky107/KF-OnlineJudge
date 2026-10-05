@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "run_id": "run-001",
+  "profile": "native",
+  "argv": ["/work/main"],
+  "env": {"LANG": "C.UTF-8", "TZ": "UTC"},
+  "cwd": ".",
+  "inputs": [{"artifact_id": "program-001", "path": "main"}],
+  "stdin_artifact": "input-001",
+  "outputs": [],
+  "limits": {
+    "cpu_time_us": 1000000,
+    "wall_time_us": 3000000,
+    "memory_bytes": 67108864,
+    "stack_bytes": 8388608,
+    "processes": 8,
+    "open_files": 64,
+    "stdout_bytes": 1048576,
+    "stderr_bytes": 1048576,
+    "file_bytes": 16777216,
+    "workdir_bytes": 67108864
+  }
+}
