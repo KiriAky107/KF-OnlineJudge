@@ -67,11 +67,22 @@ export function useCodeDraft(problemId: string) {
       clearTimeout(timer)
       timer = setTimeout(save, 400)
     },
-    { deep: true },
+    // Mark pending changes before a lifecycle event can run in the same tick.
+    { deep: true, flush: 'sync' },
   )
-  onScopeDispose(() => {
+  function flushPendingDraft() {
     if (state.value === 'changed') save()
+  }
+  function onVisibilityChange() {
+    if (document.visibilityState === 'hidden') flushPendingDraft()
+  }
+  window.addEventListener('pagehide', flushPendingDraft)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  onScopeDispose(() => {
+    flushPendingDraft()
     clearTimeout(timer)
+    window.removeEventListener('pagehide', flushPendingDraft)
+    document.removeEventListener('visibilitychange', onVisibilityChange)
   })
   return { language, code, state, save }
 }

@@ -43,6 +43,7 @@ check-frontend:
 	cd frontend && $(PNPM) lint
 	cd frontend && $(PNPM) format:check
 	cd frontend && $(PNPM) typecheck
+	cd frontend && $(PNPM) test
 	cd frontend && $(PNPM) build
 
 contracts:

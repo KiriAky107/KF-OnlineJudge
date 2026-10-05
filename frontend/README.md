@@ -7,6 +7,7 @@ Vue 3 + TypeScript + Vite + Element Plus，使用 Vue Router 与 Pinia。
 pnpm install --frozen-lockfile
 pnpm dev
 pnpm typecheck
+pnpm test
 pnpm build
 ```
 
@@ -22,3 +23,5 @@ pnpm build
 已有代码按实际需要落位；`components/` 和 `stores/` 是后续扩展位置，不放空状态实现。
 API 类型更新执行根目录 `make contracts`；前端通过 `pnpm check:api` 拒绝过期类型。
 登录凭据、模型密钥和数据库连接不能进入 `VITE_` 环境变量。
+
+`pnpm test` 验证代码草稿在刷新、切到后台与页面离开时的保存行为，已纳入 `make check-frontend`。
