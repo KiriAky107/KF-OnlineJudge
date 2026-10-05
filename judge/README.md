@@ -5,7 +5,7 @@ Cargo workspace 分为五个 crate：
 | Crate | 职责 | 当前能力 |
 | --- | --- | --- |
 | `kf-contracts` | 跨服务通知和执行契约 | 最小 v1 通知、共享 JSON 样例检查 |
-| `kf-sandbox` | Linux 隔离、限制、计量与清理 | `probe` 只读观察；`run` 拒绝执行 |
+| `kf-sandbox` | Linux 隔离、限制、计量与清理 | 规格/配置检查与 `probe` 只读观察；`run` 拒绝执行 |
 | `kf-engine` | 语言适配、测试点编排、比较与确定性汇总 | 预留库边界，无模拟判定 |
 | `kf-worker` | 拉取、租约、工件准备与本地编排 | `--check` 入口，无消费循环 |
 | `kf-coordinator` | 节点登记、租约、状态与结果写入权 | HTTP 存活检查，无任务端点 |
@@ -77,3 +77,38 @@ FD、栈和其他信号仍按原退出状态记录，缺少专门证据时不猜
 超限输出须有对应证据；缺失计量、无说明的截断或不完整读取报告基础设施失败。
 工件只能导出规格已申请的路径，单文件与已导出总量均受限；这些字段检查不能替代实际文件安全检查。
 准备失败和清理失败分别保留，真实进程树终止、资源回收与 VM 验收仍待后续阶段实现。
+
+## 可信运行配置与启动前检查
+
+```bash
+cd judge
+cargo run --locked -p kf-sandbox -- check-runtime --config ../deploy/sandbox.runtime.example.json
+```
+
+首轮支持策略为 Linux x86_64、内核至少 6.6；这是项目保守支持范围，内核版本不能代替逐项能力验证。
+所需接口包括 user/mount/PID/IPC/UTS/network/cgroup namespace、pidfd 等待、身份降权、seccomp filter，
+以及实际委派子树中的 CPU/memory/pids 控制器、`cgroup.kill`、`memory.peak`、内存/进程事件和交换空间限制。
+初始镜像类型固定为 `linux_gnu_cxx_x86_64_v1`：受控只读目录镜像、GNU C/C++ 编译器、动态加载器和
+可信 `manifest.json`；镜像内容、权限和只读挂载验证仍未实现。
+
+配置由可信部署方提供，最多 64 KiB；不能由执行请求覆盖。`runtime.rs` 校验受控 state/tasks/image
+目录布局、独立 cgroup 子树、普通 Worker 身份和独立任务 UID/GID 槽位；任务身份从 100000 起，
+不与配置中的 Worker 重叠。槽位仅定义映射，真正分配前须核查系统账号占用，直到旧任务树为空且
+清理完成后才可复用，服务重启也须恢复租用状态。
+
+样例最多并发 2 个任务，每任务上限 512 MiB 内存、32 个进程和 256 MiB 工作空间；
+整体内存预算 1.5 GiB、进程预算 128、工作空间预算 1 GiB，分别给监督器保留 256 MiB、32 个进程和 64 MiB。
+CPU 带宽在同一 100 ms 周期中，每任务配额 100 ms、监督器预留 50 ms、父级配额 250 ms。
+校验采用检查过的整数运算，整体预算至少覆盖「任务上限 × 并发数 + 监督器预留」，拒绝溢出或不足。
+CPU 带宽和 CPU 总时间分别配置；预算目前只完成政策校验，真正应用和核验由后续 cgroup/监督器实现。
+工作空间的 tmpfs 占用仍计入任务内存；镜像存储与工件长期保留由部署/工件提供方单独管理。
+
+`check-runtime` 只读取当前环境和配置路径，输出结构化拒绝，退出码 2；配置有效时明确
+`configuration_valid: true`、`execution_allowed: false`。目录/接口可见与不可见分别记录，
+配置归属、路径真实包含关系、镜像完整性、身份池、helper、委派、预算实际生效、pidfd、namespace、
+降权、seccomp 和清理能力均保留未验证状态。它不创建目录、改账号、启动服务或运行用户程序。
+即使观察值里的 `isolation_verified` 被误设为 true，也不能解除未实现的执行拒绝。
+
+接口语义参见 [cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html)、
+[pidfd_open](https://man7.org/linux/man-pages/man2/pidfd_open.2.html) 和
+[seccomp filter](https://docs.kernel.org/userspace-api/seccomp_filter.html)。

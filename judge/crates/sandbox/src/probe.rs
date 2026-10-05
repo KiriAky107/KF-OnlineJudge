@@ -4,6 +4,8 @@ use std::fs;
 #[derive(Debug, Serialize)]
 pub struct EnvironmentObservation {
     pub os: &'static str,
+    pub architecture: &'static str,
+    pub kernel_release: Option<String>,
     pub namespace_entries: Vec<String>,
     pub cgroup_v2_visible: bool,
     pub cgroup_v2_controllers: Vec<String>,
@@ -40,6 +42,10 @@ pub fn observe() -> EnvironmentObservation {
             });
     EnvironmentObservation {
         os: std::env::consts::OS,
+        architecture: std::env::consts::ARCH,
+        kernel_release: fs::read_to_string("/proc/sys/kernel/osrelease")
+            .ok()
+            .map(|release| release.trim().to_owned()),
         namespace_entries,
         cgroup_v2_visible,
         cgroup_v2_controllers,

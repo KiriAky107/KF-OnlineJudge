@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "state_root": "/var/lib/kf-judge",
+  "tasks_root": "/var/lib/kf-judge/tasks",
+  "image_root": "/var/lib/kf-judge/images/gnu-cxx-x86_64-v1",
+  "image_kind": "linux_gnu_cxx_x86_64_v1",
+  "delegated_cgroup_root": "/sys/fs/cgroup/kf-judge.service",
+  "identities": {
+    "worker_uid": 1000,
+    "worker_gid": 1000,
+    "first_task_uid": 100000,
+    "first_task_gid": 100000,
+    "count": 2
+  },
+  "max_concurrent_runs": 2,
+  "per_task_ceiling": {
+    "cpu_time_us": 10000000,
+    "wall_time_us": 30000000,
+    "memory_bytes": 536870912,
+    "stack_bytes": 16777216,
+    "processes": 32,
+    "open_files": 128,
+    "stdout_bytes": 1048576,
+    "stderr_bytes": 1048576,
+    "file_bytes": 67108864,
+    "workdir_bytes": 268435456
+  },
+  "aggregate": {
+    "memory_bytes": 1610612736,
+    "supervisor_memory_bytes": 268435456,
+    "processes": 128,
+    "supervisor_processes": 32,
+    "workdir_bytes": 1073741824,
+    "supervisor_workdir_bytes": 67108864,
+    "cpu_period_us": 100000,
+    "cpu_quota_us": 250000,
+    "task_cpu_quota_us": 100000,
+    "supervisor_cpu_quota_us": 50000
+  }
+}
