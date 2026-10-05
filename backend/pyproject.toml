@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kf-oj-platform"
+version = "0.0.1"
+description = "KF-OnlineJudge platform and learning workers"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
+    "uvicorn>=0.34,<1",
+    "sqlalchemy[asyncio]>=2.0,<3",
+    "asyncpg>=0.30,<1",
+    "alembic>=1.15,<2",
+    "aio-pika>=9.5,<10",
+]
+
+[project.scripts]
+kf-learning-worker = "kf_oj.workers.learning:main"
+kf-outbox-publisher = "kf_oj.workers.outbox:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11,<1",
+    "pytest>=8.3,<10",
+    "httpx>=0.28,<1",
+    "jsonschema>=4.23,<5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kf_oj"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

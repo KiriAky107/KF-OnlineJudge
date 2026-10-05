@@ -1,0 +1,4 @@
+saveExact: true
+verifyDepsBeforeRun: false
+allowBuilds:
+  esbuild: true
