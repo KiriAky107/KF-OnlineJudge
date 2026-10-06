@@ -91,8 +91,36 @@ FD、栈和其他信号仍按原退出状态记录，缺少专门证据时不猜
 最先停止的原因只用于调度诊断，最终执行分类仍由结果模型依据全部观察确定。
 
 事件仅由可信监督器在核验同一任务的实际操作后产生，不可从执行请求直接反序列化。
-该模块不执行系统调用、不证明隔离、不产生执行许可；有界 IPC、单线程启动器、真实终止与
-清理仍待实现和独立 VM 验证。当前 CLI `run` 保持拒绝执行。
+该状态模块不执行系统调用、不证明隔离、不产生执行许可；真实任务树终止与清理仍待实现和
+独立 VM 验证。当前 CLI `run` 保持拒绝执行。
+
+## 独立启动入口与控制通信
+
+`launcher/entry.rs` 在可信二进制的独立进程中运行，不启动 Tokio、不安装自定义 `pre_exec`
+闭包，也不在 Worker 的 fork 子进程里运行 Rust 初始化逻辑。入口实际检查 `/proc/self/task`
+只有一个线程；未来每次权限操作或 fork 前须再次检查。当前入口以普通身份运行，没有实现
+特权 helper、namespace、降权、seccomp 或用户程序执行，初始化返回准备阶段的能力不可用。
+
+控制端必须先在可信 state 根下创建独占、权限 0700 的每次启动目录和 Unix listener，再通过
+清空环境的 `Command` 启动内部入口；socket 不放在用户工作区，控制通道与用户 stdio 分开。
+入口通过非阻塞、CLOEXEC socket 连接，队列满时直接失败，不在连接阶段无限等待。
+双方用内核 `SO_PEERCRED` 核对预期 PID/UID/GID；父端 PID 来源于仍持有的 `Child`，
+子端父 PID 来源于内核。内部入口不提供用户命令参数，握手消息不能转换成生命周期确认事件。
+
+`launcher/protocol.rs` 使用带版本的 8 字节帧头和最多 1 KiB JSON。先拒绝未知版本、标志及
+非法长度，再读取固定大小缓冲；发送序列化也使用固定缓冲。父子消息类型分开，拒绝多余字段、
+非法 run_id 和未知命令。所有 I/O 共用一个绝对截止时间（入口 5 秒，通道最大 10 秒），
+部分帧不能续期；EOF、解析、超时或写入错误关闭并锁定通道，不能重新同步后继续初始化。
+
+新增 `rustix` 1.1.5 仅用于沙箱的安全 syscall/FD 封装，启用 `net`、`process`，由锁文件固定。
+选择它的 OwnedFd/AsFd 接口完成连接与凭据核对；目前无需 `nix` 或直接 `libc` 调用，
+也未放宽 `unsafe` 限制。参见 [rustix](https://github.com/bytecodealliance/rustix)、
+[socket_peercred](https://docs.rs/rustix/1.1.5/rustix/net/sockopt/fn.socket_peercred.html) 和
+[fork 后的安全约束](https://doc.rust-lang.org/std/os/unix/process/trait.CommandExt.html#tymethod.pre_exec)。
+
+普通 Linux 回归实际启动可信入口，验证单线程、认证握手、准备拒绝、取消和断开后的退出回收；
+协议回归验证边界与失败锁定。这些测试没有运行用户代码或安全攻击，不是 Linux 隔离验收。
+目标进程的阻塞/放行、完整 FD 白名单、进程树监督、阶段回滚及独立 VM 安全验收仍待完成。
 
 ## 可信运行配置与启动前检查
 

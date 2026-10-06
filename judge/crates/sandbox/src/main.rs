@@ -28,6 +28,13 @@ enum Command {
     },
     /// Reserved execution entrypoint; refuses execution until isolation is implemented.
     Run,
+    /// Internal trusted launcher control entry; never runs a user program.
+    #[cfg(target_os = "linux")]
+    #[command(hide = true)]
+    Launcher {
+        #[arg(long)]
+        control_socket: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -50,6 +57,18 @@ fn main() -> ExitCode {
         }
         Command::Validate { spec } => validate_spec(spec),
         Command::CheckRuntime { config } => check_runtime(config),
+        #[cfg(target_os = "linux")]
+        Command::Launcher { control_socket } => {
+            match kf_sandbox::launcher::entry::serve(&control_socket) {
+                Ok(()) => ExitCode::from(2),
+                Err(error) => spec_error(
+                    "launcher_control_failed",
+                    Some(serde_json::json!({
+                        "io_kind": format!("{:?}", error.kind())
+                    })),
+                ),
+            }
+        }
     }
 }
 
