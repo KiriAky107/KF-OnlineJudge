@@ -35,6 +35,13 @@ enum Command {
         #[arg(long)]
         control_socket: PathBuf,
     },
+    /// Internal bootstrap: stops itself and cannot execute a user command.
+    #[cfg(target_os = "linux")]
+    #[command(hide = true)]
+    Bootstrap {
+        #[arg(long)]
+        parent_pid: u32,
+    },
 }
 
 fn main() -> ExitCode {
@@ -66,6 +73,16 @@ fn main() -> ExitCode {
                     Some(serde_json::json!({
                         "io_kind": format!("{:?}", error.kind())
                     })),
+                ),
+            }
+        }
+        #[cfg(target_os = "linux")]
+        Command::Bootstrap { parent_pid } => {
+            match kf_sandbox::launcher::blocked::bootstrap(parent_pid) {
+                Ok(()) => ExitCode::from(2),
+                Err(error) => spec_error(
+                    "bootstrap_refused",
+                    Some(serde_json::json!({"io_kind": format!("{:?}", error.kind())})),
                 ),
             }
         }

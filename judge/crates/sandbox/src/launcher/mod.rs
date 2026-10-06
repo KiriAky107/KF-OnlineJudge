@@ -7,6 +7,8 @@
 pub mod lifecycle;
 
 #[cfg(target_os = "linux")]
+pub mod blocked;
+#[cfg(target_os = "linux")]
 pub mod entry;
 #[cfg(target_os = "linux")]
 pub mod protocol;

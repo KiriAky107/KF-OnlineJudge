@@ -8,3 +8,6 @@ pub mod outcome;
 pub mod probe;
 pub mod runtime;
 pub mod spec;
+
+#[cfg(target_os = "linux")]
+pub mod cgroup;

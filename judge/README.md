@@ -127,6 +127,37 @@ FD、栈和其他信号仍按原退出状态记录，缺少专门证据时不猜
 默认仍使用 Cargo 构建的路径。此变量只由测试读取，启动器子进程仍清空环境。
 在 VM 内直接验证 GNU 工具链或这些控制测试，只能证明测试载荷可用，不能作为沙箱隔离验收。
 
+## 真实目标阻塞与任务 cgroup
+
+`launcher/blocked.rs` 通过清空环境的 `Command` 新建可信 bootstrap 进程，bootstrap
+在单线程入口设置父线程死亡时的 SIGKILL、核对实际父 PID，再自行 SIGSTOP。父端持有
+唯一 Child 和 pidfd，用 waitid/NOWAIT 及实际进程状态确认停止；调用方须保留默认 SIGCHLD
+处理（包括不使用 SA_NOCLDWAIT），不能由其他线程/信号处理器回收该 Child。代码额外拒绝
+可观察到的 SIGCHLD 忽略/自定义处理。没有自定义 pre_exec 或 Rust fork 子进程初始化。
+
+`cgroup.rs` 只接受可信运行配置中的委派子树，逐级 NOFOLLOW 打开并验证 cgroup v2、
+helper 所有权、不可被组/其他用户写入、空 domain 及必需控制器。它设置并读回总体与每任务的
+memory.max、交换空间 0、pids.max、cpu.max 和 memory.oom.group，限制任务目录数和层级。
+每任务使用排他 mkdir，不采用已存在目录。CPU 带宽只是节流；CPU 总时间监督仍未实现。
+
+`PreparedTarget` 将真实停止的 bootstrap 纳入已配置限额、已冻结的任务 cgroup，重复核对
+限额、成员和冻结状态。当前没有 thaw/continue/exec 公共方法，不使用请求中的 argv 启动用户程序；
+启动器二进制路径来自可信调用方。缺少隔离时明确返回 namespaces/capability_unavailable，
+通过 cgroup.kill 和 pidfd 终止并回收后返回，清理错误单独保留。部署方仍须认证配置文件和
+实际委派；尚未安装权限 helper、接入完整监督器或启用 CLI run。现有控制入口的 Initialize
+仍返回准备拒绝。未来隔离初始化与最终 exec 放行需要独立的验证和控制阶段。
+
+普通 `make check-judge` 对 `blocked_vm.rs` 的权限用例明确报告 ignored。仅在无宿主共享挂载、
+无业务凭据且外部已验证整体资源上限的独立 QEMU VM 内，由可信运行者设置
+`KF_SANDBOX_INDEPENDENT_VM=1` 和启动器路径，执行测试二进制的
+`--ignored --test-threads=1 --nocapture`。测试还要求 VM 内的专用标记、QEMU 厂商信息、
+网络仅 lo 及无宿主路径；不具备条件时拒绝，不能将 ignored 计为验收通过。
+固定 C 探针仅在该 VM 中验证真实内存 OOM、fork 拒绝与 CPU 节流，测试过程没有执行提交程序。
+
+参见 [cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html)、
+[pidfd_open](https://man7.org/linux/man-pages/man2/pidfd_open.2.html)、
+[PR_SET_PDEATHSIG](https://man7.org/linux/man-pages/man2/PR_SET_PDEATHSIG.2const.html)。
+
 ## 可信运行配置与启动前检查
 
 ```bash
