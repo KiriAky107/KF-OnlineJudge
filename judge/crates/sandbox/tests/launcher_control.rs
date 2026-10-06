@@ -34,7 +34,11 @@ impl Attempt {
         let listener = UnixListener::bind(&socket).unwrap();
         listener.set_nonblocking(true).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
-        let child = Command::new(env!("CARGO_BIN_EXE_kf-sandbox"))
+        // A trusted test operator can relocate the executable into an independent VM.
+        // The launched entry still receives an empty environment.
+        let binary = std::env::var_os("KF_SANDBOX_TEST_BIN")
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_kf-sandbox").into());
+        let child = Command::new(binary)
             .arg("launcher")
             .arg("--control-socket")
             .arg(&socket)
