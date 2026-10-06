@@ -11,3 +11,6 @@ pub mod spec;
 
 #[cfg(target_os = "linux")]
 pub mod cgroup;
+
+#[cfg(target_os = "linux")]
+mod isolation;

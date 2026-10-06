@@ -7,6 +7,7 @@ use crate::spec::ValidatedSpec;
 use rustix::fd::{AsFd, OwnedFd};
 use rustix::process::{Pid, PidfdFlags, Signal, WaitId, WaitIdOptions};
 use std::io;
+use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -50,6 +51,30 @@ pub struct BlockedTarget {
 impl BlockedTarget {
     /// `executable` is the operator's trusted sandbox binary, never a request argv.
     pub fn spawn(executable: &Path) -> io::Result<Self> {
+        Self::spawn_inner(executable, None)
+    }
+
+    pub(crate) fn spawn_initializing(
+        executable: &Path,
+    ) -> io::Result<(Self, super::protocol::ControlChannel)> {
+        let (parent, child) = UnixStream::pair()?;
+        // socketpair credentials identify its creator, not the eventual child.
+        // Authentication here is exclusive endpoint inheritance through this
+        // trusted Command; no user process exists or receives these endpoints.
+        let channel = super::protocol::ControlChannel::new(
+            parent,
+            super::protocol::ExpectedPeer {
+                pid: std::process::id(),
+                uid: rustix::process::geteuid().as_raw(),
+                gid: rustix::process::getegid().as_raw(),
+            },
+            Instant::now() + super::protocol::MAX_CONTROL_TIMEOUT,
+        )?;
+        let target = Self::spawn_inner(executable, Some(child))?;
+        Ok((target, channel))
+    }
+
+    fn spawn_inner(executable: &Path, initialization: Option<UnixStream>) -> io::Result<Self> {
         // A ignored/caught SIGCHLD could reap/recycle a PID before pidfd_open.
         // Fresh helpers retain the default disposition; reject inherited changes.
         let status = std::fs::read_to_string("/proc/self/status")?;
@@ -66,15 +91,22 @@ impl BlockedTarget {
                 ));
             }
         }
-        let mut child = Command::new(executable)
+        let mut command = Command::new(executable);
+        command
             .arg("bootstrap")
             .arg("--parent-pid")
             .arg(std::process::id().to_string())
             .env_clear()
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
+            .stderr(Stdio::null());
+        if let Some(socket) = initialization {
+            let fd: OwnedFd = socket.into();
+            command
+                .arg("--initialize-namespaces")
+                .stdin(Stdio::from(fd));
+        }
+        let mut child = command.spawn()?;
         let Some(pid) = Pid::from_raw(child.id() as i32) else {
             let _ = child.kill();
             let _ = child.wait();
@@ -122,6 +154,14 @@ impl BlockedTarget {
 
     pub fn pid(&self) -> u32 {
         self.child.id()
+    }
+
+    pub(crate) fn continue_initialization(&mut self) -> io::Result<()> {
+        self.verify_stopped()?;
+        Ok(rustix::process::pidfd_send_signal(
+            &self.pidfd,
+            Signal::CONT,
+        )?)
     }
 
     pub fn poll_exit(&mut self) -> io::Result<Option<ExitStatus>> {
@@ -183,7 +223,11 @@ pub struct InitializationFailure {
     pub cleanup_failure: Option<ExecutionError>,
 }
 
-fn failure(stage: ExecutionStage, code: ErrorCode, error: Option<&io::Error>) -> ExecutionError {
+pub(crate) fn failure(
+    stage: ExecutionStage,
+    code: ErrorCode,
+    error: Option<&io::Error>,
+) -> ExecutionError {
     ExecutionError {
         stage,
         code,
@@ -196,8 +240,8 @@ fn failure(stage: ExecutionStage, code: ErrorCode, error: Option<&io::Error>) ->
 /// Owns the real stopped child and its frozen task cgroup. No lifecycle event,
 /// JSON field or public method can turn this into a user-code execution permit.
 pub struct PreparedTarget {
-    target: BlockedTarget,
-    cgroup: TaskCgroup,
+    pub(crate) target: BlockedTarget,
+    pub(crate) cgroup: TaskCgroup,
 }
 
 impl PreparedTarget {
@@ -215,17 +259,44 @@ impl PreparedTarget {
                 ),
                 cleanup_failure: None,
             })?;
+        Self::enroll(config, spec, &mut target).map(|cgroup| Self { target, cgroup })
+    }
+
+    pub(crate) fn prepare_initializing(
+        config: &ValidatedRuntimeConfig,
+        spec: &ValidatedSpec,
+        executable: &Path,
+    ) -> Result<(Self, super::protocol::ControlChannel), InitializationFailure> {
+        let (mut target, channel) =
+            BlockedTarget::spawn_initializing(executable).map_err(|error| {
+                InitializationFailure {
+                    failure: failure(
+                        ExecutionStage::Preparation,
+                        ErrorCode::OperationFailed,
+                        Some(&error),
+                    ),
+                    cleanup_failure: None,
+                }
+            })?;
+        Self::enroll(config, spec, &mut target).map(|cgroup| (Self { target, cgroup }, channel))
+    }
+
+    fn enroll(
+        config: &ValidatedRuntimeConfig,
+        spec: &ValidatedSpec,
+        target: &mut BlockedTarget,
+    ) -> Result<TaskCgroup, InitializationFailure> {
         let setup = (|| {
             let root = DelegatedCgroup::open(config)?;
             let mut group = root.create_task(spec)?;
-            if let Err(mut error) = group.enroll(&mut target) {
+            if let Err(mut error) = group.enroll(target) {
                 error.cleanup_error = group.kill_and_remove(CLEANUP).err();
                 return Err(error);
             }
             Ok::<_, crate::cgroup::CgroupError>(group)
         })();
         match setup {
-            Ok(cgroup) => Ok(Self { target, cgroup }),
+            Ok(cgroup) => Ok(cgroup),
             Err(error) => {
                 let reap_error = target.terminate().err();
                 Err(InitializationFailure {
@@ -258,14 +329,18 @@ impl PreparedTarget {
     /// Missing isolation is a real initialization failure, never readiness.
     /// Kill/reap happens before a refusal is returned to the caller.
     pub fn refuse_unimplemented_isolation(mut self) -> InitializationFailure {
+        self.refuse_at(ExecutionStage::Namespaces, None)
+    }
+
+    pub(crate) fn refuse_at(
+        &mut self,
+        stage: ExecutionStage,
+        error: Option<&io::Error>,
+    ) -> InitializationFailure {
         let group_error = self.cgroup.kill_and_remove(CLEANUP).err();
         let reap_error = self.target.terminate().err();
         InitializationFailure {
-            failure: failure(
-                ExecutionStage::Namespaces,
-                ErrorCode::CapabilityUnavailable,
-                None,
-            ),
+            failure: failure(stage, ErrorCode::CapabilityUnavailable, error),
             cleanup_failure: group_error.as_ref().or(reap_error.as_ref()).map(|e| {
                 failure(
                     ExecutionStage::Cleanup,

@@ -5,7 +5,7 @@ Cargo workspace 分为五个 crate：
 | Crate | 职责 | 当前能力 |
 | --- | --- | --- |
 | `kf-contracts` | 跨服务通知和执行契约 | 最小 v1 通知、共享 JSON 样例检查 |
-| `kf-sandbox` | Linux 隔离、限制、计量与清理 | 规格/配置检查与 `probe` 只读观察；`run` 拒绝执行 |
+| `kf-sandbox` | Linux 隔离、限制、计量与清理 | 规格/配置检查、内部 cgroup/namespace 初始化；`run` 拒绝执行 |
 | `kf-engine` | 语言适配、测试点编排、比较与确定性汇总 | 预留库边界，无模拟判定 |
 | `kf-worker` | 拉取、租约、工件准备与本地编排 | `--check` 入口，无消费循环 |
 | `kf-coordinator` | 节点登记、租约、状态与结果写入权 | HTTP 存活检查，无任务端点 |
@@ -98,8 +98,8 @@ FD、栈和其他信号仍按原退出状态记录，缺少专门证据时不猜
 
 `launcher/entry.rs` 在可信二进制的独立进程中运行，不启动 Tokio、不安装自定义 `pre_exec`
 闭包，也不在 Worker 的 fork 子进程里运行 Rust 初始化逻辑。入口实际检查 `/proc/self/task`
-只有一个线程；未来每次权限操作或 fork 前须再次检查。当前入口以普通身份运行，没有实现
-特权 helper、namespace、降权、seccomp 或用户程序执行，初始化返回准备阶段的能力不可用。
+只有一个线程；未来每次权限操作或 fork 前须再次检查。此控制入口以普通身份运行，不进入 namespace、降权、seccomp 或用户执行阶段，
+初始化返回准备阶段的能力不可用。独立的特权 namespace 初始化入口见下文。
 
 控制端必须先在可信 state 根下创建独占、权限 0700 的每次启动目录和 Unix listener，再通过
 清空环境的 `Command` 启动内部入口；socket 不放在用户工作区，控制通道与用户 stdio 分开。
@@ -112,9 +112,10 @@ FD、栈和其他信号仍按原退出状态记录，缺少专门证据时不猜
 非法 run_id 和未知命令。所有 I/O 共用一个绝对截止时间（入口 5 秒，通道最大 10 秒），
 部分帧不能续期；EOF、解析、超时或写入错误关闭并锁定通道，不能重新同步后继续初始化。
 
-新增 `rustix` 1.1.5 仅用于沙箱的安全 syscall/FD 封装，启用 `net`、`process`，由锁文件固定。
+`rustix` 1.1.5 用于沙箱的 syscall/FD 封装，由锁文件固定。
 选择它的 OwnedFd/AsFd 接口完成连接与凭据核对；目前无需 `nix` 或直接 `libc` 调用，
-也未放宽 `unsafe` 限制。参见 [rustix](https://github.com/bytecodealliance/rustix)、
+namespace 初始化另有一个局部、附安全理由的 `unshare_unsafe` 调用，workspace 的 unsafe deny
+仍生效；不使用 FILES 标志，调用前检查独立入口只有一个线程。参见 [rustix](https://github.com/bytecodealliance/rustix)、
 [socket_peercred](https://docs.rs/rustix/1.1.5/rustix/net/sockopt/fn.socket_peercred.html) 和
 [fork 后的安全约束](https://doc.rust-lang.org/std/os/unix/process/trait.CommandExt.html#tymethod.pre_exec)。
 
@@ -157,6 +158,45 @@ memory.max、交换空间 0、pids.max、cpu.max 和 memory.oom.group，限制�
 参见 [cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html)、
 [pidfd_open](https://man7.org/linux/man-pages/man2/pidfd_open.2.html)、
 [PR_SET_PDEATHSIG](https://man7.org/linux/man-pages/man2/PR_SET_PDEATHSIG.2const.html)。
+
+## 实际 namespace 初始化
+
+`isolation/namespaces.rs` 集中 namespace 策略及 OS 操作，`launcher/namespaces.rs`
+负责进程与控制编排。它的 `NamespacedTarget` 只推进固定的可信初始化，不接收用户命令。
+它沿用停止目标及 cgroup 纳入流程；确认限额、成员和冻结状态后，通过私有 socketpair
+发送初始化命令，再仅在此阶段解除冻结和继续 bootstrap。通道仍使用 1 KiB 帧及绝对截止时间，
+协议只含 initialize/cancel 和初始化结果，没有用户 argv、路径或 exec 命令。
+
+socketpair 的 SO_PEERCRED 标识创建者，不能当作子进程 PID 认证；安全依据是可信 Command
+独占继承的端点。bootstrap 在 unshare 前核对创建者。PID 1 的对端位于祖先 PID namespace，
+内核会把该对端 PID 映射为 0，rustix UCred 的非零 Pid 类型不能表示它，因此 PID 1 只使用
+已经认证并独占继承的端点，不在该角色再次调用 socket_peercred。控制 socket 暂占内部入口的
+FD 0，stdout/stderr 为 null；这里没有用户 stdio，最终 FD 白名单和 stdio 收集仍待实现。
+
+初始化要求原 user namespace 中的 root helper，建立 mount/PID/IPC/UTS/network/cgroup
+namespace，并立即把挂载传播递归设为 private。P0 选定的身份模型保留原 user namespace；
+单 UID 的非特权 user namespace 映射不受支持。独立任务 UID/GID 租约、降权和 capabilities
+清除属于后续身份阶段，当前 helper 仍有初始化权限，不能执行用户代码。
+
+NEWPID 仅影响后续子进程，所以 bootstrap 再次 fresh exec 可信入口作为 namespace PID 1。
+PID 1 设置父线程死亡 SIGKILL，并利用尚未替换的祖先 procfs 核对实际外部父 PID。
+监督器读回其父子关系、NSpid、六类 namespace inode 与保留的 user namespace，随后从祖先
+namespace 通过 pidfd 使 PID 1 停止，再冻结整个任务 cgroup。bootstrap 仍位于祖先 PID
+namespace，负责等待这个 init；用户进程树的 PID-1 回收循环尚未实现。
+
+cgroup namespace 在实际任务成员关系建立后创建，PID 1 核对自己的 cgroup 视图为 `0::/`。
+它只虚拟化 cgroup 路径；限额和终止继续由外部监督器持有的 cgroup FD 执行。完成此阶段后，
+最小运行根、受限 proc/dev、身份及 seccomp 均未就绪；`refuse_unimplemented_root` 返回
+root_filesystem 阶段拒绝并清理，CLI run 继续拒绝。
+
+`namespace_vm.rs` 与 `blocked_vm.rs` 使用同一个 VM 条件守卫。独立 VM 中的固定 C 探针验证
+UTS 主机名、SysV IPC 隔离、新 network namespace 仅含未启用的 lo、跨任务挂载隔离和
+PID namespace 的后续子进程。探针由验收运行者在 VM 中进入目标 namespace，没有开放生产
+用户执行入口。权限测试还覆盖 pids.max 导致初始化失败及冻结目标丢弃；VM 自身的 PID 1
+在整体终止路径回收孤儿 helper，完整服务进程树回收仍待实现，不能据此宣称已完成。
+
+参见 [PID namespace](https://man7.org/linux/man-pages/man7/pid_namespaces.7.html)、
+[cgroup namespace](https://man7.org/linux/man-pages/man7/cgroup_namespaces.7.html)。
 
 ## 可信运行配置与启动前检查
 

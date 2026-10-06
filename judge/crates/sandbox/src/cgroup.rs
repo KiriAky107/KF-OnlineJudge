@@ -218,6 +218,46 @@ impl TaskCgroup {
         Ok(self.limits.clone())
     }
 
+    /// Private fixed initialization only, never a public user-exec release.
+    pub(crate) fn begin_namespace_initialization(
+        &mut self,
+        target: &mut BlockedTarget,
+    ) -> io::Result<()> {
+        target.verify_stopped()?;
+        self.applied_limits()?;
+        self.wait_event("frozen", "1", Duration::from_secs(1))?;
+        self.verify_members(&[target.pid()])?;
+        write_verify(&self.fd, "cgroup.freeze", "0")?;
+        self.wait_event("frozen", "0", Duration::from_secs(1))?;
+        target.continue_initialization()
+    }
+
+    pub(crate) fn finish_namespace_initialization(&mut self, members: &[u32]) -> io::Result<()> {
+        self.verify_members(members)?;
+        self.applied_limits()?;
+        write_verify(&self.fd, "cgroup.freeze", "1")?;
+        self.wait_event("frozen", "1", Duration::from_secs(1))?;
+        self.verify_members(members)
+    }
+
+    fn verify_members(&self, expected: &[u32]) -> io::Result<()> {
+        let mut members = read(&self.fd, "cgroup.procs")?
+            .split_whitespace()
+            .map(|value| {
+                value
+                    .parse::<u32>()
+                    .map_err(|_| invalid("invalid cgroup member"))
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        let mut expected = expected.to_vec();
+        members.sort_unstable();
+        expected.sort_unstable();
+        if members != expected {
+            return Err(invalid("unexpected cgroup members"));
+        }
+        Ok(())
+    }
+
     /// PID comes from the unreaped direct Child; callers cannot enroll arbitrary PIDs.
     pub fn enroll(&mut self, target: &mut BlockedTarget) -> Result<(), CgroupError> {
         self.live()?;

@@ -34,6 +34,23 @@ pub enum ChildMessage {
     Cancelled {},
 }
 
+/// A distinct fixed initialization protocol. There is no argv, host path,
+/// readiness claim or exec/release command in this protocol.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
+pub enum NamespaceCommand {
+    Initialize {},
+    Cancel {},
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
+pub enum NamespaceEvent {
+    Initialized { init_pid: u32 },
+    Failed { errno: Option<u16> },
+    Cancelled {},
+}
+
 mod sealed {
     pub trait Sealed {}
 }
@@ -44,6 +61,21 @@ pub trait WireMessage: sealed::Sealed + Serialize + DeserializeOwned {
 }
 
 impl sealed::Sealed for ParentMessage {}
+impl sealed::Sealed for NamespaceCommand {}
+impl WireMessage for NamespaceCommand {
+    fn valid(&self) -> bool {
+        true
+    }
+}
+impl sealed::Sealed for NamespaceEvent {}
+impl WireMessage for NamespaceEvent {
+    fn valid(&self) -> bool {
+        match self {
+            Self::Initialized { init_pid } => *init_pid > 1,
+            _ => true,
+        }
+    }
+}
 impl WireMessage for ParentMessage {
     fn valid(&self) -> bool {
         match self {
@@ -88,13 +120,10 @@ pub struct ControlChannel {
 }
 
 impl ControlChannel {
+    pub(crate) fn duplicate_stream(&self) -> io::Result<rustix::fd::OwnedFd> {
+        Ok(rustix::io::fcntl_dupfd_cloexec(&self.stream, 3)?)
+    }
     pub fn new(stream: UnixStream, peer: ExpectedPeer, deadline: Instant) -> io::Result<Self> {
-        let remaining = deadline
-            .checked_duration_since(Instant::now())
-            .filter(|duration| !duration.is_zero() && *duration <= MAX_CONTROL_TIMEOUT)
-            .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidInput, "invalid control deadline")
-            })?;
         let credentials = rustix::net::sockopt::socket_peercred(&stream)?;
         if credentials.pid.as_raw_pid() as u32 != peer.pid
             || credentials.uid.as_raw() != peer.uid
@@ -105,6 +134,23 @@ impl ControlChannel {
                 "unexpected control peer",
             ));
         }
+        Self::inherited_from_authenticated_bootstrap(stream, deadline)
+    }
+
+    /// Only the fresh namespace-init role uses this. Its endpoint was checked
+    /// before unshare and exclusively inherited through the trusted Command.
+    /// Do not call socket_peercred in PID 1: a peer outside its PID namespace
+    /// has PID 0, which rustix UCred's nonzero Pid cannot represent.
+    pub(crate) fn inherited_from_authenticated_bootstrap(
+        stream: UnixStream,
+        deadline: Instant,
+    ) -> io::Result<Self> {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|duration| !duration.is_zero() && *duration <= MAX_CONTROL_TIMEOUT)
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid control deadline")
+            })?;
         stream.set_nonblocking(false)?;
         stream.set_read_timeout(Some(remaining))?;
         stream.set_write_timeout(Some(remaining))?;
@@ -290,6 +336,19 @@ mod tests {
         );
         assert!(serde_json::from_str::<ChildMessage>(r#"{"command":"cancel"}"#).is_err());
         assert!(serde_json::from_str::<ParentMessage>(r#"{"command":"release_exec"}"#).is_err());
+        for raw in [
+            r#"{"command":"initialize","argv":["/bin/sh"]}"#,
+            r#"{"command":"release_exec"}"#,
+            r#"{"command":"cancel","path":"/host"}"#,
+        ] {
+            assert!(serde_json::from_str::<NamespaceCommand>(raw).is_err());
+        }
+        assert!(
+            serde_json::from_str::<NamespaceEvent>(
+                r#"{"event":"initialized","init_pid":2,"exec_ready":true}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]

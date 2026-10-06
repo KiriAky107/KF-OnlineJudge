@@ -41,6 +41,15 @@ enum Command {
     Bootstrap {
         #[arg(long)]
         parent_pid: u32,
+        #[arg(long)]
+        initialize_namespaces: bool,
+    },
+    /// Internal fresh PID-1 helper; refuses arbitrary commands and user exec.
+    #[cfg(target_os = "linux")]
+    #[command(hide = true)]
+    NamespaceInit {
+        #[arg(long)]
+        parent_pid: u32,
     },
 }
 
@@ -77,12 +86,30 @@ fn main() -> ExitCode {
             }
         }
         #[cfg(target_os = "linux")]
-        Command::Bootstrap { parent_pid } => {
-            match kf_sandbox::launcher::blocked::bootstrap(parent_pid) {
+        Command::Bootstrap {
+            parent_pid,
+            initialize_namespaces,
+        } => {
+            let result = if initialize_namespaces {
+                kf_sandbox::launcher::namespaces::bootstrap(parent_pid)
+            } else {
+                kf_sandbox::launcher::blocked::bootstrap(parent_pid)
+            };
+            match result {
                 Ok(()) => ExitCode::from(2),
                 Err(error) => spec_error(
                     "bootstrap_refused",
                     Some(serde_json::json!({"io_kind": format!("{:?}", error.kind())})),
+                ),
+            }
+        }
+        #[cfg(target_os = "linux")]
+        Command::NamespaceInit { parent_pid } => {
+            match kf_sandbox::launcher::namespaces::namespace_init(parent_pid) {
+                Ok(()) => ExitCode::from(2),
+                Err(error) => spec_error(
+                    "namespace_init_refused",
+                    Some(serde_json::json!({"io_kind":format!("{:?}",error.kind())})),
                 ),
             }
         }
