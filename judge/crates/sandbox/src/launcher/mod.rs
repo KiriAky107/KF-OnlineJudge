@@ -15,3 +15,5 @@ pub mod entry;
 pub mod namespaces;
 #[cfg(target_os = "linux")]
 pub mod protocol;
+#[cfg(target_os = "linux")]
+pub mod root;

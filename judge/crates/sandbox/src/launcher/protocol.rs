@@ -40,6 +40,7 @@ pub enum ChildMessage {
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NamespaceCommand {
     Initialize {},
+    PrepareRoot { work_bytes: u64, tmp_bytes: u64 },
     Cancel {},
 }
 
@@ -47,6 +48,7 @@ pub enum NamespaceCommand {
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NamespaceEvent {
     Initialized { init_pid: u32 },
+    RootInitialized {},
     Failed { errno: Option<u16> },
     Cancelled {},
 }
@@ -64,7 +66,17 @@ impl sealed::Sealed for ParentMessage {}
 impl sealed::Sealed for NamespaceCommand {}
 impl WireMessage for NamespaceCommand {
     fn valid(&self) -> bool {
-        true
+        match self {
+            Self::PrepareRoot {
+                work_bytes,
+                tmp_bytes,
+            } => crate::isolation::root::RootBudget {
+                work_bytes: *work_bytes,
+                tmp_bytes: *tmp_bytes,
+            }
+            .valid(),
+            _ => true,
+        }
     }
 }
 impl sealed::Sealed for NamespaceEvent {}

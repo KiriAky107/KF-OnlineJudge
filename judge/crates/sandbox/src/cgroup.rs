@@ -240,6 +240,22 @@ impl TaskCgroup {
         self.verify_members(members)
     }
 
+    pub(crate) fn begin_root_initialization(
+        &mut self,
+        members: &[u32],
+        init_pidfd: &OwnedFd,
+    ) -> io::Result<()> {
+        self.verify_members(members)?;
+        self.applied_limits()?;
+        self.wait_event("frozen", "1", Duration::from_secs(1))?;
+        write_verify(&self.fd, "cgroup.freeze", "0")?;
+        self.wait_event("frozen", "0", Duration::from_secs(1))?;
+        Ok(rustix::process::pidfd_send_signal(
+            init_pidfd,
+            rustix::process::Signal::CONT,
+        )?)
+    }
+
     fn verify_members(&self, expected: &[u32]) -> io::Result<()> {
         let mut members = read(&self.fd, "cgroup.procs")?
             .split_whitespace()

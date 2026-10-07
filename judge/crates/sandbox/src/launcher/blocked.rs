@@ -51,11 +51,12 @@ pub struct BlockedTarget {
 impl BlockedTarget {
     /// `executable` is the operator's trusted sandbox binary, never a request argv.
     pub fn spawn(executable: &Path) -> io::Result<Self> {
-        Self::spawn_inner(executable, None)
+        Self::spawn_inner(executable, None, None)
     }
 
     pub(crate) fn spawn_initializing(
         executable: &Path,
+        roots: Option<crate::isolation::root::RootDescriptors>,
     ) -> io::Result<(Self, super::protocol::ControlChannel)> {
         let (parent, child) = UnixStream::pair()?;
         // socketpair credentials identify its creator, not the eventual child.
@@ -70,11 +71,15 @@ impl BlockedTarget {
             },
             Instant::now() + super::protocol::MAX_CONTROL_TIMEOUT,
         )?;
-        let target = Self::spawn_inner(executable, Some(child))?;
+        let target = Self::spawn_inner(executable, Some(child), roots)?;
         Ok((target, channel))
     }
 
-    fn spawn_inner(executable: &Path, initialization: Option<UnixStream>) -> io::Result<Self> {
+    fn spawn_inner(
+        executable: &Path,
+        initialization: Option<UnixStream>,
+        roots: Option<crate::isolation::root::RootDescriptors>,
+    ) -> io::Result<Self> {
         // A ignored/caught SIGCHLD could reap/recycle a PID before pidfd_open.
         // Fresh helpers retain the default disposition; reject inherited changes.
         let status = std::fs::read_to_string("/proc/self/status")?;
@@ -105,6 +110,13 @@ impl BlockedTarget {
             command
                 .arg("--initialize-namespaces")
                 .stdin(Stdio::from(fd));
+        }
+        if let Some(roots) = roots {
+            command
+                .arg("--initialize-root")
+                .stdout(Stdio::from(roots.image))
+                .stderr(Stdio::from(roots.task))
+                .current_dir("/");
         }
         let mut child = command.spawn()?;
         let Some(pid) = Pid::from_raw(child.id() as i32) else {
@@ -266,9 +278,10 @@ impl PreparedTarget {
         config: &ValidatedRuntimeConfig,
         spec: &ValidatedSpec,
         executable: &Path,
+        roots: Option<crate::isolation::root::RootDescriptors>,
     ) -> Result<(Self, super::protocol::ControlChannel), InitializationFailure> {
         let (mut target, channel) =
-            BlockedTarget::spawn_initializing(executable).map_err(|error| {
+            BlockedTarget::spawn_initializing(executable, roots).map_err(|error| {
                 InitializationFailure {
                     failure: failure(
                         ExecutionStage::Preparation,

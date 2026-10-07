@@ -8,6 +8,7 @@ use super::protocol::{
 use crate::outcome::ExecutionStage;
 use crate::runtime::ValidatedRuntimeConfig;
 use crate::spec::ValidatedSpec;
+use rustix::fd::OwnedFd;
 use rustix::process::Signal;
 use std::io;
 use std::os::unix::net::UnixStream;
@@ -36,7 +37,7 @@ fn inherited_channel(parent_pid: u32) -> io::Result<ControlChannel> {
 
 /// Fixed namespace bootstrap. The inherited socket is authenticated before
 /// unshare; changing PID namespaces changes SO_PEERCRED's PID translation.
-pub fn bootstrap(expected_parent: u32) -> io::Result<()> {
+pub fn bootstrap(expected_parent: u32, initialize_root: bool) -> io::Result<()> {
     super::entry::ensure_single_threaded()?;
     rustix::process::set_parent_process_death_signal(Some(Signal::KILL))?;
     if expected_parent <= 1
@@ -52,21 +53,38 @@ pub fn bootstrap(expected_parent: u32) -> io::Result<()> {
             return Ok(());
         }
         NamespaceCommand::Initialize {} => {}
+        NamespaceCommand::PrepareRoot { .. } => {
+            return Err(denied("root command before namespaces"));
+        }
     }
     let setup = (|| {
         crate::isolation::namespaces::create()?;
         super::entry::ensure_single_threaded()?;
         // NEWPID applies to children, so a second fresh exec becomes PID 1.
         // No Rust initialization occurs in a custom fork/pre_exec callback.
-        let child = Command::new(std::env::current_exe()?)
+        let mut command = Command::new(std::env::current_exe()?);
+        command
             .arg("namespace-init")
             .arg("--parent-pid")
             .arg(std::process::id().to_string())
             .env_clear()
             .stdin(Stdio::from(channel.duplicate_stream()?))
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
+            .stderr(Stdio::null());
+        if initialize_root {
+            command
+                .arg("--initialize-root")
+                .stdout(Stdio::from(rustix::io::fcntl_dupfd_cloexec(
+                    rustix::stdio::stdout(),
+                    3,
+                )?))
+                .stderr(Stdio::from(rustix::io::fcntl_dupfd_cloexec(
+                    rustix::stdio::stderr(),
+                    3,
+                )?))
+                .current_dir("/");
+        }
+        let child = command.spawn()?;
         Ok::<_, io::Error>(child)
     })();
     let mut child = match setup {
@@ -81,7 +99,16 @@ pub fn bootstrap(expected_parent: u32) -> io::Result<()> {
     // PID 1 is the sole control writer now. Release the bootstrap's copies so
     // control EOF has its actual meaning. The bootstrap owns/reaps PID 1 only;
     // user descendants and the final init reaping loop are a separate stage.
-    rustix::stdio::dup2_stdin(std::fs::File::open("/dev/null")?)?;
+    let null = std::fs::File::options()
+        .read(true)
+        .write(true)
+        .open("/dev/null")?;
+    rustix::stdio::dup2_stdin(&null)?;
+    if initialize_root {
+        rustix::stdio::dup2_stdout(&null)?;
+        rustix::stdio::dup2_stderr(&null)?;
+    }
+    drop(null);
     drop(channel);
     let status = child.wait()?;
     if !status.success() {
@@ -101,7 +128,7 @@ fn status_value(status: &str, name: &str) -> io::Result<u32> {
 /// This helper runs before a new proc mount: the inherited procfs still reports
 /// outer PIDs, allowing the post-prctl parent check even when getppid() is zero
 /// in the new PID namespace. Later root setup must replace this inherited proc.
-pub fn namespace_init(expected_outer_parent: u32) -> io::Result<()> {
+pub fn namespace_init(expected_outer_parent: u32, initialize_root: bool) -> io::Result<()> {
     super::entry::ensure_single_threaded()?;
     if rustix::process::getpid().as_raw_pid() != 1 || rustix::process::getppid().is_some() {
         return Err(denied("not the namespace init"));
@@ -127,14 +154,38 @@ pub fn namespace_init(expected_outer_parent: u32) -> io::Result<()> {
     // Only the supervisor in the ancestor PID namespace stops PID 1. Signals
     // sent within the namespace have special PID-1 restrictions. While it
     // verifies/stops us, this bounded receive can only cancel/refuse.
-    let _ = channel.receive::<NamespaceCommand>()?;
+    match channel.receive::<NamespaceCommand>()? {
+        NamespaceCommand::PrepareRoot {
+            work_bytes,
+            tmp_bytes,
+        } if initialize_root => {
+            if let Err(error) =
+                crate::isolation::root::install(crate::isolation::root::RootBudget {
+                    work_bytes,
+                    tmp_bytes,
+                })
+            {
+                channel.send(&NamespaceEvent::Failed {
+                    errno: error.raw_os_error().and_then(|n| u16::try_from(n).ok()),
+                })?;
+                return Err(error);
+            }
+            channel.send(&NamespaceEvent::RootInitialized {})?;
+            let _ = channel.receive::<NamespaceCommand>()?;
+        }
+        NamespaceCommand::Cancel {} => return Ok(()),
+        _ => {}
+    }
     Err(denied("namespace init has no execution permit"))
 }
 
 /// Actual namespaces only, not complete isolation or an execution permit.
 /// Both helper processes remain in the same bounded, frozen task cgroup.
 pub struct NamespacedTarget {
-    prepared: PreparedTarget,
+    pub(crate) prepared: PreparedTarget,
+    control: ControlChannel,
+    init_pidfd: OwnedFd,
+    allow_root: bool,
     init_pid: u32,
     ids: NamespaceIds,
 }
@@ -145,8 +196,26 @@ impl NamespacedTarget {
         spec: &ValidatedSpec,
         executable: &Path,
     ) -> Result<Self, InitializationFailure> {
+        Self::prepare_inner(config, spec, executable, None)
+    }
+
+    pub(crate) fn prepare_for_root(
+        config: &ValidatedRuntimeConfig,
+        spec: &ValidatedSpec,
+        executable: &Path,
+        roots: crate::isolation::root::RootDescriptors,
+    ) -> Result<Self, InitializationFailure> {
+        Self::prepare_inner(config, spec, executable, Some(roots))
+    }
+    fn prepare_inner(
+        config: &ValidatedRuntimeConfig,
+        spec: &ValidatedSpec,
+        executable: &Path,
+        roots: Option<crate::isolation::root::RootDescriptors>,
+    ) -> Result<Self, InitializationFailure> {
+        let allow_root = roots.is_some();
         let (mut prepared, mut control) =
-            PreparedTarget::prepare_initializing(config, spec, executable)?;
+            PreparedTarget::prepare_initializing(config, spec, executable, roots)?;
         let initialize = (|| {
             let parent_ids = NamespaceIds::observe(std::process::id())?;
             control.send(&NamespaceCommand::Initialize {})?;
@@ -197,16 +266,64 @@ impl NamespacedTarget {
             prepared
                 .cgroup
                 .finish_namespace_initialization(&[prepared.pid(), init_pid])?;
-            Ok::<_, io::Error>((init_pid, ids))
+            Ok::<_, io::Error>((init_pid, ids, pidfd))
         })();
         match initialize {
-            Ok((init_pid, ids)) => Ok(Self {
+            Ok((init_pid, ids, init_pidfd)) => Ok(Self {
                 prepared,
                 init_pid,
                 ids,
+                control,
+                init_pidfd,
+                allow_root,
             }),
             Err(error) => Err(prepared.refuse_at(ExecutionStage::Namespaces, Some(&error))),
         }
+    }
+
+    pub(crate) fn initialize_root(
+        &mut self,
+        budget: crate::isolation::root::RootBudget,
+    ) -> std::io::Result<()> {
+        if !self.allow_root {
+            return Err(denied("root descriptors not inherited"));
+        }
+        self.control.send(&NamespaceCommand::PrepareRoot {
+            work_bytes: budget.work_bytes,
+            tmp_bytes: budget.tmp_bytes,
+        })?;
+        self.prepared
+            .cgroup
+            .begin_root_initialization(&[self.prepared.pid(), self.init_pid], &self.init_pidfd)?;
+        match self.control.receive::<NamespaceEvent>()? {
+            NamespaceEvent::RootInitialized {} => {}
+            NamespaceEvent::Failed { errno: Some(errno) } => {
+                return Err(io::Error::from_raw_os_error(i32::from(errno)));
+            }
+            _ => return Err(denied("root initialization failed")),
+        }
+        rustix::process::pidfd_send_signal(&self.init_pidfd, Signal::STOP)?;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let status = std::fs::read_to_string(format!("/proc/{}/status", self.init_pid))?;
+            if status_value(&status, "PPid:")? != self.prepared.pid() {
+                return Err(denied("root init parent mismatch"));
+            }
+            if status.lines().any(|l| l == "State:\tT (stopped)") {
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "root init stop deadline",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        self.prepared
+            .cgroup
+            .finish_namespace_initialization(&[self.prepared.pid(), self.init_pid])?;
+        Ok(())
     }
 
     pub fn init_pid(&self) -> u32 {

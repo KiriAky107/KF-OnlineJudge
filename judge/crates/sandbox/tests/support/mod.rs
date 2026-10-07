@@ -37,7 +37,7 @@ pub fn require_vm() {
 
 pub struct Root {
     pub path: PathBuf,
-    config: RuntimeConfig,
+    pub config: RuntimeConfig,
 }
 
 impl Root {

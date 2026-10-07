@@ -5,7 +5,7 @@ Cargo workspace 分为五个 crate：
 | Crate | 职责 | 当前能力 |
 | --- | --- | --- |
 | `kf-contracts` | 跨服务通知和执行契约 | 最小 v1 通知、共享 JSON 样例检查 |
-| `kf-sandbox` | Linux 隔离、限制、计量与清理 | 规格/配置检查、内部 cgroup/namespace 初始化；`run` 拒绝执行 |
+| `kf-sandbox` | Linux 隔离、限制、计量与清理 | 规格/配置检查、内部 cgroup/namespace/运行根初始化；`run` 拒绝执行 |
 | `kf-engine` | 语言适配、测试点编排、比较与确定性汇总 | 预留库边界，无模拟判定 |
 | `kf-worker` | 拉取、租约、工件准备与本地编排 | `--check` 入口，无消费循环 |
 | `kf-coordinator` | 节点登记、租约、状态与结果写入权 | HTTP 存活检查，无任务端点 |
@@ -165,13 +165,14 @@ memory.max、交换空间 0、pids.max、cpu.max 和 memory.oom.group，限制�
 负责进程与控制编排。它的 `NamespacedTarget` 只推进固定的可信初始化，不接收用户命令。
 它沿用停止目标及 cgroup 纳入流程；确认限额、成员和冻结状态后，通过私有 socketpair
 发送初始化命令，再仅在此阶段解除冻结和继续 bootstrap。通道仍使用 1 KiB 帧及绝对截止时间，
-协议只含 initialize/cancel 和初始化结果，没有用户 argv、路径或 exec 命令。
+协议只含 initialize/cancel、固定运行根预算和初始化结果，没有用户 argv、宿主路径或 exec 命令。
 
 socketpair 的 SO_PEERCRED 标识创建者，不能当作子进程 PID 认证；安全依据是可信 Command
 独占继承的端点。bootstrap 在 unshare 前核对创建者。PID 1 的对端位于祖先 PID namespace，
 内核会把该对端 PID 映射为 0，rustix UCred 的非零 Pid 类型不能表示它，因此 PID 1 只使用
 已经认证并独占继承的端点，不在该角色再次调用 socket_peercred。控制 socket 暂占内部入口的
-FD 0，stdout/stderr 为 null；这里没有用户 stdio，最终 FD 白名单和 stdio 收集仍待实现。
+FD 0，通常 stdout/stderr 为 null；运行根初始化暂借 FD 1/2 传递可信目录能力，切根后恢复为 null。
+这里没有用户 stdio，最终 FD 白名单和 stdio 收集仍待实现。
 
 初始化要求原 user namespace 中的 root helper，建立 mount/PID/IPC/UTS/network/cgroup
 namespace，并立即把挂载传播递归设为 private。P0 选定的身份模型保留原 user namespace；
@@ -186,7 +187,7 @@ namespace，负责等待这个 init；用户进程树的 PID-1 回收循环尚�
 
 cgroup namespace 在实际任务成员关系建立后创建，PID 1 核对自己的 cgroup 视图为 `0::/`。
 它只虚拟化 cgroup 路径；限额和终止继续由外部监督器持有的 cgroup FD 执行。完成此阶段后，
-最小运行根、受限 proc/dev、身份及 seccomp 均未就绪；`refuse_unimplemented_root` 返回
+namespace 单独初始化时运行根尚未就绪；`refuse_unimplemented_root` 返回
 root_filesystem 阶段拒绝并清理，CLI run 继续拒绝。
 
 `namespace_vm.rs` 与 `blocked_vm.rs` 使用同一个 VM 条件守卫。独立 VM 中的固定 C 探针验证
@@ -197,6 +198,39 @@ PID namespace 的后续子进程。探针由验收运行者在 VM 中进入目�
 
 参见 [PID namespace](https://man7.org/linux/man-pages/man7/pid_namespaces.7.html)、
 [cgroup namespace](https://man7.org/linux/man-pages/man7/cgroup_namespaces.7.html)。
+
+## 私有运行根与有界临时空间
+
+`isolation/root.rs` 负责可信目录能力、固定挂载操作和内核读回；`launcher/root.rs` 的
+`RootedTarget` 负责租用、阶段控制、失败回滚以及 namespace 终止后的目录清理。
+它仅推进可信初始化；受限 proc/dev、任务身份、capabilities、seccomp 和用户进程树监督
+仍待实现，成功建立运行根不能放行用户代码，CLI `run` 继续拒绝。
+
+镜像和任务父目录只来自可信运行配置。逐级 NOFOLLOW 打开目录，要求 root 所有且不可被
+组或其他用户写入；镜像的 work/tmp/proc/dev 挂载锚点必须是实际目录。每任务目录排他创建，
+不接管同名旧目录，不递归删除未经租用的内容。部署方须保证镜像发布、内容及其底层存储
+不可被其他进程修改；当前检查不替代可信镜像清单、输入工件的符号链接/硬链接/TOCTOU 校验。
+
+监督器只传递已打开的镜像/任务目录 FD 和工作空间预算，协议不能选择宿主挂载路径。
+unshare 后继承 FD 仍指向旧 mount，因此初始化器通过内核报告的可信路径在新 namespace
+中重新逐级打开，并核对 dev/inode。镜像采用非递归 bind，排除源目录内已有子挂载，
+再设为 read-only/nosuid/nodev；每任务另外挂载独立 work/tmp tmpfs。
+最小根使用 `pivot_root(".", ".")` 的堆叠方式，detach 旧根并切到 `/work`，
+释放所有初始化目录 FD 后才报告完成。初始 ramfs/rootfs 等不能 pivot 的环境返回阶段错误。
+
+`workdir_bytes` 同时限制 work 和 tmp：按 4 KiB 向下取整后约 3/4 分给 work、1/4 分给 tmp，
+总量不超过申请值，每个挂载也限制 inode 数。过小或不支持的预算在创建任务目录前拒绝。
+work 为 nosuid/nodev，保留后续编译和执行能力；tmp 另加 noexec。
+监督器从祖先 procfs 核对实际根的镜像 dev/inode、只读标志、scratch 文件系统/容量/标志，
+拒绝 init 仍持有目录 FD 的情况，再保持 STOP/freeze。proc/dev 目前为空，必要设备尚未挂载。
+
+`root_vm.rs` 只在规定的独立 VM 中验收真实 pivot、只读写入 EROFS、tmp 写满 ENOSPC、
+跨任务 scratch 隔离、宿主挂载不变、排他租用和失败清理。固定探针由 VM 验收运行者进入
+目标挂载 namespace；这不证明用户 exec、身份降权、完整根逃逸防护或进程树回收已完成。
+普通工程检查将这些特权用例明确标记 ignored。
+
+参见 [pivot_root](https://man7.org/linux/man-pages/man2/pivot_root.2.html) 和
+[mount](https://man7.org/linux/man-pages/man2/mount.2.html)。
 
 ## 可信运行配置与启动前检查
 
@@ -209,7 +243,7 @@ cargo run --locked -p kf-sandbox -- check-runtime --config ../deploy/sandbox.run
 所需接口包括 user/mount/PID/IPC/UTS/network/cgroup namespace、pidfd 等待、身份降权、seccomp filter，
 以及实际委派子树中的 CPU/memory/pids 控制器、`cgroup.kill`、`memory.peak`、内存/进程事件和交换空间限制。
 初始镜像类型固定为 `linux_gnu_cxx_x86_64_v1`：受控只读目录镜像、GNU C/C++ 编译器、动态加载器和
-可信 `manifest.json`；镜像内容、权限和只读挂载验证仍未实现。
+可信 `manifest.json`；内部运行根阶段已核对目录权限与实际只读挂载，镜像内容清单校验仍未实现。
 
 配置由可信部署方提供，最多 64 KiB；不能由执行请求覆盖。`runtime.rs` 校验受控 state/tasks/image
 目录布局、独立 cgroup 子树、普通 Worker 身份和独立任务 UID/GID 槽位；任务身份从 100000 起，

@@ -43,6 +43,8 @@ enum Command {
         parent_pid: u32,
         #[arg(long)]
         initialize_namespaces: bool,
+        #[arg(long, requires = "initialize_namespaces")]
+        initialize_root: bool,
     },
     /// Internal fresh PID-1 helper; refuses arbitrary commands and user exec.
     #[cfg(target_os = "linux")]
@@ -50,6 +52,8 @@ enum Command {
     NamespaceInit {
         #[arg(long)]
         parent_pid: u32,
+        #[arg(long)]
+        initialize_root: bool,
     },
 }
 
@@ -89,9 +93,10 @@ fn main() -> ExitCode {
         Command::Bootstrap {
             parent_pid,
             initialize_namespaces,
+            initialize_root,
         } => {
             let result = if initialize_namespaces {
-                kf_sandbox::launcher::namespaces::bootstrap(parent_pid)
+                kf_sandbox::launcher::namespaces::bootstrap(parent_pid, initialize_root)
             } else {
                 kf_sandbox::launcher::blocked::bootstrap(parent_pid)
             };
@@ -104,15 +109,16 @@ fn main() -> ExitCode {
             }
         }
         #[cfg(target_os = "linux")]
-        Command::NamespaceInit { parent_pid } => {
-            match kf_sandbox::launcher::namespaces::namespace_init(parent_pid) {
-                Ok(()) => ExitCode::from(2),
-                Err(error) => spec_error(
-                    "namespace_init_refused",
-                    Some(serde_json::json!({"io_kind":format!("{:?}",error.kind())})),
-                ),
-            }
-        }
+        Command::NamespaceInit {
+            parent_pid,
+            initialize_root,
+        } => match kf_sandbox::launcher::namespaces::namespace_init(parent_pid, initialize_root) {
+            Ok(()) => ExitCode::from(2),
+            Err(error) => spec_error(
+                "namespace_init_refused",
+                Some(serde_json::json!({"io_kind":format!("{:?}",error.kind())})),
+            ),
+        },
     }
 }
 
