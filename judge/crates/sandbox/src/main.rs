@@ -16,6 +16,9 @@ struct Cli {
 enum Command {
     /// Observe the current Linux environment without changing it.
     Probe,
+    #[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
+    #[command(hide = true)]
+    VmCase { case: String },
     /// Validate a local execution specification without running any program.
     Validate {
         #[arg(long)]
@@ -66,6 +69,17 @@ fn main() -> ExitCode {
             }
             Err(error) => {
                 eprintln!("cannot encode environment observation: {error}");
+                ExitCode::FAILURE
+            }
+        },
+        #[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
+        Command::VmCase { case } => match kf_sandbox::acceptance::run_case(&case) {
+            Ok(report) => {
+                println!("{}", report);
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("VM_CASE_FAILED: {e}");
                 ExitCode::FAILURE
             }
         },

@@ -23,5 +23,7 @@ pub mod accounting;
 #[cfg(target_os = "linux")]
 pub mod supervisor;
 
+#[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
+pub mod acceptance;
 #[cfg(target_os = "linux")]
 mod isolation;

@@ -40,6 +40,8 @@ fn inherited_channel(parent_pid: u32) -> io::Result<ControlChannel> {
 pub fn bootstrap(expected_parent: u32, initialize_root: bool) -> io::Result<()> {
     super::entry::ensure_single_threaded()?;
     super::entry::ensure_inherited_descriptors()?;
+    #[cfg(feature = "vm-acceptance")]
+    crate::acceptance::verify_guest(false)?;
     rustix::process::set_parent_process_death_signal(Some(Signal::KILL))?;
     if expected_parent <= 1
         || rustix::process::getppid().map(|pid| pid.as_raw_pid() as u32) != Some(expected_parent)
@@ -132,6 +134,8 @@ fn status_value(status: &str, name: &str) -> io::Result<u32> {
 pub fn namespace_init(expected_outer_parent: u32, initialize_root: bool) -> io::Result<()> {
     super::entry::ensure_single_threaded()?;
     super::entry::ensure_inherited_descriptors()?;
+    #[cfg(feature = "vm-acceptance")]
+    crate::acceptance::verify_guest(false)?;
     if rustix::process::getpid().as_raw_pid() != 1 || rustix::process::getppid().is_some() {
         return Err(denied("not the namespace init"));
     }
@@ -209,7 +213,14 @@ pub fn namespace_init(expected_outer_parent: u32, initialize_root: bool) -> io::
                             match channel.receive::<NamespaceCommand>()? {
                                 NamespaceCommand::PrepareSeccomp { profile } => {
                                     super::seccomp::initialize(&mut channel, profile)?;
-                                    let _ = channel.receive::<NamespaceCommand>()?;
+                                    match channel.receive::<NamespaceCommand>()? {
+                                        #[cfg(feature = "vm-acceptance")]
+                                        NamespaceCommand::PrepareExecution { request } => {
+                                            return super::execution::serve(&mut channel, *request);
+                                        }
+                                        NamespaceCommand::Cancel {} => return Ok(()),
+                                        _ => return Err(denied("execution gate unavailable")),
+                                    }
                                 }
                                 NamespaceCommand::Cancel {} => return Ok(()),
                                 _ => return Err(denied("seccomp command before identity")),
@@ -233,8 +244,8 @@ pub fn namespace_init(expected_outer_parent: u32, initialize_root: bool) -> io::
 /// Both helper processes remain in the same bounded, frozen task cgroup.
 pub struct NamespacedTarget {
     pub(crate) prepared: PreparedTarget,
-    control: ControlChannel,
-    init_pidfd: OwnedFd,
+    pub(crate) control: ControlChannel,
+    pub(crate) init_pidfd: OwnedFd,
     allow_root: bool,
     root_ready: bool,
     proc_dev_ready: bool,
@@ -525,6 +536,31 @@ impl NamespacedTarget {
             .cgroup
             .finish_namespace_initialization(&[self.prepared.pid(), self.init_pid])?;
         Ok(())
+    }
+
+    #[cfg(feature = "vm-acceptance")]
+    pub(crate) fn prepare_execution(
+        &mut self,
+        spec: &ValidatedSpec,
+        stdio: crate::io::ChildPipes,
+    ) -> io::Result<()> {
+        if !self.seccomp_ready {
+            return Err(denied("execution before verified isolation"));
+        }
+        stdio.validate_for_exec()?;
+        self.control
+            .execution_deadline(spec.spec().limits.wall_time_us)?;
+        self.control.send(&NamespaceCommand::PrepareExecution {
+            request: Box::new(spec.spec().clone()),
+        })?;
+        self.prepared
+            .cgroup
+            .begin_root_initialization(&[self.prepared.pid(), self.init_pid], &self.init_pidfd)?;
+        for fd in [&stdio.input, &stdio.output, &stdio.error] {
+            self.control.send_fd(fd)?;
+        }
+        self.expect_event(NamespaceEvent::ExecutionPrepared {})?;
+        self.stop_fixed_stage()
     }
 
     pub fn init_pid(&self) -> u32 {

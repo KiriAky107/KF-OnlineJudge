@@ -12,7 +12,7 @@ pub use crate::isolation::root::RootBudget;
 
 pub struct RootedTarget {
     // Terminate the private namespace before deleting its outside directory.
-    target: NamespacedTarget,
+    pub(crate) target: NamespacedTarget,
     lease: RootLease,
     outputs: crate::artifacts::OutputPlan,
     pub(crate) request: ValidatedSpec,
@@ -118,6 +118,32 @@ impl RootedTarget {
         self.outputs.collect(&work)
     }
 
+    #[cfg(feature = "vm-acceptance")]
+    pub(crate) fn pin_work(&self) -> io::Result<rustix::fd::OwnedFd> {
+        self.cgroup()
+            .verify_frozen_members(&[self.bootstrap_pid(), self.init_pid()])?;
+        self.lease.verify_root(self.init_pid())?;
+        Ok(rustix::fs::open(
+            format!("/proc/{}/root/work", self.init_pid()),
+            rustix::fs::OFlags::PATH | rustix::fs::OFlags::DIRECTORY | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )?)
+    }
+    #[cfg(feature = "vm-acceptance")]
+    pub(crate) fn final_outputs(
+        &self,
+        work: &rustix::fd::OwnedFd,
+    ) -> io::Result<Vec<crate::artifacts::OutputSnapshot>> {
+        if !self.cgroup().is_empty()? {
+            return Err(io::Error::other("export requires empty task"));
+        }
+        self.outputs.collect(work)
+    }
+    #[cfg(feature = "vm-acceptance")]
+    pub(crate) fn finish_resources(&mut self) -> io::Result<()> {
+        self.target.prepared.cgroup.remove_empty()?;
+        self.lease.cleanup()
+    }
     pub(crate) fn initialize_proc_dev(&mut self) -> io::Result<()> {
         self.target.initialize_proc_dev()?;
         self.lease.verify_root(self.init_pid())?;

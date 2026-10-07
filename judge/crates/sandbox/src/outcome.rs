@@ -59,9 +59,18 @@ pub struct ResourceUsage {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Termination {
     NotStarted,
-    Exited { code: u8 },
-    Signaled { signal: u8, core_dumped: bool },
+    Exited {
+        code: u8,
+    },
+    Signaled {
+        signal: u8,
+        core_dumped: bool,
+    },
     WaitFailed,
+    /// Verified whole-cgroup stop, with no separately waitable main status.
+    /// PID namespace shutdown may reap its children inside the kernel. This
+    /// does not assert a user exit signal or infer a limit from SIGKILL.
+    StoppedBySupervisor,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -400,6 +409,7 @@ impl ExecutionReport {
                 signal,
                 core_dumped,
             },
+            Termination::StoppedBySupervisor => ExecutionOutcome::InfrastructureFailure,
             Termination::NotStarted | Termination::WaitFailed => unreachable!(),
         })
     }

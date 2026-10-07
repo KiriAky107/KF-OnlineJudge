@@ -15,7 +15,10 @@ use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
 pub const MAX_MESSAGE_BYTES: usize = 1024;
+#[cfg(not(feature = "vm-acceptance"))]
 const MAX_NAMESPACE_MESSAGE_BYTES: usize = 8192;
+#[cfg(feature = "vm-acceptance")]
+const MAX_NAMESPACE_MESSAGE_BYTES: usize = crate::spec::MAX_SPEC_BYTES as usize + 128;
 const FD_MARKER: u8 = 0xa5;
 pub const MAX_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
 const PREFIX: [u8; 4] = [b'K', b'F', 1, 0];
@@ -43,7 +46,7 @@ pub enum ChildMessage {
 }
 
 /// A distinct fixed initialization protocol. There is no argv, host path,
-/// readiness claim or exec/release command in this protocol.
+/// readiness claim. VM acceptance builds add a separately verified final gate.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NamespaceCommand {
@@ -73,13 +76,21 @@ pub enum NamespaceCommand {
     PrepareSeccomp {
         profile: crate::spec::ExecutionProfile,
     },
+    #[cfg(feature = "vm-acceptance")]
+    PrepareExecution {
+        request: Box<crate::spec::ExecutionSpec>,
+    },
+    #[cfg(feature = "vm-acceptance")]
+    ReleaseExecution {},
     Cancel {},
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NamespaceEvent {
-    Initialized { init_pid: u32 },
+    Initialized {
+        init_pid: u32,
+    },
     RootInitialized {},
     ProcDevInitialized {},
     InputsStarted {},
@@ -88,7 +99,17 @@ pub enum NamespaceEvent {
     RlimitsInitialized {},
     IdentityInitialized {},
     SeccompInitialized {},
-    Failed { errno: Option<u16> },
+    #[cfg(feature = "vm-acceptance")]
+    ExecutionPrepared {},
+    #[cfg(feature = "vm-acceptance")]
+    ExecutionSpawned {},
+    #[cfg(feature = "vm-acceptance")]
+    Tree {
+        record: super::execution::TreeRecord,
+    },
+    Failed {
+        errno: Option<u16>,
+    },
     Cancelled {},
 }
 
@@ -125,6 +146,11 @@ impl WireMessage for NamespaceCommand {
             }
             Self::PrepareIdentity { uid, gid } => crate::isolation::identity::valid(*uid, *gid),
             Self::PrepareRlimits { plan } => plan.valid(),
+            #[cfg(feature = "vm-acceptance")]
+            Self::PrepareExecution { request } => request
+                .clone()
+                .validate(&crate::spec::SpecPolicy::default())
+                .is_ok(),
             _ => true,
         }
     }
@@ -179,6 +205,8 @@ pub struct ControlChannel {
     stream: UnixStream,
     deadline: Instant,
     poisoned: bool,
+    #[cfg(feature = "vm-acceptance")]
+    pending: Vec<u8>,
 }
 
 impl ControlChannel {
@@ -220,7 +248,62 @@ impl ControlChannel {
             stream,
             deadline,
             poisoned: false,
+            #[cfg(feature = "vm-acceptance")]
+            pending: Vec::with_capacity(MAX_MESSAGE_BYTES + 8),
         })
+    }
+
+    #[cfg(feature = "vm-acceptance")]
+    pub(crate) fn execution_deadline(&mut self, wall_us: u64) -> io::Result<()> {
+        if wall_us == 0 || wall_us > 120_000_000 || self.poisoned || !self.pending.is_empty() {
+            return Err(invalid("execution deadline"));
+        }
+        self.deadline = Instant::now() + Duration::from_micros(wall_us) + Duration::from_secs(5);
+        Ok(())
+    }
+
+    /// Incremental receive of only the small runtime messages. Partial frames
+    /// persist across ticks; descriptors and oversized lengths poison the stream.
+    #[cfg(feature = "vm-acceptance")]
+    pub(crate) fn try_receive<T: WireMessage>(&mut self) -> io::Result<Option<T>> {
+        let result = (|| {
+            self.remaining()?;
+            rustix::fs::fcntl_setfl(&self.stream, rustix::fs::OFlags::NONBLOCK)?;
+            let received = (|| {
+                let need = if self.pending.len() < 8 {
+                    8
+                } else {
+                    8 + decode_header(self.pending[..8].try_into().unwrap(), MAX_MESSAGE_BYTES)?
+                };
+                if self.pending.len() < need {
+                    let mut buffer = [0_u8; MAX_MESSAGE_BYTES];
+                    let n = (need - self.pending.len()).min(buffer.len());
+                    match self.read_message(&mut buffer[..n], false) {
+                        Ok((count, _)) => self.pending.extend_from_slice(&buffer[..count]),
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(None),
+                        Err(e) => return Err(e),
+                    }
+                }
+                if self.pending.len() < 8 {
+                    return Ok(None);
+                }
+                let length =
+                    decode_header(self.pending[..8].try_into().unwrap(), MAX_MESSAGE_BYTES)?;
+                if self.pending.len() != length + 8 {
+                    return Ok(None);
+                }
+                let value: T = serde_json::from_slice(&self.pending[8..])
+                    .map_err(|_| invalid("runtime JSON"))?;
+                if !value.valid() {
+                    return Err(invalid("runtime message"));
+                }
+                self.pending.clear();
+                Ok(Some(value))
+            })();
+            rustix::fs::fcntl_setfl(&self.stream, rustix::fs::OFlags::empty())?;
+            received
+        })();
+        self.finish(result)
     }
 
     pub fn send<T: WireMessage>(&mut self, message: &T) -> io::Result<()> {
@@ -502,7 +585,7 @@ mod tests {
         a.send(&command).unwrap();
         assert_eq!(b.receive::<NamespaceCommand>().unwrap(), command);
         assert_eq!(ParentMessage::MAX_BYTES, 1024);
-        assert_eq!(NamespaceCommand::MAX_BYTES, 8192);
+        assert_eq!(NamespaceCommand::MAX_BYTES, MAX_NAMESPACE_MESSAGE_BYTES);
     }
 
     #[test]
@@ -553,6 +636,30 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[cfg(feature = "vm-acceptance")]
+    #[test]
+    fn runtime_receive_preserves_partial_frame_and_rejects_fds() {
+        let (mut a, mut b) = pair();
+        let raw = serde_json::to_vec(&NamespaceCommand::Cancel {}).unwrap();
+        let mut header = [0_u8; 8];
+        header[..4].copy_from_slice(&PREFIX);
+        header[4..].copy_from_slice(&(raw.len() as u32).to_be_bytes());
+        a.stream.write_all(&header[..3]).unwrap();
+        assert!(b.try_receive::<NamespaceCommand>().unwrap().is_none());
+        a.stream.write_all(&header[3..]).unwrap();
+        assert!(b.try_receive::<NamespaceCommand>().unwrap().is_none());
+        a.stream.write_all(&raw[..2]).unwrap();
+        assert!(b.try_receive::<NamespaceCommand>().unwrap().is_none());
+        a.stream.write_all(&raw[2..]).unwrap();
+        assert_eq!(
+            b.try_receive::<NamespaceCommand>().unwrap(),
+            Some(NamespaceCommand::Cancel {})
+        );
+        let file = std::fs::File::open("/dev/null").unwrap();
+        a.send_fd(file).unwrap();
+        assert!(b.try_receive::<NamespaceCommand>().is_err());
     }
 
     #[test]

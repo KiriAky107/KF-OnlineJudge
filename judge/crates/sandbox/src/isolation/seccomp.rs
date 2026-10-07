@@ -271,6 +271,15 @@ pub(crate) fn compile(profile: ExecutionProfile) -> io::Result<BpfProgram> {
             condition(2, SeccompCmpOp::Eq, libc::MSG_CMSG_CLOEXEC as u64)?,
         ]])?,
     );
+    // PID1 returns an owned main pidfd to its authenticated monitor. User
+    // children never retain fd3's Unix endpoint: fork_exec closes/replaces it.
+    allowed.insert(
+        libc::SYS_sendmsg,
+        rules(vec![vec![
+            condition(0, SeccompCmpOp::Eq, 3)?,
+            condition(2, SeccompCmpOp::Eq, libc::MSG_NOSIGNAL as u64)?,
+        ]])?,
+    );
     // UnixStream::write uses send(MSG_NOSIGNAL), encoded as sendto with no
     // destination on x86_64. It is not a network address exception.
     allowed.insert(

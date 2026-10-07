@@ -203,6 +203,10 @@ impl Reaper {
             }
         }
     }
+    #[cfg(feature = "vm-acceptance")]
+    pub(crate) fn main_pidfd(&self) -> &OwnedFd {
+        &self.pidfd
+    }
     pub(crate) fn shutdown(self, reason: NamespaceEnd) -> ! {
         let code = match reason {
             NamespaceEnd::Drained | NamespaceEnd::Cancelled => 0,

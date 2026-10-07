@@ -38,6 +38,39 @@ impl SnapshotFile {
     pub fn bytes(&self) -> u64 {
         self.bytes
     }
+    #[cfg(feature = "vm-acceptance")]
+    pub(crate) fn from_capture(capture: &crate::io::Capture) -> io::Result<Self> {
+        let bytes = capture.status().retained;
+        if bytes > MAX_SNAPSHOT_BYTES {
+            return Err(refused("capture snapshot ceiling"));
+        }
+        let mut target = File::from(rustix::fs::memfd_create(
+            "kf-capture",
+            MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING | MemfdFlags::NOEXEC_SEAL,
+        )?);
+        let mut offset = 0;
+        let mut buffer = [0_u8; 4096];
+        while offset < bytes {
+            let n = capture.read_at(&mut buffer, offset)?;
+            if n == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "capture snapshot",
+                ));
+            }
+            target.write_all(&buffer[..n])?;
+            offset += n as u64;
+        }
+        rustix::fs::fchmod(&target, Mode::from_raw_mode(0o444))?;
+        rustix::fs::fcntl_add_seals(&target, SEALS)?;
+        if !rustix::fs::fcntl_get_seals(&target)?.contains(SEALS) {
+            return Err(refused("capture seals"));
+        }
+        Ok(Self {
+            file: readonly_handle(&target)?,
+            bytes,
+        })
+    }
     /// A fresh cursor, retaining the same immutable inode (not a path lookup).
     pub fn reader(&self) -> io::Result<File> {
         readonly_handle(&self.file)

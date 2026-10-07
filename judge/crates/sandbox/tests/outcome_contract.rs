@@ -501,3 +501,27 @@ fn exported_files_together_cannot_exceed_workdir_budget() {
         Ok(ExecutionOutcome::Exited { code: 0 })
     );
 }
+
+#[test]
+fn forced_tree_stop_preserves_observed_cause_without_inventing_main_signal() {
+    let mut r = cpu_limited();
+    r.termination = Termination::StoppedBySupervisor;
+    assert_eq!(
+        r.classify(&spec()).unwrap(),
+        ExecutionOutcome::LimitExceeded {
+            primary: LimitKind::CpuTime
+        }
+    );
+    r.limits.clear();
+    assert_eq!(
+        r.classify(&spec()).unwrap(),
+        ExecutionOutcome::InfrastructureFailure
+    );
+    r.cancelled_at_wall_time_us = Some(1000);
+    assert_eq!(r.classify(&spec()).unwrap(), ExecutionOutcome::Cancelled);
+    r.errors.push(error(ExecutionStage::Wait));
+    assert_eq!(
+        r.classify(&spec()).unwrap(),
+        ExecutionOutcome::InfrastructureFailure
+    );
+}

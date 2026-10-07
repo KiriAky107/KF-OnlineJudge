@@ -350,24 +350,50 @@ impl PreparedTarget {
         stage: ExecutionStage,
         error: Option<&io::Error>,
     ) -> InitializationFailure {
-        let group_error = self.cgroup.kill_and_remove(CLEANUP).err();
+        let group_error = self.cgroup.terminate_tree(CLEANUP).err();
         let reap_error = self.target.terminate().err();
+        #[cfg(feature = "vm-acceptance")]
+        let orphan_error = if rustix::process::child_subreaper().ok().flatten()
+            == Some(rustix::process::getpid())
+        {
+            super::reap::reap_current().err()
+        } else {
+            None
+        };
+        #[cfg(not(feature = "vm-acceptance"))]
+        let orphan_error: Option<io::Error> = None;
+        let remove_error =
+            if orphan_error.is_none() && group_error.is_none() && reap_error.is_none() {
+                self.cgroup.remove_empty().err()
+            } else {
+                None
+            };
         InitializationFailure {
             failure: failure(stage, ErrorCode::CapabilityUnavailable, error),
-            cleanup_failure: group_error.as_ref().or(reap_error.as_ref()).map(|e| {
-                failure(
-                    ExecutionStage::Cleanup,
-                    ErrorCode::CleanupIncomplete,
-                    Some(e),
-                )
-            }),
+            cleanup_failure: group_error
+                .as_ref()
+                .or(reap_error.as_ref())
+                .or(orphan_error.as_ref())
+                .or(remove_error.as_ref())
+                .map(|e| {
+                    failure(
+                        ExecutionStage::Cleanup,
+                        ErrorCode::CleanupIncomplete,
+                        Some(e),
+                    )
+                }),
         }
     }
 }
 
 impl Drop for PreparedTarget {
     fn drop(&mut self) {
-        let _ = self.cgroup.kill_and_remove(CLEANUP);
-        let _ = self.target.terminate();
+        if self.cgroup.terminate_tree(CLEANUP).is_ok() && self.target.terminate().is_ok() {
+            #[cfg(feature = "vm-acceptance")]
+            if super::reap::is_owned_scope() && super::reap::reap_current().is_err() {
+                return;
+            }
+            let _ = self.cgroup.remove_empty();
+        }
     }
 }

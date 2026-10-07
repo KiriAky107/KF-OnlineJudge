@@ -5,6 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# Restricted to no-NIC/no-share/no-credential independent-VM acceptance.
+# The default CLI and private protocol continue to refuse execution.
+vm-acceptance = []
+
 [dependencies]
 kf-contracts.workspace = true
 clap.workspace = true
