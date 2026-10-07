@@ -43,6 +43,14 @@ impl FilteredTarget {
     pub fn stdin(&self) -> Option<&crate::artifacts::SnapshotFile> {
         self.target.stdin()
     }
+    #[cfg(feature = "vm-acceptance")]
+    pub(crate) fn refuse_at(
+        self,
+        stage: ExecutionStage,
+        error: Option<&io::Error>,
+    ) -> InitializationFailure {
+        self.target.refuse_at(stage, error)
+    }
     pub fn refuse_remaining_isolation(self) -> InitializationFailure {
         self.target.refuse_at(ExecutionStage::Exec, None)
     }

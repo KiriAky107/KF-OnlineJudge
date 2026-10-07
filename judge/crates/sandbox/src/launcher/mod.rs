@@ -33,4 +33,6 @@ pub(crate) mod reap;
 #[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
 pub(crate) mod capture;
 #[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
+pub(crate) mod rollback;
+#[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
 pub(crate) mod run;

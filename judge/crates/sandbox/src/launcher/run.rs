@@ -109,11 +109,7 @@ pub(crate) fn execute(
     let (work, mut lease, mut pump) = match setup {
         Ok(s) => s,
         Err(e) => {
-            return Err(target
-                .root_mut()
-                .target
-                .prepared
-                .refuse_at(ExecutionStage::Exec, Some(&e)));
+            return Err(target.refuse_at(ExecutionStage::Exec, Some(&e)));
         }
     };
     let init = target.root().init_pid();
@@ -174,7 +170,6 @@ pub(crate) fn execute(
                             ErrorCode::MeasurementUnavailable,
                             &e.source,
                         ));
-                        monitoring_failed = true;
                         break;
                     }
                 };
@@ -340,7 +335,28 @@ pub(crate) fn execute(
         order.push("owned_reaped");
         // If a main status was only available through adopted wait4, its owned
         // pidfd waitid above records it before the general orphan drain.
-        let final_sample = budget.after_reap();
+        let final_sample = if errors.iter().any(|e| e.stage == ExecutionStage::Cleanup) {
+            // Keep counters unavailable if the required wait ownership proof
+            // failed. Never present an earlier sample as final-after-reap.
+            Err(crate::supervisor::SupervisionFailure {
+                source: io::Error::other("reaping incomplete"),
+                termination_error: None,
+                usage: ResourceUsage {
+                    cpu_time_us: Measurement::Unavailable {
+                        reason: MeasurementFailure::ReadFailed,
+                    },
+                    wall_time_us: latest.wall_time_us.clone(),
+                    memory_peak_bytes: Measurement::Unavailable {
+                        reason: MeasurementFailure::ReadFailed,
+                    },
+                    memory_events: Measurement::Unavailable {
+                        reason: MeasurementFailure::ReadFailed,
+                    },
+                },
+            })
+        } else {
+            budget.after_reap()
+        };
         order.push("final_accounting");
         match final_sample {
             Ok(e) => {
@@ -353,11 +369,7 @@ pub(crate) fn execute(
                     ErrorCode::MeasurementUnavailable,
                     &e.source,
                 ));
-                (
-                    if monitoring_failed { e.usage } else { latest },
-                    Vec::new(),
-                    reaped,
-                )
+                (e.usage, Vec::new(), reaped)
             }
         }
     };

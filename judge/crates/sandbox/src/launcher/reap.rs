@@ -44,8 +44,8 @@ impl OwnedChildren {
     /// The precondition excludes unrelated children, including other tasks.
     pub(crate) fn finish(&mut self) -> io::Result<u32> {
         let count = reap_current()?;
-        self.finished = true;
         rustix::process::set_child_subreaper(self.previous)?;
+        self.finished = true;
         OWNED_SCOPE.store(false, Ordering::Relaxed);
         Ok(count)
     }

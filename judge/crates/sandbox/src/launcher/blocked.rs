@@ -303,7 +303,25 @@ impl PreparedTarget {
             let root = DelegatedCgroup::open(config)?;
             let mut group = root.create_task(spec)?;
             if let Err(mut error) = group.enroll(target) {
-                error.cleanup_error = group.kill_and_remove(CLEANUP).err();
+                let stop = group.terminate_tree(CLEANUP).err();
+                let reap = target.terminate().err();
+                #[cfg(feature = "vm-acceptance")]
+                let orphan = if super::reap::is_owned_scope() {
+                    super::reap::reap_current().err()
+                } else {
+                    None
+                };
+                #[cfg(not(feature = "vm-acceptance"))]
+                let orphan: Option<io::Error> = None;
+                let remove = if stop.is_none() && reap.is_none() && orphan.is_none() {
+                    group.remove_empty().err()
+                } else {
+                    None
+                };
+                error.cleanup_error = stop.or(reap).or(orphan).or(remove);
+                if error.cleanup_error.is_some() {
+                    group.preserve_on_drop();
+                }
                 return Err(error);
             }
             Ok::<_, crate::cgroup::CgroupError>(group)
@@ -350,12 +368,14 @@ impl PreparedTarget {
         stage: ExecutionStage,
         error: Option<&io::Error>,
     ) -> InitializationFailure {
-        let group_error = self.cgroup.terminate_tree(CLEANUP).err();
+        let group_error = if self.cgroup.is_removed() {
+            None
+        } else {
+            self.cgroup.terminate_tree(CLEANUP).err()
+        };
         let reap_error = self.target.terminate().err();
         #[cfg(feature = "vm-acceptance")]
-        let orphan_error = if rustix::process::child_subreaper().ok().flatten()
-            == Some(rustix::process::getpid())
-        {
+        let orphan_error = if super::reap::is_owned_scope() {
             super::reap::reap_current().err()
         } else {
             None
@@ -368,6 +388,13 @@ impl PreparedTarget {
             } else {
                 None
             };
+        if group_error.is_some()
+            || reap_error.is_some()
+            || orphan_error.is_some()
+            || remove_error.is_some()
+        {
+            self.cgroup.preserve_on_drop();
+        }
         InitializationFailure {
             failure: failure(stage, ErrorCode::CapabilityUnavailable, error),
             cleanup_failure: group_error
@@ -391,9 +418,14 @@ impl Drop for PreparedTarget {
         if self.cgroup.terminate_tree(CLEANUP).is_ok() && self.target.terminate().is_ok() {
             #[cfg(feature = "vm-acceptance")]
             if super::reap::is_owned_scope() && super::reap::reap_current().is_err() {
+                self.cgroup.preserve_on_drop();
                 return;
             }
-            let _ = self.cgroup.remove_empty();
+            if self.cgroup.remove_empty().is_err() {
+                self.cgroup.preserve_on_drop();
+            }
+        } else if !self.cgroup.is_removed() {
+            self.cgroup.preserve_on_drop();
         }
     }
 }

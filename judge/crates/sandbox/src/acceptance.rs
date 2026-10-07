@@ -82,12 +82,33 @@ fn prefix(file: &crate::artifacts::SnapshotFile) -> io::Result<String> {
 }
 pub fn run_case(case: &str) -> io::Result<serde_json::Value> {
     verify_guest(true)?;
+    let rollback = case.strip_prefix("cancel-").filter(|s| {
+        matches!(
+            *s,
+            "blocked"
+                | "namespace"
+                | "root"
+                | "proc"
+                | "inputs"
+                | "identity"
+                | "seccomp"
+                | "io"
+                | "exec"
+        )
+    });
+    let failing = case.strip_prefix("fail-").filter(|s| {
+        matches!(
+            *s,
+            "namespace" | "root" | "proc" | "inputs" | "rlimits" | "identity" | "seccomp" | "io"
+        )
+    });
     let mode = match case {
         "binary" | "stdout" | "stderr" | "wall" | "leftover" | "early" | "disk" | "export" => {
             MonitorMode::Normal
         }
         "cancel" => MonitorMode::CancelAfter(100000),
         "monitor" => MonitorMode::FailAfter(100000),
+        _ if rollback.is_some() || failing.is_some() => MonitorMode::Normal,
         _ => return Err(io::Error::other("unknown fixed case")),
     };
     let id = format!("execution-{case}");
@@ -141,9 +162,36 @@ pub fn run_case(case: &str) -> io::Result<serde_json::Value> {
     if case == "export" {
         request.outputs = vec!["valid.bin".into(), "escape".into()];
     }
+    if case == "fail-io" {
+        request.limits.file_bytes = 65536;
+        request.limits.stdout_bytes = 131072;
+        request.limits.stderr_bytes = 131072;
+        request.stdin_artifact = None;
+    }
+    if case == "fail-inputs" {
+        fs::remove_file(format!("{}/program-001", fixture.publications))?;
+    }
     let spec = request
         .validate(&SpecPolicy::default())
         .map_err(io::Error::other)?;
+    if let Some(stage) = rollback {
+        return crate::launcher::rollback::cancel_stage(
+            stage,
+            &config,
+            &spec,
+            &std::env::current_exe()?,
+            &root,
+        );
+    }
+    if let Some(stage) = failing {
+        return crate::launcher::rollback::fail_stage(
+            stage,
+            &config,
+            &spec,
+            &std::env::current_exe()?,
+            &root,
+        );
+    }
     let completed =
         run::execute(&config, &spec, &std::env::current_exe()?, &root, mode).map_err(|e| {
             io::Error::other(format!(

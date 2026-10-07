@@ -174,6 +174,7 @@ impl DelegatedCgroup {
             name,
             limits,
             removed: false,
+            preserve: false,
             baseline: None,
         };
         let setup = (|| {
@@ -210,10 +211,20 @@ pub struct TaskCgroup {
     name: String,
     limits: AppliedLimits,
     removed: bool,
+    preserve: bool,
     baseline: Option<crate::accounting::AccountingSnapshot>,
 }
 
 impl TaskCgroup {
+    pub(crate) fn is_removed(&self) -> bool {
+        self.removed
+    }
+    /// A failed owned wait/cleanup must keep its marker for restart recovery;
+    /// Drop may retry stopping, but may not erase the evidence or reuse identity.
+    pub(crate) fn preserve_on_drop(&mut self) {
+        self.preserve = true;
+    }
+
     pub fn accounting_snapshot(&self) -> io::Result<crate::accounting::AccountingSnapshot> {
         self.live()?;
         self.applied_limits()?;
@@ -402,7 +413,11 @@ impl TaskCgroup {
 impl Drop for TaskCgroup {
     fn drop(&mut self) {
         if !self.removed {
-            let _ = self.kill_and_remove(Duration::from_millis(250));
+            if self.preserve {
+                let _ = self.terminate_tree(Duration::from_millis(250));
+            } else {
+                let _ = self.kill_and_remove(Duration::from_millis(250));
+            }
         }
     }
 }
