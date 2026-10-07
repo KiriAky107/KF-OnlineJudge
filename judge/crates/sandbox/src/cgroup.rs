@@ -174,6 +174,7 @@ impl DelegatedCgroup {
             name,
             limits,
             removed: false,
+            baseline: None,
         };
         let setup = (|| {
             if read(&task.fd, "cgroup.type")?.trim() != "domain" {
@@ -186,6 +187,10 @@ impl DelegatedCgroup {
             // freeze gate even if somebody sends the bootstrap SIGCONT.
             write_verify(&task.fd, "cgroup.freeze", "1")?;
             task.wait_event("frozen", "1", Duration::from_secs(1))?;
+            // New exclusive, still-empty group: sample before enrolling the
+            // bootstrap. Charge all initialization and descendant CPU from
+            // enrollment; never estimate/subtract setup or reset peak later.
+            task.baseline = Some(task.accounting_snapshot()?);
             Ok::<_, io::Error>(())
         })();
         if let Err(source) = setup {
@@ -205,9 +210,57 @@ pub struct TaskCgroup {
     name: String,
     limits: AppliedLimits,
     removed: bool,
+    baseline: Option<crate::accounting::AccountingSnapshot>,
 }
 
 impl TaskCgroup {
+    pub fn accounting_snapshot(&self) -> io::Result<crate::accounting::AccountingSnapshot> {
+        self.live()?;
+        self.applied_limits()?;
+        crate::accounting::AccountingSnapshot::parse(
+            &read(&self.fd, "cpu.stat")?,
+            &read(&self.fd, "memory.peak")?,
+            &read(&self.fd, "memory.events")?,
+        )
+    }
+    pub(crate) fn accounting_baseline(&self) -> io::Result<&crate::accounting::AccountingSnapshot> {
+        self.baseline
+            .as_ref()
+            .ok_or_else(|| invalid("missing enrollment accounting baseline"))
+    }
+    pub fn is_empty(&self) -> io::Result<bool> {
+        self.live()?;
+        let events = read(&self.fd, "cgroup.events")?;
+        match events
+            .lines()
+            .find_map(|line| line.strip_prefix("populated "))
+        {
+            Some("0") => Ok(true),
+            Some("1") => Ok(false),
+            _ => Err(invalid("invalid populated event")),
+        }
+    }
+    /// Keep the group readable for final counters; removing it before sampling
+    /// loses descendant usage/OOM evidence. Child-owner reaping is separate.
+    pub fn terminate_tree(&mut self, timeout: Duration) -> io::Result<()> {
+        self.live()?;
+        if timeout.is_zero() || timeout > Duration::from_secs(5) {
+            return Err(invalid("invalid termination deadline"));
+        }
+        write(&self.fd, "cgroup.kill", "1")?;
+        self.wait_event("populated", "0", timeout)
+    }
+    pub fn remove_empty(&mut self) -> io::Result<()> {
+        if self.removed {
+            return Ok(());
+        }
+        if !self.is_empty()? {
+            return Err(invalid("task tree still populated"));
+        }
+        rustix::fs::unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR)?;
+        self.removed = true;
+        Ok(())
+    }
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -310,11 +363,8 @@ impl TaskCgroup {
         if timeout.is_zero() || timeout > Duration::from_secs(5) {
             return Err(invalid("invalid cleanup deadline"));
         }
-        write(&self.fd, "cgroup.kill", "1")?;
-        self.wait_event("populated", "0", timeout)?;
-        rustix::fs::unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR)?;
-        self.removed = true;
-        Ok(())
+        self.terminate_tree(timeout)?;
+        self.remove_empty()
     }
 
     fn live(&self) -> io::Result<()> {
