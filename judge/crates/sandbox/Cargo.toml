@@ -10,10 +10,11 @@ kf-contracts.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-rustix = { version = "1.1.5", features = ["net", "process", "fs", "thread", "mount", "system", "stdio"] }
+rustix = { version = "1.1.5", features = ["net", "process", "fs", "thread", "mount", "system", "stdio", "pipe", "event"] }
 
 # Fixed BPF compilation/installation through safe APIs; libc supplies syscall
-# numbers only. Both dependencies stay inside the OS sandbox boundary.
+# numbers and the audited fork/exec primitive. Both dependencies stay inside
+# the OS sandbox boundary.
 seccompiler = { version = "=0.5.0", default-features = false }
 libc = "=0.2.190"
 

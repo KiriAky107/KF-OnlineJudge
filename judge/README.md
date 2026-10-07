@@ -396,3 +396,23 @@ socketpair、ptrace 和 dumpability 可用，再安装真实生产策略验证�
 TMPDIR 指向私有 `/tmp`，native 不带 PATH。请求仍不能指定 PATH、TMPDIR、HOME
 或 loader 覆盖；最终 exec 必须先清空环境、进入私有根，再应用这份环境。VM 语言
 探针使用相同固定编译 PATH，仅将 TMPDIR 显式指向其有界测试工作区。
+
+### Namespace 进程树回收原语
+
+私有 `isolation/process_tree.rs` 为单线程、已降权/过滤的 namespace PID 1 定义回收
+角色。PID 1 保留运行，主程序在独立子进程 exec；主进程 pidfd + waitid 与 wait-any
+配合，处理主进程退出和孤儿后代收养的竞态，只有 ECHILD 才确认树为空。取消、控制
+通道失联或监控异常都使 PID 1 退出，由内核终止该 namespace 的所有剩余进程；外层
+监督器仍必须检查 cgroup 为空并回收 bootstrap，不能把主进程退出当作整个任务结束。
+
+exec 参数与固定环境在 fork 前分配，fork 前重复验证单线程/PID 1/凭据/过滤器与
+SIGCHLD wait 所有权。受审计的 unsafe 仅在沙箱内部：子进程用 async-signal-safe
+系统操作绑定 FD 0/1/2、关闭其他 FD、设置 cwd/SIGPIPE，随后 execve 或 _exit。
+FD 3 仅为 CLOEXEC 的 exec errno 管道；错误管道 EOF 只表示没有收到 exec 错误，
+单凭 EOF 不能证明程序已经 exec（例如放行前被终止）。普通信号/pidfd_send_signal/
+pidfd_getfd 仍拒绝，仅增加可见进程的只读 pidfd_open 以支持等待。
+
+`tree_vm.rs`/固定 `tree_probe` 在受限独立 VM 实际验证正常主进程、孤儿收养/回收、
+主进程退出仍有后代时取消、控制端断开及真实 exec ENOENT。探针使用与生产相同的
+私有回收/凭据/seccomp 原语，在新 PID namespace 的 PID 1 运行；它不是完整任务
+执行 API。CLI run 继续拒绝，stdio/限额/计量与完整监督全部验收前不暴露执行放行。

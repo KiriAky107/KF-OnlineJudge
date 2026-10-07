@@ -137,6 +137,9 @@ pub(crate) fn compile(profile: ExecutionProfile) -> io::Result<BpfProgram> {
         libc::SYS_fork,
         libc::SYS_wait4,
         libc::SYS_waitid,
+        // Holding/waiting on visible children is read-only; signalling via
+        // pidfds remains forbidden, as does pidfd_getfd.
+        libc::SYS_pidfd_open,
         libc::SYS_execve,
         libc::SYS_exit,
         libc::SYS_exit_group,
