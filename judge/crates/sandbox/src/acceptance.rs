@@ -8,6 +8,7 @@ use crate::{
 };
 use std::{fs, io, io::Read, os::unix::fs::PermissionsExt, path::Path};
 mod normal;
+mod resources;
 pub(crate) fn verify_guest(require_env: bool) -> io::Result<()> {
     if (require_env && std::env::var("KF_SANDBOX_INDEPENDENT_VM").as_deref() != Ok("1"))
         || fs::read_to_string("/kf/INDEPENDENT_VM")?.trim() != "isolated-test-guest"
@@ -116,6 +117,9 @@ pub fn run_case(case: &str) -> io::Result<serde_json::Value> {
     verify_guest(true)?;
     if case.starts_with("normal-") {
         return normal::run_case(case);
+    }
+    if case.starts_with("resource-") {
+        return resources::run_case(case);
     }
     let rollback = case.strip_prefix("cancel-").filter(|s| {
         matches!(

@@ -232,6 +232,7 @@ impl TaskCgroup {
             &read(&self.fd, "cpu.stat")?,
             &read(&self.fd, "memory.peak")?,
             &read(&self.fd, "memory.events")?,
+            &read(&self.fd, "pids.events")?,
         )
     }
     pub(crate) fn accounting_baseline(&self) -> io::Result<&crate::accounting::AccountingSnapshot> {

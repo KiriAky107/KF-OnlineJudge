@@ -7,6 +7,7 @@ pub struct AccountingSnapshot {
     pub(crate) cpu_us: u64,
     pub(crate) peak: u64,
     pub(crate) events: MemoryEvents,
+    pids_max: u64,
 }
 impl AccountingSnapshot {
     pub fn cpu_time_us(&self) -> u64 {
@@ -18,7 +19,7 @@ impl AccountingSnapshot {
     pub fn memory_events(&self) -> &MemoryEvents {
         &self.events
     }
-    pub(crate) fn parse(cpu: &str, peak: &str, events: &str) -> io::Result<Self> {
+    pub(crate) fn parse(cpu: &str, peak: &str, events: &str, pids: &str) -> io::Result<Self> {
         Ok(Self {
             cpu_us: metric(cpu, "usage_usec")?,
             peak: decimal(peak.trim())?,
@@ -28,6 +29,7 @@ impl AccountingSnapshot {
                 oom_kill: metric(events, "oom_kill")?,
                 oom_group_kill: metric(events, "oom_group_kill")?,
             },
+            pids_max: metric(pids, "max")?,
         })
     }
     pub(crate) fn monotonic_since(&self, prior: &Self) -> io::Result<()> {
@@ -35,7 +37,15 @@ impl AccountingSnapshot {
             return Err(invalid("accounting counter reset"));
         }
         self.event_delta(prior)?;
+        self.process_events_since(prior)?;
         Ok(())
+    }
+    /// Trusted fresh task group's failed creation count. Do not infer a process
+    /// limit from EAGAIN alone: it can have unrelated kernel causes.
+    pub(crate) fn process_events_since(&self, base: &Self) -> io::Result<u64> {
+        self.pids_max
+            .checked_sub(base.pids_max)
+            .ok_or_else(|| invalid("process event counter reset"))
     }
     fn event_delta(&self, base: &Self) -> io::Result<MemoryEvents> {
         let sub = |a: u64, b: u64| {
@@ -114,6 +124,7 @@ mod tests {
                 oom_kill: n,
                 oom_group_kill: n,
             },
+            pids_max: n,
         }
     }
     #[test]
@@ -123,6 +134,7 @@ mod tests {
             "user_usec 20\nusage_usec 30\nsystem_usec 10\n",
             "4096\n",
             events,
+            "max 4\n",
         )
         .unwrap();
         assert_eq!(a.cpu_us, 30);
@@ -135,12 +147,22 @@ mod tests {
             "usage_usec 1 extra",
             "usage_usec -1",
         ] {
-            assert!(AccountingSnapshot::parse(cpu, "4096", events).is_err());
+            assert!(AccountingSnapshot::parse(cpu, "4096", events, "max 0").is_err());
         }
-        assert!(AccountingSnapshot::parse("usage_usec 1", "max", events).is_err());
+        assert!(AccountingSnapshot::parse("usage_usec 1", "max", events, "max 0").is_err());
         assert!(
-            AccountingSnapshot::parse("usage_usec 1", "0", "max 1\noom 1\noom_kill 1").is_err()
+            AccountingSnapshot::parse("usage_usec 1", "0", "max 1\noom 1\noom_kill 1", "max 0")
+                .is_err()
         );
+        for pids in [
+            "",
+            "other 1",
+            "max -1",
+            "max 18446744073709551616",
+            "max 1\nmax 2",
+        ] {
+            assert!(AccountingSnapshot::parse("usage_usec 1", "0", events, pids).is_err());
+        }
     }
     #[test]
     fn resets_fail_and_usage_keeps_absolute_fresh_group_peak_and_enrollment_cpu() {
@@ -165,5 +187,13 @@ mod tests {
         assert!(sample(19, 300, 4).monotonic_since(&last).is_err());
         assert!(sample(40, 199, 4).monotonic_since(&last).is_err());
         assert!(sample(40, 300, 2).monotonic_since(&last).is_err());
+    }
+    #[test]
+    fn process_events_use_enrollment_delta_and_reject_reset_independently() {
+        let base = sample(10, 100, 2);
+        let mut current = sample(40, 300, 4);
+        assert_eq!(current.process_events_since(&base).unwrap(), 2);
+        current.pids_max = 1;
+        assert!(current.monotonic_since(&base).is_err());
     }
 }

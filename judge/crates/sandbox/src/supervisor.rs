@@ -67,7 +67,7 @@ impl<'a> BudgetSupervisor<'a> {
                     wall_limit: spec.spec().limits.wall_time_us,
                     started: None,
                     finished_at: None,
-                    observations: Vec::with_capacity(3),
+                    observations: Vec::with_capacity(4),
                     ended: false,
                 };
                 if supervisor.last.cpu_time_us() - supervisor.base.cpu_time_us()
@@ -137,7 +137,7 @@ impl<'a> BudgetSupervisor<'a> {
             let sample = self.group.accounting_snapshot()?;
             sample.monotonic_since(&self.last)?;
             let usage = sample.usage(&self.base, self.wall_us()?)?;
-            self.observe(&usage);
+            self.observe(&usage, sample.process_events_since(&self.base)?);
             self.last = sample;
             if !self.observations.is_empty() {
                 self.group.terminate_tree(TERMINATE)?;
@@ -167,7 +167,7 @@ impl<'a> BudgetSupervisor<'a> {
         let sample = self.group.accounting_snapshot()?;
         sample.monotonic_since(&self.last)?;
         let usage = sample.usage(&self.base, self.wall_us()?)?;
-        self.observe(&usage);
+        self.observe(&usage, sample.process_events_since(&self.base)?);
         self.last = sample;
         self.ended = true;
         Ok(BudgetEvent::Finished {
@@ -188,11 +188,11 @@ impl<'a> BudgetSupervisor<'a> {
             })
             .transpose()
     }
-    fn observe(&mut self, usage: &ResourceUsage) {
+    fn observe(&mut self, usage: &ResourceUsage, process_events: u64) {
         let Measurement::Measured { value: wall } = usage.wall_time_us else {
             return;
         };
-        let mut found = Vec::with_capacity(3);
+        let mut found = Vec::with_capacity(4);
         if matches!(&usage.memory_events,Measurement::Measured {value:e} if e.max>0&&e.oom>0&&e.oom_kill>0&&e.oom_group_kill>0)
         {
             found.push(LimitEvidence::Memory);
@@ -204,6 +204,11 @@ impl<'a> BudgetSupervisor<'a> {
         }
         if wall >= self.wall_limit {
             found.push(LimitEvidence::WallTime { observed_us: wall });
+        }
+        if process_events > 0 {
+            found.push(LimitEvidence::Processes {
+                max_events_delta: process_events,
+            });
         }
         for evidence in found {
             if !self
