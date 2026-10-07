@@ -179,6 +179,14 @@ impl IdentityReducedTarget {
                 return Err(e);
             }
         };
+        if let Err(e) = target.target.root.initialize_rlimits() {
+            let mut e = target
+                .target
+                .root
+                .refuse_stage(ExecutionStage::Preparation, Some(&e));
+            release_after_cleanup(&mut lease, &mut e);
+            return Err(e);
+        }
         if let Err(e) = target.target.root.initialize_identity(lease.uid, lease.gid) {
             let mut e = target
                 .target

@@ -154,6 +154,15 @@ impl RootedTarget {
         self.lease.verify_root(self.bootstrap_pid())
     }
 
+    pub(crate) fn initialize_rlimits(&mut self) -> io::Result<()> {
+        self.target
+            .initialize_rlimits(crate::isolation::rlimits::RlimitPlan::from_spec(
+                &self.request,
+            ))?;
+        self.lease.verify_root(self.init_pid())?;
+        self.lease.verify_root(self.bootstrap_pid())
+    }
+
     pub(crate) fn initialize_seccomp(&mut self) -> io::Result<()> {
         self.target
             .initialize_seccomp(self.request.spec().profile)?;

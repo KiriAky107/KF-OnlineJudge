@@ -63,6 +63,9 @@ pub enum NamespaceCommand {
         executable: bool,
     },
     FinishInputs {},
+    PrepareRlimits {
+        plan: crate::isolation::rlimits::RlimitPlan,
+    },
     PrepareIdentity {
         uid: u32,
         gid: u32,
@@ -82,6 +85,7 @@ pub enum NamespaceEvent {
     InputsStarted {},
     InputAttached {},
     InputsInitialized {},
+    RlimitsInitialized {},
     IdentityInitialized {},
     SeccompInitialized {},
     Failed { errno: Option<u16> },
@@ -120,6 +124,7 @@ impl WireMessage for NamespaceCommand {
                     && *bytes <= crate::artifacts::MAX_SNAPSHOT_BYTES
             }
             Self::PrepareIdentity { uid, gid } => crate::isolation::identity::valid(*uid, *gid),
+            Self::PrepareRlimits { plan } => plan.valid(),
             _ => true,
         }
     }

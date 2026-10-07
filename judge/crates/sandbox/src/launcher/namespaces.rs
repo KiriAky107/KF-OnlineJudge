@@ -190,6 +190,20 @@ pub fn namespace_init(expected_outer_parent: u32, initialize_root: bool) -> io::
                         _ => return Err(denied("input command before preparation")),
                     }
                     match channel.receive::<NamespaceCommand>()? {
+                        NamespaceCommand::PrepareRlimits { plan } => {
+                            let result = plan.apply_init();
+                            if let Err(e) = result {
+                                let _ = channel.send(&NamespaceEvent::Failed {
+                                    errno: e.raw_os_error().and_then(|n| u16::try_from(n).ok()),
+                                });
+                                return Err(e);
+                            }
+                            channel.send(&NamespaceEvent::RlimitsInitialized {})?;
+                        }
+                        NamespaceCommand::Cancel {} => return Ok(()),
+                        _ => return Err(denied("rlimit command before inputs")),
+                    }
+                    match channel.receive::<NamespaceCommand>()? {
                         NamespaceCommand::PrepareIdentity { uid, gid } => {
                             super::identity::initialize(&mut channel, uid, gid)?;
                             match channel.receive::<NamespaceCommand>()? {
@@ -225,6 +239,7 @@ pub struct NamespacedTarget {
     root_ready: bool,
     proc_dev_ready: bool,
     inputs_ready: bool,
+    rlimits_ready: bool,
     identity_ready: bool,
     seccomp_ready: bool,
     init_pid: u32,
@@ -320,6 +335,7 @@ impl NamespacedTarget {
                 root_ready: false,
                 proc_dev_ready: false,
                 inputs_ready: false,
+                rlimits_ready: false,
                 identity_ready: false,
                 seccomp_ready: false,
             }),
@@ -396,8 +412,33 @@ impl NamespacedTarget {
         Ok(())
     }
 
+    pub(crate) fn initialize_rlimits(
+        &mut self,
+        plan: crate::isolation::rlimits::RlimitPlan,
+    ) -> io::Result<()> {
+        if !self.inputs_ready || self.rlimits_ready || !plan.valid() {
+            return Err(denied("rlimit initialization order"));
+        }
+        self.initialize_filesystem(
+            NamespaceCommand::PrepareRlimits { plan },
+            NamespaceEvent::RlimitsInitialized {},
+        )?;
+        // Held, unreaped PID plus frozen exact-members cgroup prevents PID reuse
+        // and user mutation during the independent supervisor kernel readback.
+        use std::io::Read;
+        let mut bytes = String::new();
+        std::fs::File::open(format!("/proc/{}/limits", self.init_pid))?
+            .take(4097)
+            .read_to_string(&mut bytes)?;
+        plan.verify_proc(&bytes)?;
+        self.rlimits_ready = true;
+        Ok(())
+    }
+
     pub(crate) fn initialize_identity(&mut self, uid: u32, gid: u32) -> io::Result<()> {
-        if !self.inputs_ready || self.identity_ready || !crate::isolation::identity::valid(uid, gid)
+        if !self.rlimits_ready
+            || self.identity_ready
+            || !crate::isolation::identity::valid(uid, gid)
         {
             return Err(denied("credential initialization order"));
         }
