@@ -10,6 +10,9 @@ pub mod runtime;
 pub mod spec;
 
 #[cfg(target_os = "linux")]
+pub mod artifacts;
+
+#[cfg(target_os = "linux")]
 pub mod cgroup;
 
 #[cfg(target_os = "linux")]

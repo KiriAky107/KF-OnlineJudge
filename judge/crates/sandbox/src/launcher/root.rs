@@ -14,6 +14,7 @@ pub struct RootedTarget {
     // Terminate the private namespace before deleting its outside directory.
     target: NamespacedTarget,
     lease: RootLease,
+    outputs: crate::artifacts::OutputPlan,
 }
 
 fn attach_cleanup(error: &mut InitializationFailure, cleanup: Option<io::Error>) {
@@ -81,7 +82,11 @@ impl RootedTarget {
             attach_cleanup(&mut failure, lease.cleanup().err());
             return Err(failure);
         }
-        Ok(Self { target, lease })
+        Ok(Self {
+            target,
+            lease,
+            outputs: crate::artifacts::OutputPlan::for_spec(spec),
+        })
     }
     pub fn init_pid(&self) -> u32 {
         self.target.init_pid()
@@ -94,6 +99,21 @@ impl RootedTarget {
     }
     pub fn budget(&self) -> RootBudget {
         self.lease.budget
+    }
+
+    /// Snapshot only declared outputs through this held target's verified work
+    /// capability. The task is frozen and its PIDs remain owned/unreaped.
+    /// Publication and the final post-execution export lifecycle are separate.
+    pub fn snapshot_outputs(&self) -> io::Result<Vec<crate::artifacts::OutputSnapshot>> {
+        self.cgroup()
+            .verify_frozen_members(&[self.bootstrap_pid(), self.init_pid()])?;
+        self.lease.verify_root(self.init_pid())?;
+        let work = rustix::fs::open(
+            format!("/proc/{}/root/work", self.init_pid()),
+            rustix::fs::OFlags::PATH | rustix::fs::OFlags::DIRECTORY | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )?;
+        self.outputs.collect(&work)
     }
 
     pub(crate) fn initialize_proc_dev(&mut self) -> io::Result<()> {

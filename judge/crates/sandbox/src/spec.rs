@@ -194,7 +194,7 @@ fn identifier(value: &str, field: &'static str) -> Result<(), SpecError> {
     Ok(())
 }
 
-fn path(value: &str, field: &'static str) -> Result<(), SpecError> {
+pub(crate) fn path(value: &str, field: &'static str) -> Result<(), SpecError> {
     if value.is_empty()
         || value.len() > MAX_PATH_BYTES
         || value.split('/').any(|part| {

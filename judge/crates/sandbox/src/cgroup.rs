@@ -274,6 +274,14 @@ impl TaskCgroup {
         Ok(())
     }
 
+    /// Read back the kernel freeze gate before inspecting task-owned files.
+    pub(crate) fn verify_frozen_members(&self, expected: &[u32]) -> io::Result<()> {
+        self.live()?;
+        self.applied_limits()?;
+        self.wait_event("frozen", "1", Duration::from_secs(1))?;
+        self.verify_members(expected)
+    }
+
     /// PID comes from the unreaped direct Child; callers cannot enroll arbitrary PIDs.
     pub fn enroll(&mut self, target: &mut BlockedTarget) -> Result<(), CgroupError> {
         self.live()?;
