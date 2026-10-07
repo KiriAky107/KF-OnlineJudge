@@ -139,7 +139,7 @@ impl SpecPolicy {
 }
 
 /// An immutable validated request, not proof that the environment is safe.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ValidatedSpec(ExecutionSpec);
 
 impl ValidatedSpec {

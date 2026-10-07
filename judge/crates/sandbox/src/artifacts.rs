@@ -17,6 +17,7 @@ pub const MAX_SNAPSHOT_BYTES: u64 = 64 * 1024 * 1024;
 const SEALS: SealFlags = SealFlags::WRITE
     .union(SealFlags::SHRINK)
     .union(SealFlags::GROW)
+    .union(SealFlags::EXEC)
     .union(SealFlags::SEAL);
 const RESOLVE: ResolveFlags = ResolveFlags::BENEATH
     .union(ResolveFlags::NO_SYMLINKS)
@@ -98,22 +99,28 @@ impl ArtifactRoot {
         for input in &request.inputs {
             // Validated IDs are a single component, so no untrusted ancestor
             // directory can substitute a differently owned publication tree.
-            let file = self.snapshot_id(&input.artifact_id, &mut budget)?;
+            let executable = request.argv[0] == format!("/work/{}", input.path);
+            let file = self.snapshot_id(&input.artifact_id, &mut budget, executable)?;
             files.push(PreparedInput {
                 path: input.path.clone(),
-                executable: request.argv[0] == format!("/work/{}", input.path),
+                executable,
                 file,
             });
         }
         let stdin = request
             .stdin_artifact
             .as_ref()
-            .map(|id| self.snapshot_id(id, &mut budget))
+            .map(|id| self.snapshot_id(id, &mut budget, false))
             .transpose()?;
         Ok(PreparedInputs { files, stdin })
     }
 
-    fn snapshot_id(&self, id: &str, budget: &mut SnapshotBudget) -> io::Result<SnapshotFile> {
+    fn snapshot_id(
+        &self,
+        id: &str,
+        budget: &mut SnapshotBudget,
+        executable: bool,
+    ) -> io::Result<SnapshotFile> {
         if id.is_empty()
             || id.len() > 64
             || !id
@@ -122,7 +129,7 @@ impl ArtifactRoot {
         {
             return Err(refused("invalid artifact identifier"));
         }
-        snapshot(&self.fd, id, budget, Some(self.owner))
+        snapshot(&self.fd, id, budget, Some(self.owner), executable)
     }
 }
 
@@ -150,7 +157,7 @@ impl OutputPlan {
         for path in &self.paths {
             files.push(OutputSnapshot {
                 path: path.clone(),
-                file: snapshot(work, path, &mut budget, None)?,
+                file: snapshot(work, path, &mut budget, None, false)?,
             });
         }
         // Errors drop every partial FD; there is no partially published batch.
@@ -221,6 +228,7 @@ fn snapshot(
     relative: &str,
     budget: &mut SnapshotBudget,
     owner: Option<u32>,
+    executable: bool,
 ) -> io::Result<SnapshotFile> {
     path(relative, "artifact").map_err(|_| refused("noncanonical artifact path"))?;
     // Atomic containment; reject unsupported openat2 or races, no fallback or
@@ -243,7 +251,13 @@ fn snapshot(
     }
     let mut target = File::from(rustix::fs::memfd_create(
         "kf-artifact",
-        MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
+        MemfdFlags::CLOEXEC
+            | MemfdFlags::ALLOW_SEALING
+            | if executable {
+                MemfdFlags::EXEC
+            } else {
+                MemfdFlags::NOEXEC_SEAL
+            },
     )?);
     let mut remaining = bytes;
     let mut buffer = [0_u8; 64 * 1024];
@@ -257,7 +271,10 @@ fn snapshot(
     if source.read(&mut buffer[..1])? != 0 || !unchanged(&before, &rustix::fs::fstat(&source)?) {
         return Err(refused("artifact changed during copy"));
     }
-    rustix::fs::fchmod(&target, Mode::from_raw_mode(0o400))?;
+    rustix::fs::fchmod(
+        &target,
+        Mode::from_raw_mode(if executable { 0o555 } else { 0o444 }),
+    )?;
     rustix::fs::fcntl_add_seals(&target, SEALS)?;
     if !rustix::fs::fcntl_get_seals(&target)?.contains(SEALS) {
         return Err(refused("artifact seals not applied"));

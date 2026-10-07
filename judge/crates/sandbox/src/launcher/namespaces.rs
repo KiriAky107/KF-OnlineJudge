@@ -54,7 +54,7 @@ pub fn bootstrap(expected_parent: u32, initialize_root: bool) -> io::Result<()> 
             return Ok(());
         }
         NamespaceCommand::Initialize {} => {}
-        NamespaceCommand::PrepareRoot { .. } | NamespaceCommand::PrepareProcDev {} => {
+        _ => {
             return Err(denied("root command before namespaces"));
         }
     }
@@ -182,6 +182,13 @@ pub fn namespace_init(expected_outer_parent: u32, initialize_root: bool) -> io::
                         return Err(error);
                     }
                     channel.send(&NamespaceEvent::ProcDevInitialized {})?;
+                    match channel.receive::<NamespaceCommand>()? {
+                        NamespaceCommand::PrepareInputs { count, bytes } => {
+                            super::inputs::initialize(&mut channel, count, bytes)?;
+                        }
+                        NamespaceCommand::Cancel {} => return Ok(()),
+                        _ => return Err(denied("input command before preparation")),
+                    }
                     let _ = channel.receive::<NamespaceCommand>()?;
                 }
                 NamespaceCommand::Cancel {} => return Ok(()),
@@ -203,6 +210,7 @@ pub struct NamespacedTarget {
     allow_root: bool,
     root_ready: bool,
     proc_dev_ready: bool,
+    inputs_ready: bool,
     init_pid: u32,
     ids: NamespaceIds,
 }
@@ -295,6 +303,7 @@ impl NamespacedTarget {
                 allow_root,
                 root_ready: false,
                 proc_dev_ready: false,
+                inputs_ready: false,
             }),
             Err(error) => Err(prepared.refuse_at(ExecutionStage::Namespaces, Some(&error))),
         }
@@ -330,6 +339,55 @@ impl NamespacedTarget {
         Ok(())
     }
 
+    pub(crate) fn initialize_inputs(
+        &mut self,
+        inputs: &[crate::artifacts::PreparedInput],
+    ) -> io::Result<()> {
+        if !self.proc_dev_ready || self.inputs_ready || inputs.len() > 64 {
+            return Err(denied("input initialization order"));
+        }
+        let bytes = inputs
+            .iter()
+            .try_fold(0_u64, |total, input| {
+                total
+                    .checked_add(input.file.bytes())
+                    .filter(|n| *n <= crate::artifacts::MAX_SNAPSHOT_BYTES)
+            })
+            .ok_or_else(|| denied("input bytes"))?;
+        self.control.send(&NamespaceCommand::PrepareInputs {
+            count: inputs.len() as u32,
+            bytes,
+        })?;
+        self.prepared
+            .cgroup
+            .begin_root_initialization(&[self.prepared.pid(), self.init_pid], &self.init_pidfd)?;
+        self.expect_event(NamespaceEvent::InputsStarted {})?;
+        for input in inputs {
+            self.control.send(&NamespaceCommand::AttachInput {
+                path: input.path.clone(),
+                bytes: input.file.bytes(),
+                executable: input.executable,
+            })?;
+            self.control.send_fd(&input.file)?;
+            self.expect_event(NamespaceEvent::InputAttached {})?;
+        }
+        self.control.send(&NamespaceCommand::FinishInputs {})?;
+        self.expect_event(NamespaceEvent::InputsInitialized {})?;
+        self.stop_fixed_stage()?;
+        self.inputs_ready = true;
+        Ok(())
+    }
+
+    fn expect_event(&mut self, expected: NamespaceEvent) -> io::Result<()> {
+        match self.control.receive::<NamespaceEvent>()? {
+            event if event == expected => Ok(()),
+            NamespaceEvent::Failed { errno: Some(errno) } => {
+                Err(io::Error::from_raw_os_error(i32::from(errno)))
+            }
+            _ => Err(denied("fixed initialization acknowledgement")),
+        }
+    }
+
     fn initialize_filesystem(
         &mut self,
         command: NamespaceCommand,
@@ -339,13 +397,11 @@ impl NamespacedTarget {
         self.prepared
             .cgroup
             .begin_root_initialization(&[self.prepared.pid(), self.init_pid], &self.init_pidfd)?;
-        match self.control.receive::<NamespaceEvent>()? {
-            event if event == expected => {}
-            NamespaceEvent::Failed { errno: Some(errno) } => {
-                return Err(io::Error::from_raw_os_error(i32::from(errno)));
-            }
-            _ => return Err(denied("root initialization failed")),
-        }
+        self.expect_event(expected)?;
+        self.stop_fixed_stage()
+    }
+
+    fn stop_fixed_stage(&mut self) -> io::Result<()> {
         rustix::process::pidfd_send_signal(&self.init_pidfd, Signal::STOP)?;
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {

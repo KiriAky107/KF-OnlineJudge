@@ -2,13 +2,21 @@
 //! Messages cannot produce Lifecycle events or prove completed OS operations.
 
 use crate::outcome::{ErrorCode, ExecutionStage};
+use rustix::fd::{AsFd, OwnedFd};
+use rustix::net::{
+    RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags, SendAncillaryBuffer,
+    SendAncillaryMessage, SendFlags,
+};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::io::{self, Read, Write};
+use std::io::{self, IoSlice, IoSliceMut, Write};
+use std::mem::MaybeUninit;
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
 pub const MAX_MESSAGE_BYTES: usize = 1024;
+const MAX_NAMESPACE_MESSAGE_BYTES: usize = 8192;
+const FD_MARKER: u8 = 0xa5;
 pub const MAX_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
 const PREFIX: [u8; 4] = [b'K', b'F', 1, 0];
 
@@ -40,8 +48,21 @@ pub enum ChildMessage {
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NamespaceCommand {
     Initialize {},
-    PrepareRoot { work_bytes: u64, tmp_bytes: u64 },
+    PrepareRoot {
+        work_bytes: u64,
+        tmp_bytes: u64,
+    },
     PrepareProcDev {},
+    PrepareInputs {
+        count: u32,
+        bytes: u64,
+    },
+    AttachInput {
+        path: String,
+        bytes: u64,
+        executable: bool,
+    },
+    FinishInputs {},
     Cancel {},
 }
 
@@ -51,6 +72,9 @@ pub enum NamespaceEvent {
     Initialized { init_pid: u32 },
     RootInitialized {},
     ProcDevInitialized {},
+    InputsStarted {},
+    InputAttached {},
+    InputsInitialized {},
     Failed { errno: Option<u16> },
     Cancelled {},
 }
@@ -61,12 +85,14 @@ mod sealed {
 
 /// Sealed to keep the control protocol separate from arbitrary execution data.
 pub trait WireMessage: sealed::Sealed + Serialize + DeserializeOwned {
+    const MAX_BYTES: usize = MAX_MESSAGE_BYTES;
     fn valid(&self) -> bool;
 }
 
 impl sealed::Sealed for ParentMessage {}
 impl sealed::Sealed for NamespaceCommand {}
 impl WireMessage for NamespaceCommand {
+    const MAX_BYTES: usize = MAX_NAMESPACE_MESSAGE_BYTES;
     fn valid(&self) -> bool {
         match self {
             Self::PrepareRoot {
@@ -77,6 +103,13 @@ impl WireMessage for NamespaceCommand {
                 tmp_bytes: *tmp_bytes,
             }
             .valid(),
+            Self::PrepareInputs { count, bytes } => {
+                *count <= 64 && *bytes <= crate::artifacts::MAX_SNAPSHOT_BYTES
+            }
+            Self::AttachInput { path, bytes, .. } => {
+                crate::spec::path(path, "input").is_ok()
+                    && *bytes <= crate::artifacts::MAX_SNAPSHOT_BYTES
+            }
             _ => true,
         }
     }
@@ -185,12 +218,55 @@ impl ControlChannel {
         self.finish(result)
     }
 
+    /// Exactly one descriptor and one marker, immediately after AttachInput.
+    /// SO_PEERCRED was authenticated before any capability can be received.
+    pub(crate) fn send_fd(&mut self, fd: impl AsFd) -> io::Result<()> {
+        let result = (|| {
+            let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+            let borrowed = [fd.as_fd()];
+            let mut ancillary = SendAncillaryBuffer::new(&mut space);
+            if !ancillary.push(SendAncillaryMessage::ScmRights(&borrowed)) {
+                return Err(invalid("descriptor control buffer"));
+            }
+            loop {
+                self.stream.set_write_timeout(Some(self.remaining()?))?;
+                match rustix::net::sendmsg(
+                    &self.stream,
+                    &[IoSlice::new(&[FD_MARKER])],
+                    &mut ancillary,
+                    SendFlags::NOSIGNAL,
+                ) {
+                    Ok(1) => return Ok(()),
+                    Err(error) if error == rustix::io::Errno::INTR => continue,
+                    Err(error) => return Err(error.into()),
+                    _ => return Err(invalid("descriptor marker write")),
+                }
+            }
+        })();
+        self.finish(result)
+    }
+
+    pub(crate) fn receive_fd(&mut self) -> io::Result<OwnedFd> {
+        let result = (|| {
+            let mut marker = [0_u8; 1];
+            let (bytes, fd) = self.read_message(&mut marker, true)?;
+            if bytes != 1 || marker[0] != FD_MARKER {
+                return Err(invalid("descriptor marker read"));
+            }
+            fd.ok_or_else(|| invalid("missing input descriptor"))
+        })();
+        self.finish(result)
+    }
+
     fn send_inner<T: WireMessage>(&mut self, message: &T) -> io::Result<()> {
         self.remaining()?;
         if !message.valid() {
             return Err(invalid("invalid control message"));
         }
-        let mut body = FixedBuffer::default();
+        let mut body = FixedBuffer {
+            limit: T::MAX_BYTES,
+            ..FixedBuffer::default()
+        };
         serde_json::to_writer(&mut body, message)
             .map_err(|_| invalid("control message too large"))?;
         let mut header = [0u8; 8];
@@ -203,8 +279,8 @@ impl ControlChannel {
     fn receive_inner<T: WireMessage>(&mut self) -> io::Result<T> {
         let mut header = [0u8; 8];
         self.read_bytes(&mut header)?;
-        let length = decode_header(header)?;
-        let mut bytes = [0u8; MAX_MESSAGE_BYTES];
+        let length = decode_header(header, T::MAX_BYTES)?;
+        let mut bytes = [0u8; MAX_NAMESPACE_MESSAGE_BYTES];
         self.read_bytes(&mut bytes[..length])?;
         let message: T = serde_json::from_slice(&bytes[..length])
             .map_err(|_| invalid("invalid control JSON"))?;
@@ -229,15 +305,55 @@ impl ControlChannel {
 
     fn read_bytes(&mut self, mut bytes: &mut [u8]) -> io::Result<()> {
         while !bytes.is_empty() {
-            self.stream.set_read_timeout(Some(self.remaining()?))?;
-            match self.stream.read(bytes) {
-                Ok(0) => return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "control EOF")),
-                Ok(count) => bytes = &mut bytes[count..],
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                Err(error) => return Err(error),
-            }
+            let (count, _) = self.read_message(bytes, false)?;
+            bytes = &mut bytes[count..];
         }
         Ok(())
+    }
+
+    fn read_message(
+        &mut self,
+        bytes: &mut [u8],
+        allow_fd: bool,
+    ) -> io::Result<(usize, Option<OwnedFd>)> {
+        loop {
+            self.stream.set_read_timeout(Some(self.remaining()?))?;
+            let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(2))];
+            let mut ancillary = RecvAncillaryBuffer::new(&mut space);
+            let received = match rustix::net::recvmsg(
+                &self.stream,
+                &mut [IoSliceMut::new(bytes)],
+                &mut ancillary,
+                RecvFlags::CMSG_CLOEXEC,
+            ) {
+                Err(error) if error == rustix::io::Errno::INTR => continue,
+                other => other?,
+            };
+            let mut fd = None;
+            let mut invalid_control = received.flags.contains(ReturnFlags::CTRUNC);
+            for message in ancillary.drain() {
+                match message {
+                    RecvAncillaryMessage::ScmRights(fds) => {
+                        for next in fds {
+                            if !allow_fd || fd.is_some() {
+                                invalid_control = true;
+                            }
+                            if fd.is_none() {
+                                fd = Some(next);
+                            }
+                        }
+                    }
+                    _ => invalid_control = true,
+                }
+            }
+            if invalid_control {
+                return Err(invalid("unexpected or truncated descriptors"));
+            }
+            if received.bytes == 0 {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "control EOF"));
+            }
+            return Ok((received.bytes, fd));
+        }
     }
 
     fn write_bytes(&mut self, mut bytes: &[u8]) -> io::Result<()> {
@@ -271,35 +387,37 @@ fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-fn decode_header(header: [u8; 8]) -> io::Result<usize> {
+fn decode_header(header: [u8; 8], limit: usize) -> io::Result<usize> {
     if header[..4] != PREFIX {
         return Err(invalid("unsupported control framing"));
     }
     let length =
         u32::from_be_bytes(header[4..].try_into().expect("four-byte header length")) as usize;
-    if length == 0 || length > MAX_MESSAGE_BYTES {
+    if length == 0 || length > limit {
         return Err(invalid("invalid control frame length"));
     }
     Ok(length)
 }
 
 struct FixedBuffer {
-    bytes: [u8; MAX_MESSAGE_BYTES],
+    bytes: [u8; MAX_NAMESPACE_MESSAGE_BYTES],
     len: usize,
+    limit: usize,
 }
 
 impl Default for FixedBuffer {
     fn default() -> Self {
         Self {
-            bytes: [0; MAX_MESSAGE_BYTES],
+            bytes: [0; MAX_NAMESPACE_MESSAGE_BYTES],
             len: 0,
+            limit: MAX_MESSAGE_BYTES,
         }
     }
 }
 
 impl Write for FixedBuffer {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if bytes.len() > MAX_MESSAGE_BYTES - self.len {
+        if bytes.len() > self.limit - self.len {
             return Err(invalid("control message too large"));
         }
         self.bytes[self.len..self.len + bytes.len()].copy_from_slice(bytes);
@@ -315,13 +433,70 @@ impl Write for FixedBuffer {
 mod tests {
     use super::*;
 
+    fn pair() -> (ControlChannel, ControlChannel) {
+        let (a, b) = UnixStream::pair().unwrap();
+        let peer = ExpectedPeer {
+            pid: std::process::id(),
+            uid: rustix::process::geteuid().as_raw(),
+            gid: rustix::process::getegid().as_raw(),
+        };
+        (
+            ControlChannel::new(a, peer, Instant::now() + MAX_CONTROL_TIMEOUT).unwrap(),
+            ControlChannel::new(b, peer, Instant::now() + MAX_CONTROL_TIMEOUT).unwrap(),
+        )
+    }
+
+    #[test]
+    fn descriptor_transport_preserves_identity_and_cloexec() {
+        let (mut a, mut b) = pair();
+        let file = std::fs::File::open("/dev/null").unwrap();
+        a.send_fd(&file).unwrap();
+        let received = b.receive_fd().unwrap();
+        let x = rustix::fs::fstat(&file).unwrap();
+        let y = rustix::fs::fstat(&received).unwrap();
+        assert_eq!((x.st_dev, x.st_ino), (y.st_dev, y.st_ino));
+        assert!(
+            rustix::io::fcntl_getfd(&received)
+                .unwrap()
+                .contains(rustix::io::FdFlags::CLOEXEC)
+        );
+    }
+
+    #[test]
+    fn descriptor_in_a_json_frame_poison_connection() {
+        let (mut a, mut b) = pair();
+        let file = std::fs::File::open("/dev/null").unwrap();
+        a.send_fd(&file).unwrap();
+        assert!(b.receive::<NamespaceCommand>().is_err());
+        assert!(b.receive_fd().is_err());
+        assert!(a.send(&NamespaceCommand::Cancel {}).is_err());
+    }
+
+    #[test]
+    fn namespace_paths_fit_without_expanding_ordinary_control_frames() {
+        let (mut a, mut b) = pair();
+        let path = (0..10)
+            .map(|_| "x".repeat(200))
+            .collect::<Vec<_>>()
+            .join("/");
+        let command = NamespaceCommand::AttachInput {
+            path,
+            bytes: 0,
+            executable: false,
+        };
+        a.send(&command).unwrap();
+        assert_eq!(b.receive::<NamespaceCommand>().unwrap(), command);
+        assert_eq!(ParentMessage::MAX_BYTES, 1024);
+        assert_eq!(NamespaceCommand::MAX_BYTES, 8192);
+    }
+
     #[test]
     fn header_rejects_oversized_length_before_body_read() {
         for length in [0, 1025, u32::MAX] {
             let mut header = [0u8; 8];
             header[..4].copy_from_slice(&PREFIX);
             header[4..].copy_from_slice(&length.to_be_bytes());
-            assert!(decode_header(header).is_err());
+            assert!(decode_header(header, MAX_MESSAGE_BYTES).is_err());
         }
     }
 
@@ -331,7 +506,7 @@ mod tests {
             let mut header = [0u8; 8];
             header[..4].copy_from_slice(&prefix);
             header[4..].copy_from_slice(&1u32.to_be_bytes());
-            assert!(decode_header(header).is_err());
+            assert!(decode_header(header, MAX_MESSAGE_BYTES).is_err());
         }
     }
 

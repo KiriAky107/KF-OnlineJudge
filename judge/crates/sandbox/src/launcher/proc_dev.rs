@@ -6,7 +6,7 @@ use crate::spec::ValidatedSpec;
 use std::path::Path;
 
 pub struct RestrictedRootTarget {
-    root: RootedTarget,
+    pub(crate) root: RootedTarget,
 }
 
 impl RestrictedRootTarget {

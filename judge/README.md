@@ -125,7 +125,7 @@ FD、栈和其他信号仍按原退出状态记录，缺少专门证据时不猜
 双方用内核 `SO_PEERCRED` 核对预期 PID/UID/GID；父端 PID 来源于仍持有的 `Child`，
 子端父 PID 来源于内核。内部入口不提供用户命令参数，握手消息不能转换成生命周期确认事件。
 
-`launcher/protocol.rs` 使用带版本的 8 字节帧头和最多 1 KiB JSON。先拒绝未知版本、标志及
+`launcher/protocol.rs` 使用带版本的 8 字节帧头和有界 JSON（普通消息最多 1 KiB，输入路径阶段最多 8 KiB）。先拒绝未知版本、标志及
 非法长度，再读取固定大小缓冲；发送序列化也使用固定缓冲。父子消息类型分开，拒绝多余字段、
 非法 run_id 和未知命令。所有 I/O 共用一个绝对截止时间（入口 5 秒，通道最大 10 秒），
 部分帧不能续期；EOF、解析、超时或写入错误关闭并锁定通道，不能重新同步后继续初始化。
@@ -311,3 +311,21 @@ CPU 带宽和 CPU 总时间分别配置；预算目前只完成政策校验，�
 接口语义参见 [cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html)、
 [pidfd_open](https://man7.org/linux/man-pages/man2/pidfd_open.2.html) 和
 [seccomp filter](https://docs.kernel.org/userspace-api/seccomp_filter.html)。
+
+## 只读输入初始化
+
+`launcher/inputs.rs` 的 `InputBoundTarget` 在受限 proc/dev 就绪后继续固定初始化，
+经已认证的控制 socket 逐个发送封印、只读、CLOEXEC 的文件 FD。接收端只接受预定的
+消息次序、一个 FD、有限数量与总字节；多余/截断 ancillary 数据使通道永久失败。
+stdin 只保留在监督器的独立快照中，不挂载到用户工作区，也尚未接入执行 stdio。
+
+匿名 memfd 不能直接 bind 到任务 namespace。初始化器用固定 64 KiB 缓冲将快照
+复制到有界 work tmpfs，再将该文件 self-bind 为 readonly/nosuid/nodev；数据另加 noexec，
+仅规格指定的 native 主程序保留执行位。复制占用原工作区预算，ENOSPC 立即拒绝并回滚。
+监督器逐字节核对封印来源与绑定内容、文件类型/权限/属主、挂载标志及 FD 关闭情况，
+随后保持目标冻结。root 拥有的 sticky 工作区及输入上层目录允许旁边生成编译输出，
+保护输入和其祖先不被未来任务身份替换。该固定阶段尚无用户执行入口。
+
+`inputs_vm.rs` 在独立受限 VM 验收真实只读写入 EROFS、执行/noexec 区分、输入祖先
+保护、stdin 不可见、不同任务隔离，以及链接/已有文件/空间不足导致的部分挂载回滚。
+身份降权、capabilities/seccomp、用户进程树与 stdio 仍须完成后才能启用 `run`。

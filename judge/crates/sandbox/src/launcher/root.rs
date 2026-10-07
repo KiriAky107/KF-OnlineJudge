@@ -15,6 +15,7 @@ pub struct RootedTarget {
     target: NamespacedTarget,
     lease: RootLease,
     outputs: crate::artifacts::OutputPlan,
+    pub(crate) request: ValidatedSpec,
 }
 
 fn attach_cleanup(error: &mut InitializationFailure, cleanup: Option<io::Error>) {
@@ -86,6 +87,7 @@ impl RootedTarget {
             target,
             lease,
             outputs: crate::artifacts::OutputPlan::for_spec(spec),
+            request: spec.clone(),
         })
     }
     pub fn init_pid(&self) -> u32 {
@@ -121,6 +123,29 @@ impl RootedTarget {
         self.lease.verify_root(self.init_pid())?;
         self.lease.verify_root(self.bootstrap_pid())?;
         crate::isolation::proc_dev::verify(self.init_pid())
+    }
+
+    pub(crate) fn initialize_inputs(
+        &mut self,
+        inputs: &crate::artifacts::PreparedInputs,
+    ) -> io::Result<()> {
+        let expected = &self.request.spec().inputs;
+        if inputs.files.len() != expected.len()
+            || inputs.files.iter().zip(expected).any(|(actual, expected)| {
+                actual.path != expected.path
+                    || actual.executable
+                        != (self.request.spec().argv[0] == format!("/work/{}", expected.path))
+            })
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "input binding plan mismatch",
+            ));
+        }
+        self.target.initialize_inputs(&inputs.files)?;
+        self.lease.verify_root(self.init_pid())?;
+        self.lease.verify_root(self.bootstrap_pid())?;
+        crate::isolation::inputs::verify(self.init_pid(), &inputs.files)
     }
 
     pub(crate) fn refuse_root_error(mut self, error: &io::Error) -> InitializationFailure {
