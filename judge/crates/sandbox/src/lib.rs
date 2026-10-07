@@ -16,4 +16,7 @@ pub mod artifacts;
 pub mod cgroup;
 
 #[cfg(target_os = "linux")]
+pub mod io;
+
+#[cfg(target_os = "linux")]
 mod isolation;

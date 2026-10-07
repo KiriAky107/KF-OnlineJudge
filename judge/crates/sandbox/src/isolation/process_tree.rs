@@ -12,30 +12,7 @@ fn denied(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, message)
 }
 
-pub(crate) struct ChildStdio {
-    pub input: OwnedFd,
-    pub output: OwnedFd,
-    pub error: OwnedFd,
-}
-impl ChildStdio {
-    pub(crate) fn validate(&self) -> io::Result<()> {
-        for (fd, access) in [
-            (&self.input, rustix::fs::OFlags::RDONLY),
-            (&self.output, rustix::fs::OFlags::WRONLY),
-            (&self.error, rustix::fs::OFlags::WRONLY),
-        ] {
-            let s = rustix::fs::fstat(fd)?;
-            if fd.as_raw_fd() < 4
-                || s.st_mode & libc::S_IFMT != libc::S_IFIFO
-                || rustix::fs::fcntl_getfl(fd)?.intersection(rustix::fs::OFlags::ACCMODE) != access
-                || !rustix::io::fcntl_getfd(fd)?.contains(rustix::io::FdFlags::CLOEXEC)
-            {
-                return Err(denied("stdio requires owned CLOEXEC pipe ends"));
-            }
-        }
-        Ok(())
-    }
-}
+pub(crate) use crate::io::ChildPipes as ChildStdio;
 
 /// Allocate/validate strings before fork. No request shell or host environment.
 pub(crate) struct ExecPlan {
@@ -110,9 +87,12 @@ impl Reaper {
         }
         crate::isolation::identity::verify_status(&status, uid, gid)?;
         crate::isolation::seccomp::filter_count(&status)?;
+        if rustix::process::dumpable_behavior()? != rustix::process::DumpableBehavior::NotDumpable {
+            return Err(denied("trusted init descriptor privacy"));
+        }
         // PID ownership requires no inherited SIGCHLD auto-reap disposition.
         check_sigchld()?;
-        stdio.validate()?;
+        stdio.validate_for_exec()?;
         let (read, write) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)?;
         rustix::fs::fcntl_setfl(&read, rustix::fs::OFlags::NONBLOCK)?;
         let pid = fork_exec(&plan, &stdio, &write)?;

@@ -87,6 +87,7 @@ pub(crate) fn compile(profile: ExecutionProfile) -> io::Result<BpfProgram> {
         libc::SYS_rseq,
         libc::SYS_rt_sigaction,
         libc::SYS_rt_sigprocmask,
+        libc::SYS_rt_sigpending,
         libc::SYS_rt_sigreturn,
         libc::SYS_sigaltstack,
         libc::SYS_rt_sigsuspend,
@@ -201,6 +202,7 @@ pub(crate) fn compile(profile: ExecutionProfile) -> io::Result<BpfProgram> {
         rules(
             [
                 libc::PR_GET_NO_NEW_PRIVS,
+                libc::PR_GET_DUMPABLE,
                 libc::PR_GET_SECCOMP,
                 libc::PR_GET_SECUREBITS,
                 libc::PR_GET_KEEPCAPS,

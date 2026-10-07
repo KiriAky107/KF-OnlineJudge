@@ -54,6 +54,10 @@ pub(crate) fn reduce_current(uid: u32, gid: u32) -> io::Result<()> {
     let uid = Uid::from_raw(uid);
     rustix::thread::set_thread_res_gid(gid, gid, gid)?;
     rustix::thread::set_thread_res_uid(uid, uid, uid)?;
+    // The trusted init retains control/capture capabilities. A same-UID user
+    // child must not reopen them through /proc/1/fd or /proc/1/root. Don't rely
+    // on fs.suid_dumpable's system default after the credential transition.
+    rustix::process::set_dumpable_behavior(rustix::process::DumpableBehavior::NotDumpable)?;
     let empty = CapabilitySets {
         effective: CapabilitySet::empty(),
         permitted: CapabilitySet::empty(),
@@ -70,6 +74,7 @@ pub(crate) fn reduce_current(uid: u32, gid: u32) -> io::Result<()> {
         || rustix::process::geteuid() != uid
         || rustix::process::getgid() != gid
         || rustix::process::getegid() != gid
+        || rustix::process::dumpable_behavior()? != rustix::process::DumpableBehavior::NotDumpable
         || rustix::thread::get_keep_capabilities()?
         || rustix::thread::capabilities_secure_bits()? != SECURE
         || !rustix::thread::no_new_privs()?

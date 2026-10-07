@@ -416,3 +416,15 @@ pidfd_getfd 仍拒绝，仅增加可见进程的只读 pidfd_open 以支持等�
 主进程退出仍有后代时取消、控制端断开及真实 exec ENOENT。探针使用与生产相同的
 私有回收/凭据/seccomp 原语，在新 PID namespace 的 PID 1 运行；它不是完整任务
 执行 API。CLI run 继续拒绝，stdio/限额/计量与完整监督全部验收前不暴露执行放行。
+
+`io::PipePump` now feeds immutable snapshot stdin and drains independent stdout
+and stderr pipes in bounded nonblocking ticks. Only blocking child ends reach
+FDs 0/1/2; anonymous captures stay in a trusted 0700 directory capability, have
+per-stream/file/aggregate byte ceilings and no published writable descriptor.
+An over-limit observation retains at most the allowed prefix and requires
+whole-tree cancellation; its byte count is a lower bound. Early stdin closure
+uses thread-local SIGPIPE masking, preserving global disposition and prior
+pending signals. Init is explicitly non-dumpable before filtering so same-UID
+users cannot reopen its control/capture handles through proc. Fixed guarded VM
+probes exercise the exact transport/reaper; full CLI exec, accounting and
+post-run artifact publication still await their remaining gates.

@@ -5,6 +5,9 @@ mod launcher {
         pub use kf_sandbox::launcher::entry::ensure_single_threaded;
     }
 }
+mod io {
+    pub use kf_sandbox::io::ChildPipes;
+}
 mod outcome {
     pub use kf_sandbox::outcome::Termination;
 }
