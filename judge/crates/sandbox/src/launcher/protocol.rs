@@ -41,6 +41,7 @@ pub enum ChildMessage {
 pub enum NamespaceCommand {
     Initialize {},
     PrepareRoot { work_bytes: u64, tmp_bytes: u64 },
+    PrepareProcDev {},
     Cancel {},
 }
 
@@ -49,6 +50,7 @@ pub enum NamespaceCommand {
 pub enum NamespaceEvent {
     Initialized { init_pid: u32 },
     RootInitialized {},
+    ProcDevInitialized {},
     Failed { errno: Option<u16> },
     Cancelled {},
 }

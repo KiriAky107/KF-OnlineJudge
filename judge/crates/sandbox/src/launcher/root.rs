@@ -72,6 +72,7 @@ impl RootedTarget {
         if let Err(error) = (|| {
             target.initialize_root(lease.budget)?;
             lease.verify_root(target.init_pid())?;
+            lease.verify_root(target.bootstrap_pid())?;
             Ok::<_, io::Error>(())
         })() {
             let mut failure = target
@@ -93,6 +94,22 @@ impl RootedTarget {
     }
     pub fn budget(&self) -> RootBudget {
         self.lease.budget
+    }
+
+    pub(crate) fn initialize_proc_dev(&mut self) -> io::Result<()> {
+        self.target.initialize_proc_dev()?;
+        self.lease.verify_root(self.init_pid())?;
+        self.lease.verify_root(self.bootstrap_pid())?;
+        crate::isolation::proc_dev::verify(self.init_pid())
+    }
+
+    pub(crate) fn refuse_root_error(mut self, error: &io::Error) -> InitializationFailure {
+        let mut failure = self
+            .target
+            .prepared
+            .refuse_at(ExecutionStage::RootFilesystem, Some(error));
+        attach_cleanup(&mut failure, self.lease.cleanup().err());
+        failure
     }
 
     /// Restricted proc/dev, identity, capabilities and seccomp are still absent.

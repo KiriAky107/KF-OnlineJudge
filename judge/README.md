@@ -232,6 +232,33 @@ work 为 nosuid/nodev，保留后续编译和执行能力；tmp 另加 noexec。
 参见 [pivot_root](https://man7.org/linux/man-pages/man2/pivot_root.2.html) 和
 [mount](https://man7.org/linux/man-pages/man2/mount.2.html)。
 
+## 受限 proc/dev 与初始化 FD 防护
+
+`isolation/proc_dev.rs` 固定 OS 策略，`launcher/proc_dev.rs` 的 `RestrictedRootTarget`
+在已完成的 `RootedTarget` 上推进独立握手；两个类型均没有用户 exec 方法。
+fresh exec 的 bootstrap/init 在创建内部 FD 前扫描自己的 FD，只允许 0/1/2，
+精确排除扫描器自己持有的 FD。任何额外继承文件或目录都在 namespace 操作前拒绝，
+避免原始 close 与 Rust FD 所有权冲突。初始化后监督器再次确认 init 和 bootstrap
+的根、cwd 及无目录 FD，拒绝 cwd 留在私有 root/work 以外的情况。
+
+仅 namespace PID 1 在切根后重新挂载 proc，使用 ro/nosuid/nodev/noexec、
+`hidepid=2,subset=pid`。监督器核对实际文件系统、挂载选项、PID 1/PPid 0，
+以及全局 sys/sysrq-trigger/kcore/keys 等入口缺失；选项或挂载能力不支持则拒绝。
+dev 使用 64 KiB、16 inode 的私有 tmpfs，只创建 root 所有、0666 的四个字符设备：
+null (1:3)、zero (1:5)、random (1:8)、urandom (1:9)，随后把目录挂载设为只读。
+dev 为 nosuid/noexec，允许这四个设备 I/O 所以不设置 nodev；不提供磁盘、mem、tty 或 pts。
+固定 dev 的容量是初始化开销，work/tmp 的申请预算和内存计费政策另行管理。
+
+`proc_dev_vm.rs` 在规定的独立 VM 中验证新 PID 视图、固定设备 I/O、非 root 固定探针对
+helper/外部 PID、旧根和跨任务文件的访问拒绝，并验证意外继承 FD 的启动拒绝。
+VM 专用故障注入器让内核对 mknodat 返回 EPERM，验证部分 proc/dev 初始化的真实清理。
+探针的 UID 切换及故障过滤器仅属于 VM 验收，不能当作生产身份或 seccomp 实现。
+测试输入尚未安全绑定，工件校验/提取、生产身份/caps/seccomp 和完整用户 stdio/监督
+仍待实现，因此完整 proc/dev 与输入保护 TODO 暂不标记完成，run 继续拒绝。
+
+参见 [proc 的 hidepid/subset 选项](https://man7.org/linux/man-pages/man5/procfs.5.html)
+及 [null/zero 设备](https://man7.org/linux/man-pages/man4/null.4.html)。
+
 ## 可信运行配置与启动前检查
 
 ```bash

@@ -39,6 +39,7 @@ fn inherited_channel(parent_pid: u32) -> io::Result<ControlChannel> {
 /// unshare; changing PID namespaces changes SO_PEERCRED's PID translation.
 pub fn bootstrap(expected_parent: u32, initialize_root: bool) -> io::Result<()> {
     super::entry::ensure_single_threaded()?;
+    super::entry::ensure_inherited_descriptors()?;
     rustix::process::set_parent_process_death_signal(Some(Signal::KILL))?;
     if expected_parent <= 1
         || rustix::process::getppid().map(|pid| pid.as_raw_pid() as u32) != Some(expected_parent)
@@ -53,7 +54,7 @@ pub fn bootstrap(expected_parent: u32, initialize_root: bool) -> io::Result<()> 
             return Ok(());
         }
         NamespaceCommand::Initialize {} => {}
-        NamespaceCommand::PrepareRoot { .. } => {
+        NamespaceCommand::PrepareRoot { .. } | NamespaceCommand::PrepareProcDev {} => {
             return Err(denied("root command before namespaces"));
         }
     }
@@ -130,6 +131,7 @@ fn status_value(status: &str, name: &str) -> io::Result<u32> {
 /// in the new PID namespace. Later root setup must replace this inherited proc.
 pub fn namespace_init(expected_outer_parent: u32, initialize_root: bool) -> io::Result<()> {
     super::entry::ensure_single_threaded()?;
+    super::entry::ensure_inherited_descriptors()?;
     if rustix::process::getpid().as_raw_pid() != 1 || rustix::process::getppid().is_some() {
         return Err(denied("not the namespace init"));
     }
@@ -171,7 +173,20 @@ pub fn namespace_init(expected_outer_parent: u32, initialize_root: bool) -> io::
                 return Err(error);
             }
             channel.send(&NamespaceEvent::RootInitialized {})?;
-            let _ = channel.receive::<NamespaceCommand>()?;
+            match channel.receive::<NamespaceCommand>()? {
+                NamespaceCommand::PrepareProcDev {} => {
+                    if let Err(error) = crate::isolation::proc_dev::install() {
+                        channel.send(&NamespaceEvent::Failed {
+                            errno: error.raw_os_error().and_then(|n| u16::try_from(n).ok()),
+                        })?;
+                        return Err(error);
+                    }
+                    channel.send(&NamespaceEvent::ProcDevInitialized {})?;
+                    let _ = channel.receive::<NamespaceCommand>()?;
+                }
+                NamespaceCommand::Cancel {} => return Ok(()),
+                _ => {}
+            }
         }
         NamespaceCommand::Cancel {} => return Ok(()),
         _ => {}
@@ -186,6 +201,8 @@ pub struct NamespacedTarget {
     control: ControlChannel,
     init_pidfd: OwnedFd,
     allow_root: bool,
+    root_ready: bool,
+    proc_dev_ready: bool,
     init_pid: u32,
     ids: NamespaceIds,
 }
@@ -276,6 +293,8 @@ impl NamespacedTarget {
                 control,
                 init_pidfd,
                 allow_root,
+                root_ready: false,
+                proc_dev_ready: false,
             }),
             Err(error) => Err(prepared.refuse_at(ExecutionStage::Namespaces, Some(&error))),
         }
@@ -285,18 +304,43 @@ impl NamespacedTarget {
         &mut self,
         budget: crate::isolation::root::RootBudget,
     ) -> std::io::Result<()> {
-        if !self.allow_root {
+        if !self.allow_root || self.root_ready {
             return Err(denied("root descriptors not inherited"));
         }
-        self.control.send(&NamespaceCommand::PrepareRoot {
-            work_bytes: budget.work_bytes,
-            tmp_bytes: budget.tmp_bytes,
-        })?;
+        self.initialize_filesystem(
+            NamespaceCommand::PrepareRoot {
+                work_bytes: budget.work_bytes,
+                tmp_bytes: budget.tmp_bytes,
+            },
+            NamespaceEvent::RootInitialized {},
+        )?;
+        self.root_ready = true;
+        Ok(())
+    }
+
+    pub(crate) fn initialize_proc_dev(&mut self) -> io::Result<()> {
+        if !self.root_ready || self.proc_dev_ready {
+            return Err(denied("proc/dev initialization order"));
+        }
+        self.initialize_filesystem(
+            NamespaceCommand::PrepareProcDev {},
+            NamespaceEvent::ProcDevInitialized {},
+        )?;
+        self.proc_dev_ready = true;
+        Ok(())
+    }
+
+    fn initialize_filesystem(
+        &mut self,
+        command: NamespaceCommand,
+        expected: NamespaceEvent,
+    ) -> io::Result<()> {
+        self.control.send(&command)?;
         self.prepared
             .cgroup
             .begin_root_initialization(&[self.prepared.pid(), self.init_pid], &self.init_pidfd)?;
         match self.control.receive::<NamespaceEvent>()? {
-            NamespaceEvent::RootInitialized {} => {}
+            event if event == expected => {}
             NamespaceEvent::Failed { errno: Some(errno) } => {
                 return Err(io::Error::from_raw_os_error(i32::from(errno)));
             }

@@ -208,10 +208,9 @@ impl RootLease {
             OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
             Mode::empty(),
         )?;
-        if !rustix::fs::fstatvfs(&root)?
-            .f_flag
-            .contains(StatVfsMountFlags::RDONLY)
-        {
+        if !rustix::fs::fstatvfs(&root)?.f_flag.contains(
+            StatVfsMountFlags::RDONLY | StatVfsMountFlags::NOSUID | StatVfsMountFlags::NODEV,
+        ) {
             return Err(invalid("image root is not read-only"));
         }
         for (name, bytes, tmp) in [
@@ -239,6 +238,13 @@ impl RootLease {
             if std::fs::metadata(entry?.path())?.is_dir() {
                 return Err(invalid("initialization directory FD leaked"));
             }
+        }
+        let cwd = std::fs::metadata(format!("/proc/{pid}/cwd"))?;
+        let work = std::fs::metadata(format!("/proc/{pid}/root/work"))?;
+        if (cwd.dev(), cwd.ino()) != (actual.dev(), actual.ino())
+            && (cwd.dev(), cwd.ino()) != (work.dev(), work.ino())
+        {
+            return Err(invalid("initialization cwd is outside private root/work"));
         }
         Ok(())
     }

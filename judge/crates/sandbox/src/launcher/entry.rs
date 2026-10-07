@@ -77,3 +77,38 @@ pub fn ensure_single_threaded() -> io::Result<()> {
     }
     Ok(())
 }
+
+/// Fresh exec roles reject unowned inherited descriptors before creating any
+/// channel duplicates. Closing unknown raw FDs would risk Rust ownership; fail
+/// closed instead. The single-threaded scan owns and excludes exactly its FD.
+pub(crate) fn ensure_inherited_descriptors() -> io::Result<()> {
+    use rustix::fd::AsRawFd;
+    use rustix::fs::{Dir, Mode, OFlags};
+    ensure_single_threaded()?;
+    let fd = rustix::fs::open(
+        "/proc/self/fd",
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?;
+    let mut directory = Dir::new(fd)?;
+    let scanner = directory.fd()?.as_raw_fd();
+    let mut count = 0;
+    while let Some(entry) = directory.read() {
+        let entry = entry?;
+        let name = entry.file_name().to_bytes();
+        if name == b"." || name == b".." {
+            continue;
+        }
+        count += 1;
+        let fd = std::str::from_utf8(name)
+            .ok()
+            .and_then(|s| s.parse::<i32>().ok());
+        if count > 128 || !fd.is_some_and(|fd| (0..=2).contains(&fd) || fd == scanner) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "unexpected inherited descriptor",
+            ));
+        }
+    }
+    Ok(())
+}
