@@ -63,6 +63,10 @@ pub enum NamespaceCommand {
         executable: bool,
     },
     FinishInputs {},
+    PrepareIdentity {
+        uid: u32,
+        gid: u32,
+    },
     Cancel {},
 }
 
@@ -75,6 +79,7 @@ pub enum NamespaceEvent {
     InputsStarted {},
     InputAttached {},
     InputsInitialized {},
+    IdentityInitialized {},
     Failed { errno: Option<u16> },
     Cancelled {},
 }
@@ -110,6 +115,7 @@ impl WireMessage for NamespaceCommand {
                 crate::spec::path(path, "input").is_ok()
                     && *bytes <= crate::artifacts::MAX_SNAPSHOT_BYTES
             }
+            Self::PrepareIdentity { uid, gid } => crate::isolation::identity::valid(*uid, *gid),
             _ => true,
         }
     }

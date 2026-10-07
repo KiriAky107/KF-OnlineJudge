@@ -46,6 +46,8 @@ fn roots_reject_traversal_aliases_system_locations_and_overlapping_storage() {
     for path in [
         "/var/lib/kf-judge/tasks",
         "/var/lib/kf-judge/tasks/image",
+        "/var/lib/kf-judge/identities",
+        "/var/lib/kf-judge/identities/image",
         "/var/lib/kf-judge",
         "/srv/unrelated",
     ] {

@@ -12,6 +12,7 @@ pub mod blocked;
 #[cfg(target_os = "linux")]
 pub mod entry;
 #[cfg(target_os = "linux")]
+pub mod identity;
 pub mod inputs;
 #[cfg(target_os = "linux")]
 pub mod namespaces;

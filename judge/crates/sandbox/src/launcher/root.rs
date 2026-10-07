@@ -148,6 +148,22 @@ impl RootedTarget {
         crate::isolation::inputs::verify(self.init_pid(), &inputs.files)
     }
 
+    pub(crate) fn initialize_identity(&mut self, uid: u32, gid: u32) -> io::Result<()> {
+        self.target.initialize_identity(uid, gid)?;
+        self.lease.verify_root(self.init_pid())?;
+        self.lease.verify_root(self.bootstrap_pid())
+    }
+
+    pub(crate) fn refuse_stage(
+        mut self,
+        stage: ExecutionStage,
+        error: Option<&io::Error>,
+    ) -> InitializationFailure {
+        let mut result = self.target.prepared.refuse_at(stage, error);
+        attach_cleanup(&mut result, self.lease.cleanup().err());
+        result
+    }
+
     pub(crate) fn refuse_root_error(mut self, error: &io::Error) -> InitializationFailure {
         let mut failure = self
             .target
@@ -157,7 +173,7 @@ impl RootedTarget {
         failure
     }
 
-    /// Restricted proc/dev, identity, capabilities and seccomp are still absent.
+    /// This base type has no proof of later input/identity/seccomp stages.
     pub fn refuse_remaining_isolation(mut self) -> InitializationFailure {
         let mut failure = self
             .target

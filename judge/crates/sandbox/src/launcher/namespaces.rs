@@ -189,7 +189,14 @@ pub fn namespace_init(expected_outer_parent: u32, initialize_root: bool) -> io::
                         NamespaceCommand::Cancel {} => return Ok(()),
                         _ => return Err(denied("input command before preparation")),
                     }
-                    let _ = channel.receive::<NamespaceCommand>()?;
+                    match channel.receive::<NamespaceCommand>()? {
+                        NamespaceCommand::PrepareIdentity { uid, gid } => {
+                            super::identity::initialize(&mut channel, uid, gid)?;
+                            let _ = channel.receive::<NamespaceCommand>()?;
+                        }
+                        NamespaceCommand::Cancel {} => return Ok(()),
+                        _ => return Err(denied("identity command before inputs")),
+                    }
                 }
                 NamespaceCommand::Cancel {} => return Ok(()),
                 _ => {}
@@ -211,6 +218,7 @@ pub struct NamespacedTarget {
     root_ready: bool,
     proc_dev_ready: bool,
     inputs_ready: bool,
+    identity_ready: bool,
     init_pid: u32,
     ids: NamespaceIds,
 }
@@ -304,6 +312,7 @@ impl NamespacedTarget {
                 root_ready: false,
                 proc_dev_ready: false,
                 inputs_ready: false,
+                identity_ready: false,
             }),
             Err(error) => Err(prepared.refuse_at(ExecutionStage::Namespaces, Some(&error))),
         }
@@ -375,6 +384,24 @@ impl NamespacedTarget {
         self.expect_event(NamespaceEvent::InputsInitialized {})?;
         self.stop_fixed_stage()?;
         self.inputs_ready = true;
+        Ok(())
+    }
+
+    pub(crate) fn initialize_identity(&mut self, uid: u32, gid: u32) -> io::Result<()> {
+        if !self.inputs_ready || self.identity_ready || !crate::isolation::identity::valid(uid, gid)
+        {
+            return Err(denied("credential initialization order"));
+        }
+        self.initialize_filesystem(
+            NamespaceCommand::PrepareIdentity { uid, gid },
+            NamespaceEvent::IdentityInitialized {},
+        )?;
+        crate::isolation::identity::verify_status(
+            &std::fs::read_to_string(format!("/proc/{}/status", self.init_pid))?,
+            uid,
+            gid,
+        )?;
+        self.identity_ready = true;
         Ok(())
     }
 

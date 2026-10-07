@@ -329,3 +329,26 @@ stdin 只保留在监督器的独立快照中，不挂载到用户工作区，�
 `inputs_vm.rs` 在独立受限 VM 验收真实只读写入 EROFS、执行/noexec 区分、输入祖先
 保护、stdin 不可见、不同任务隔离，以及链接/已有文件/空间不足导致的部分挂载回滚。
 身份降权、capabilities/seccomp、用户进程树与 stdio 仍须完成后才能启用 `run`。
+
+## 生产身份与权限收缩
+
+`launcher/identity.rs` 的 `IdentityReducedTarget` 先在可信 state 根下的 root-owned
+0700 `identities/uid-N` 目录中原子租用任务身份，再准备输入和推进降权。活跃、遗留或
+未知标记一律不接管；池耗尽返回 EAGAIN。目标树终止、子进程回收和 root 清理均成功后
+才移除自有租约；清理失败保留标记、独立报告错误，Drop 也遵循同样顺序。服务重启
+后的遗留资源核验/回收仍是后续阶段，当前不会自动复用残留身份。
+
+`isolation/identity.rs` 仅在固定单线程 PID 1 中执行：清空 supplementary groups，
+关闭 keepcaps/ambient；锁定 root 特权、ambient 提升与 keepcaps，保留并锁定正常 UID
+切换清权行为；遍历内核实际支持的全部 capability 位清空 bounding set，设置
+`no_new_privs`，统一 real/effective/saved/filesystem UID/GID，并显式清空
+effective/permitted/inheritable。凭据变更后重新设置 PDEATHSIG=SIGKILL。
+初始化器读取 securebits/keepcaps/NNP/全部 capability 与组，监督器读取同一已持有 PID
+的内核 status，再校验 root/cwd/目录 FD 和 STOP/freeze。未知 ABI、失败或不一致拒绝。
+
+`identity_vm.rs` 与固定 VM fixture 验收真正的集成 init 凭据、并发独占/池耗尽/清理
+后复用/失败留租约，以及精确生产 reducer 代码在 fork/线程/exec 中的权限继承；固定
+setuid-root 文件无法恢复权限，跨 UID 信号/ptrace/文件访问拒绝。测试故障过滤器只
+注入真实 setgroups EPERM，验证失败回滚；它不构成生产 seccomp 策略。fixture 仅可在
+规定独立 VM 使用，没有向 CLI 增加用户执行命令。后续 seccomp、全任务树/stdio/计量
+和运行后清理仍未验收，`run` 继续拒绝。

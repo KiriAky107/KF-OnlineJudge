@@ -98,7 +98,7 @@ fn safe_directory(fd: &OwnedFd) -> io::Result<()> {
     }
     Ok(())
 }
-fn open_directory(path: &Path) -> io::Result<OwnedFd> {
+pub(crate) fn open_directory(path: &Path) -> io::Result<OwnedFd> {
     if !path.is_absolute() {
         return Err(invalid("root capability must be absolute"));
     }

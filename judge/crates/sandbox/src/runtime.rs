@@ -148,6 +148,12 @@ impl RuntimeConfig {
         {
             return Err(invalid("roots", "invalid_layout"));
         }
+        let identity_root = format!("{}/identities", self.state_root);
+        if [&self.tasks_root, &self.image_root].iter().any(|root| {
+            *root == &identity_root || inside(root, &identity_root) || inside(&identity_root, root)
+        }) {
+            return Err(invalid("roots", "identity_lease_overlap"));
+        }
         if !inside(&self.delegated_cgroup_root, "/sys/fs/cgroup") {
             return Err(invalid("delegated_cgroup_root", "not_delegated_subtree"));
         }

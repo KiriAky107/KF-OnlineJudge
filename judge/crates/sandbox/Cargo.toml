@@ -14,3 +14,7 @@ rustix = { version = "1.1.5", features = ["net", "process", "fs", "thread", "mou
 
 [lints]
 workspace = true
+
+[[example]]
+name = "identity_probe"
+test = false
