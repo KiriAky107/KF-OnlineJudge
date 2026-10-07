@@ -114,12 +114,44 @@ fn environment_does_not_accept_loader_overrides_or_arbitrary_values() {
     for (key, value) in [
         ("LD_PRELOAD", "lib.so"),
         ("PATH", "/host/bin"),
+        ("TMPDIR", "/host/tmp"),
         ("LANG", "a\0b"),
         ("TZ", "Europe/London"),
     ] {
         let mut request = spec();
         request.env.insert(key.into(), value.into());
         rejected(request, "env", ValidationCode::InvalidEnvironment);
+    }
+}
+
+#[test]
+fn cleared_execution_environment_uses_only_profile_image_defaults() {
+    let native = spec()
+        .validate(&SpecPolicy::default())
+        .unwrap()
+        .execution_environment();
+    assert!(!native.contains_key("PATH"));
+    assert_eq!(native.get("TMPDIR").unwrap(), "/tmp");
+    assert_eq!(native.get("TZ").unwrap(), "UTC");
+    assert!(
+        native
+            .keys()
+            .all(|key| ["LANG", "LC_ALL", "TZ", "TMPDIR"].contains(&key.as_str()))
+    );
+    for (profile, binary) in [
+        (ExecutionProfile::CompileC, "/usr/bin/gcc"),
+        (ExecutionProfile::CompileCpp, "/usr/bin/g++"),
+    ] {
+        let mut request = spec();
+        request.profile = profile;
+        request.argv[0] = binary.into();
+        let env = request
+            .validate(&SpecPolicy::default())
+            .unwrap()
+            .execution_environment();
+        assert_eq!(env.get("PATH").unwrap(), "/usr/bin");
+        assert_eq!(env.get("TMPDIR").unwrap(), "/tmp");
+        assert!(!env.contains_key("HOME") && !env.contains_key("LD_LIBRARY_PATH"));
     }
 }
 

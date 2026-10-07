@@ -61,7 +61,6 @@ pub(crate) fn compile(profile: ExecutionProfile) -> io::Result<BpfProgram> {
         libc::SYS_dup,
         libc::SYS_dup2,
         libc::SYS_dup3,
-        libc::SYS_fcntl,
         libc::SYS_pipe,
         libc::SYS_pipe2,
         libc::SYS_poll,
@@ -203,6 +202,8 @@ pub(crate) fn compile(profile: ExecutionProfile) -> io::Result<BpfProgram> {
                 libc::PR_GET_SECUREBITS,
                 libc::PR_GET_KEEPCAPS,
                 libc::PR_GET_PDEATHSIG,
+                libc::PR_GET_NAME,
+                libc::PR_SET_NAME,
             ]
             .into_iter()
             .map(|op| Ok(vec![condition(0, SeccompCmpOp::Eq, op as u64)?]))
@@ -217,11 +218,54 @@ pub(crate) fn compile(profile: ExecutionProfile) -> io::Result<BpfProgram> {
             condition(2, SeccompCmpOp::Eq, 0)?,
         ]])?,
     );
+    // File/pipe descriptor operations only. Async signal ownership, leases,
+    // notify and arbitrary fcntl extensions are outside the language contract.
+    let mut fcntl = [
+        libc::F_GETFD,
+        libc::F_GETFL,
+        libc::F_DUPFD,
+        libc::F_DUPFD_CLOEXEC,
+    ]
+    .into_iter()
+    .map(|op| Ok(vec![condition(1, SeccompCmpOp::Eq, op as u64)?]))
+    .collect::<io::Result<Vec<_>>>()?;
+    fcntl.push(vec![
+        condition(1, SeccompCmpOp::Eq, libc::F_SETFD as u64)?,
+        condition(2, SeccompCmpOp::MaskedEq(!(libc::FD_CLOEXEC as u64)), 0)?,
+    ]);
+    // The kernel's O_LARGEFILE bit remains visible in F_GETFL on x86_64 even
+    // though libc's O_LARGEFILE macro is zero for its 64-bit userspace ABI.
+    let flags = (libc::O_ACCMODE
+        | libc::O_APPEND
+        | libc::O_NONBLOCK
+        | libc::O_SYNC
+        | libc::O_DSYNC
+        | libc::O_NOATIME) as u64
+        | 0x8000;
+    fcntl.push(vec![
+        condition(1, SeccompCmpOp::Eq, libc::F_SETFL as u64)?,
+        condition(2, SeccompCmpOp::MaskedEq(!flags), 0)?,
+    ]);
+    allowed.insert(libc::SYS_fcntl, rules(fcntl)?);
+    // Only non-mutating tty/pipe queries; no terminal injection/device control.
+    allowed.insert(
+        libc::SYS_ioctl,
+        rules(
+            [libc::TCGETS, libc::FIONREAD]
+                .into_iter()
+                .map(|op| Ok(vec![condition(1, SeccompCmpOp::Eq, op)?]))
+                .collect::<io::Result<_>>()?,
+        )?,
+    );
     // Initialization transport only. The FD is fixed, authenticated and
     // CLOEXEC; the final execution stage must additionally close/replace stdio.
-    for nr in [libc::SYS_recvmsg, libc::SYS_sendmsg] {
-        allowed.insert(nr, rules(vec![vec![condition(0, SeccompCmpOp::Eq, 3)?]])?);
-    }
+    allowed.insert(
+        libc::SYS_recvmsg,
+        rules(vec![vec![
+            condition(0, SeccompCmpOp::Eq, 3)?,
+            condition(2, SeccompCmpOp::Eq, libc::MSG_CMSG_CLOEXEC as u64)?,
+        ]])?,
+    );
     // UnixStream::write uses send(MSG_NOSIGNAL), encoded as sendto with no
     // destination on x86_64. It is not a network address exception.
     allowed.insert(
@@ -442,6 +486,78 @@ mod tests {
                 evaluate(&p, AUDIT_X86_64, libc::SYS_chmod as u32, [0; 6]),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn dangerous_calls_and_pointer_or_high_bit_argument_bypasses_are_denied() {
+        for profile in [
+            ExecutionProfile::Native,
+            ExecutionProfile::CompileC,
+            ExecutionProfile::CompileCpp,
+        ] {
+            let p = compile(profile).unwrap();
+            let deny = libc::SECCOMP_RET_ERRNO | libc::EPERM as u32;
+            for nr in [
+                libc::SYS_socket,
+                libc::SYS_socketpair,
+                libc::SYS_connect,
+                libc::SYS_ptrace,
+                libc::SYS_process_vm_readv,
+                libc::SYS_unshare,
+                libc::SYS_setns,
+                libc::SYS_mount,
+                libc::SYS_chroot,
+                libc::SYS_bpf,
+                libc::SYS_perf_event_open,
+                libc::SYS_io_uring_setup,
+                libc::SYS_userfaultfd,
+                libc::SYS_keyctl,
+                libc::SYS_capset,
+                libc::SYS_setuid,
+                libc::SYS_setgroups,
+                libc::SYS_kill,
+                libc::SYS_tgkill,
+                libc::SYS_seccomp,
+                libc::SYS_sendmsg,
+            ] {
+                assert_eq!(evaluate(&p, AUDIT_X86_64, nr as u32, [0; 6]), deny);
+            }
+            for (nr, args) in [
+                (libc::SYS_ioctl, [4, libc::TIOCSTI, 0, 0, 0, 0]),
+                (libc::SYS_ioctl, [4, (1 << 32) | libc::FIONREAD, 0, 0, 0, 0]),
+                (libc::SYS_fcntl, [4, libc::F_SETOWN as u64, 0, 0, 0, 0]),
+                (
+                    libc::SYS_fcntl,
+                    [4, libc::F_SETFL as u64, libc::O_ASYNC as u64, 0, 0, 0],
+                ),
+                (
+                    libc::SYS_prctl,
+                    [libc::PR_SET_DUMPABLE as u64, 0, 0, 0, 0, 0],
+                ),
+                (libc::SYS_prlimit64, [0, 0, 16, 0, 0, 0]),
+                (libc::SYS_sendto, [3, 0, 0, 0, 16, 0]),
+                (libc::SYS_recvmsg, [3, 0, 0, 0, 0, 0]),
+            ] {
+                assert_eq!(evaluate(&p, AUDIT_X86_64, nr as u32, args), deny);
+            }
+            for (nr, args) in [
+                (libc::SYS_ioctl, [4, libc::FIONREAD, 0, 0, 0, 0]),
+                (
+                    libc::SYS_fcntl,
+                    [4, libc::F_SETFL as u64, libc::O_NONBLOCK as u64, 0, 0, 0],
+                ),
+                (libc::SYS_prctl, [libc::PR_SET_NAME as u64, 16, 0, 0, 0, 0]),
+                (
+                    libc::SYS_recvmsg,
+                    [3, 0, libc::MSG_CMSG_CLOEXEC as u64, 0, 0, 0],
+                ),
+            ] {
+                assert_eq!(
+                    evaluate(&p, AUDIT_X86_64, nr as u32, args),
+                    libc::SECCOMP_RET_ALLOW
+                );
+            }
         }
     }
 }

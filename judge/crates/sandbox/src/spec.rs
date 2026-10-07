@@ -20,6 +20,16 @@ pub enum ExecutionProfile {
     CompileCpp,
 }
 
+impl ExecutionProfile {
+    /// Trusted image-local compiler tools only; never inherit the host PATH.
+    pub fn compiler_search_path(self) -> Option<&'static str> {
+        match self {
+            Self::Native => None,
+            Self::CompileC | Self::CompileCpp => Some("/usr/bin"),
+        }
+    }
+}
+
 /// Every field is explicit: omission cannot silently remove a resource limit.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -145,6 +155,22 @@ pub struct ValidatedSpec(ExecutionSpec);
 impl ValidatedSpec {
     pub fn spec(&self) -> &ExecutionSpec {
         &self.0
+    }
+
+    /// Apply only to a cleared environment after entering the private root.
+    /// Callers must not merge host variables. Requests cannot override these
+    /// image-local PATH/TMPDIR defaults through their environment whitelist.
+    pub fn execution_environment(&self) -> BTreeMap<String, String> {
+        let mut env = BTreeMap::from([
+            ("LANG".into(), "C".into()),
+            ("TZ".into(), "UTC".into()),
+            ("TMPDIR".into(), "/tmp".into()),
+        ]);
+        env.extend(self.0.env.clone());
+        if let Some(path) = self.0.profile.compiler_search_path() {
+            env.insert("PATH".into(), path.into());
+        }
+        env
     }
 }
 

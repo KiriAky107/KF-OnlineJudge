@@ -367,7 +367,7 @@ glibc 回退到受检查的 clone。过滤器由固定 Rust 数据生成，经 s
 安全 API 安装；请求不能传入 BPF。libc 仅提供 ABI 常量，依赖均限制在沙箱 crate。
 
 允许的语言操作仍受独立根目录、只读输入、任务身份和 cgroup 限额约束；seccomp
-不能检查路径字符串。控制通道 FD 3 的 recvmsg/sendmsg 和设置 I/O 超时仅用于可信
+不能检查路径字符串。控制通道 FD 3 的 recvmsg/sendto 和设置 I/O 超时仅用于可信
 初始化，FD 为 CLOEXEC；最终用户 stdio/FD 替换仍须另行验收。通用信号发送、网络
 创建、ptrace、namespace 重建和权限修改没有语言例外。pthread 取消/主动发送信号、
 用户自建 namespace、clone3 专用功能和非 x86_64 程序当前不受支持。
@@ -376,3 +376,23 @@ glibc 回退到受检查的 clone。过滤器由固定 Rust 数据生成，经 s
 fork/exec/pthread 的真实过滤器继承、i386 SIGSYS、x32 EPERM 和 clone3 ENOSYS。
 这些 fixture 仅在无共享挂载/无凭据、整体资源受限的独立 VM 中运行；普通 BPF
 回归不是内核隔离验收。进程树监督、最终 stdio 和完整运行安全验收仍待实现。
+
+危险能力的固定默认拒绝还覆盖 process_vm_*、mount/chroot/pivot、bpf/perf、
+io_uring/userfaultfd、keyctl、模块/kexec/reboot、身份/capability 变更和信号发送。
+fcntl 仅保留复制、读取 FD/flags、CLOEXEC 与普通同步/非阻塞/追加 flags，不允许
+异步信号所有权、O_ASYNC 或高位 flags；ioctl 仅允许 TCGETS/FIONREAD 查询。
+prctl 仅保留只读身份查询及本线程名称设置/查询，不能修改 dumpability 或过滤状态。
+seccomp 安装后的控制收包仅允许 FD 3 + MSG_CMSG_CLOEXEC，不再允许 sendmsg。
+
+`seccomp_capabilities_vm.rs` 的固定探针在相同降权身份、无过滤器时先确认 socket、
+socketpair、ptrace 和 dumpability 可用，再安装真实生产策略验证三 profile 的拒绝。
+语言探针使用 VM 内签名验证的只读 GNU 工具链副本视图和有界私有测试工作区，在
+生产编译 profile 下实际执行 gcc/g++，在 native 下运行动态 C/C++/pthread，检查
+空输入 EOF、二进制 I/O 和正常退出码 7。该探针独立验证 syscall 兼容性，不通过
+尚未完成的用户执行 API，也不将其当作完整 OJ 执行/stdio 验收。
+
+编译器子工具需要固定搜索路径。`ValidatedSpec::execution_environment()` 只从已校验
+的语言/时区变量和可信默认值生成环境；编译 profile 注入镜像内 `PATH=/usr/bin`，
+TMPDIR 指向私有 `/tmp`，native 不带 PATH。请求仍不能指定 PATH、TMPDIR、HOME
+或 loader 覆盖；最终 exec 必须先清空环境、进入私有根，再应用这份环境。VM 语言
+探针使用相同固定编译 PATH，仅将 TMPDIR 显式指向其有界测试工作区。
