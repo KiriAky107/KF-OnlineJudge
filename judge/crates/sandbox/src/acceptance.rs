@@ -7,6 +7,7 @@ use crate::{
     spec::{ExecutionSpec, SpecPolicy},
 };
 use std::{fs, io, io::Read, os::unix::fs::PermissionsExt, path::Path};
+mod normal;
 pub(crate) fn verify_guest(require_env: bool) -> io::Result<()> {
     if (require_env && std::env::var("KF_SANDBOX_INDEPENDENT_VM").as_deref() != Ok("1"))
         || fs::read_to_string("/kf/INDEPENDENT_VM")?.trim() != "isolated-test-guest"
@@ -33,6 +34,37 @@ pub(crate) fn verify_guest(require_env: bool) -> io::Result<()> {
 struct Fixture {
     cg: String,
     publications: String,
+}
+impl Fixture {
+    fn new(program: &str) -> io::Result<Self> {
+        let cg = format!("/sys/fs/cgroup/kf-acceptance-{}", std::process::id());
+        let publications = format!("/kf/execution-publications-{}", std::process::id());
+        fs::create_dir(&cg)?;
+        fs::create_dir(&publications)?;
+        fs::set_permissions(&cg, fs::Permissions::from_mode(0o700))?;
+        fs::set_permissions(&publications, fs::Permissions::from_mode(0o700))?;
+        let fixture = Self { cg, publications };
+        fs::copy(program, format!("{}/program-001", fixture.publications))?;
+        fs::write(
+            format!("{}/input-001", fixture.publications),
+            vec![0xa5; 65537],
+        )?;
+        Ok(fixture)
+    }
+    fn root(&self) -> io::Result<ArtifactRoot> {
+        ArtifactRoot::from_directory(rustix::fs::open(
+            &self.publications,
+            rustix::fs::OFlags::PATH | rustix::fs::OFlags::DIRECTORY | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )?)
+    }
+    fn config(&self) -> io::Result<crate::runtime::ValidatedRuntimeConfig> {
+        let mut config: RuntimeConfig = serde_json::from_str(include_str!(
+            "../../../../deploy/sandbox.runtime.example.json"
+        ))?;
+        config.delegated_cgroup_root = self.cg.clone();
+        config.validate().map_err(io::Error::other)
+    }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -82,6 +114,9 @@ fn prefix(file: &crate::artifacts::SnapshotFile) -> io::Result<String> {
 }
 pub fn run_case(case: &str) -> io::Result<serde_json::Value> {
     verify_guest(true)?;
+    if case.starts_with("normal-") {
+        return normal::run_case(case);
+    }
     let rollback = case.strip_prefix("cancel-").filter(|s| {
         matches!(
             *s,
@@ -112,31 +147,9 @@ pub fn run_case(case: &str) -> io::Result<serde_json::Value> {
         _ => return Err(io::Error::other("unknown fixed case")),
     };
     let id = format!("execution-{case}");
-    let cg = format!("/sys/fs/cgroup/kf-acceptance-{}", std::process::id());
-    let publications = format!("/kf/execution-publications-{}", std::process::id());
-    fs::create_dir(&cg)?;
-    fs::create_dir(&publications)?;
-    fs::set_permissions(&cg, fs::Permissions::from_mode(0o700))?;
-    fs::set_permissions(&publications, fs::Permissions::from_mode(0o700))?;
-    let fixture = Fixture { cg, publications };
-    fs::copy(
-        "/kf/bin/execution-fixture",
-        format!("{}/program-001", fixture.publications),
-    )?;
-    fs::write(
-        format!("{}/input-001", fixture.publications),
-        vec![0xa5; 65537],
-    )?;
-    let root = ArtifactRoot::from_directory(rustix::fs::open(
-        &fixture.publications,
-        rustix::fs::OFlags::PATH | rustix::fs::OFlags::DIRECTORY | rustix::fs::OFlags::CLOEXEC,
-        rustix::fs::Mode::empty(),
-    )?)?;
-    let mut config: RuntimeConfig = serde_json::from_str(include_str!(
-        "../../../../deploy/sandbox.runtime.example.json"
-    ))?;
-    config.delegated_cgroup_root = fixture.cg.clone();
-    let config = config.validate().map_err(io::Error::other)?;
+    let fixture = Fixture::new("/kf/bin/execution-fixture")?;
+    let root = fixture.root()?;
+    let config = fixture.config()?;
     let mut request: ExecutionSpec =
         serde_json::from_str(include_str!("../tests/fixtures/spec.valid.json"))?;
     request.run_id = id;
@@ -199,13 +212,21 @@ pub fn run_case(case: &str) -> io::Result<serde_json::Value> {
                 e.failure.stage, e.failure.errno, e.cleanup_failure
             ))
         })?;
-    verify_snapshot(&completed.stdout, case == "binary")?;
-    verify_snapshot(&completed.stderr, case == "binary")?;
+    describe(case, &spec, &completed, case == "binary")
+}
+fn describe(
+    case: &str,
+    spec: &crate::spec::ValidatedSpec,
+    completed: &run::Completed,
+    pattern: bool,
+) -> io::Result<serde_json::Value> {
+    verify_snapshot(&completed.stdout, pattern)?;
+    verify_snapshot(&completed.stderr, pattern)?;
     for o in &completed.outputs {
-        verify_snapshot(&o.file, case == "binary")?;
+        verify_snapshot(&o.file, pattern)?;
     }
-    let outcome = completed.report.classify(&spec).map_err(io::Error::other)?;
+    let outcome = completed.report.classify(spec).map_err(io::Error::other)?;
     let outputs=completed.outputs.iter().map(|o|Ok(serde_json::json!({"path":o.path,"bytes":o.file.bytes(),"prefix_hex":prefix(&o.file)?}))).collect::<io::Result<Vec<_>>>()?;
-    let result = serde_json::json!({"case":case,"immutable_snapshots_verified":true,"complete_binary_content_verified":case=="binary","report":completed.report,"outcome":outcome,"proof":completed.proof,"stdout_prefix_hex":prefix(&completed.stdout)?,"stderr_prefix_hex":prefix(&completed.stderr)?,"outputs":outputs});
+    let result = serde_json::json!({"case":case,"immutable_snapshots_verified":true,"complete_binary_content_verified":pattern,"report":completed.report,"outcome":outcome,"proof":completed.proof,"stdout_prefix_hex":prefix(&completed.stdout)?,"stderr_prefix_hex":prefix(&completed.stderr)?,"outputs":outputs});
     Ok(result)
 }
