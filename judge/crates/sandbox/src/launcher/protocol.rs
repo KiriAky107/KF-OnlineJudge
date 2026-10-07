@@ -67,6 +67,9 @@ pub enum NamespaceCommand {
         uid: u32,
         gid: u32,
     },
+    PrepareSeccomp {
+        profile: crate::spec::ExecutionProfile,
+    },
     Cancel {},
 }
 
@@ -80,6 +83,7 @@ pub enum NamespaceEvent {
     InputAttached {},
     InputsInitialized {},
     IdentityInitialized {},
+    SeccompInitialized {},
     Failed { errno: Option<u16> },
     Cancelled {},
 }

@@ -192,7 +192,14 @@ pub fn namespace_init(expected_outer_parent: u32, initialize_root: bool) -> io::
                     match channel.receive::<NamespaceCommand>()? {
                         NamespaceCommand::PrepareIdentity { uid, gid } => {
                             super::identity::initialize(&mut channel, uid, gid)?;
-                            let _ = channel.receive::<NamespaceCommand>()?;
+                            match channel.receive::<NamespaceCommand>()? {
+                                NamespaceCommand::PrepareSeccomp { profile } => {
+                                    super::seccomp::initialize(&mut channel, profile)?;
+                                    let _ = channel.receive::<NamespaceCommand>()?;
+                                }
+                                NamespaceCommand::Cancel {} => return Ok(()),
+                                _ => return Err(denied("seccomp command before identity")),
+                            }
                         }
                         NamespaceCommand::Cancel {} => return Ok(()),
                         _ => return Err(denied("identity command before inputs")),
@@ -219,6 +226,7 @@ pub struct NamespacedTarget {
     proc_dev_ready: bool,
     inputs_ready: bool,
     identity_ready: bool,
+    seccomp_ready: bool,
     init_pid: u32,
     ids: NamespaceIds,
 }
@@ -313,6 +321,7 @@ impl NamespacedTarget {
                 proc_dev_ready: false,
                 inputs_ready: false,
                 identity_ready: false,
+                seccomp_ready: false,
             }),
             Err(error) => Err(prepared.refuse_at(ExecutionStage::Namespaces, Some(&error))),
         }
@@ -402,6 +411,30 @@ impl NamespacedTarget {
             gid,
         )?;
         self.identity_ready = true;
+        Ok(())
+    }
+
+    pub(crate) fn initialize_seccomp(
+        &mut self,
+        profile: crate::spec::ExecutionProfile,
+    ) -> io::Result<()> {
+        if !self.identity_ready || self.seccomp_ready {
+            return Err(denied("seccomp initialization order"));
+        }
+        let status = std::fs::read_to_string(format!("/proc/{}/status", self.init_pid))?;
+        let before = status_value(&status, "Seccomp_filters:")?;
+        self.initialize_filesystem(
+            NamespaceCommand::PrepareSeccomp { profile },
+            NamespaceEvent::SeccompInitialized {},
+        )?;
+        let after = crate::isolation::seccomp::filter_count(&std::fs::read_to_string(format!(
+            "/proc/{}/status",
+            self.init_pid
+        ))?)?;
+        if before.checked_add(1) != Some(after) {
+            return Err(denied("seccomp filter count mismatch"));
+        }
+        self.seccomp_ready = true;
         Ok(())
     }
 

@@ -154,6 +154,13 @@ impl RootedTarget {
         self.lease.verify_root(self.bootstrap_pid())
     }
 
+    pub(crate) fn initialize_seccomp(&mut self) -> io::Result<()> {
+        self.target
+            .initialize_seccomp(self.request.spec().profile)?;
+        self.lease.verify_root(self.init_pid())?;
+        self.lease.verify_root(self.bootstrap_pid())
+    }
+
     pub(crate) fn refuse_stage(
         mut self,
         stage: ExecutionStage,

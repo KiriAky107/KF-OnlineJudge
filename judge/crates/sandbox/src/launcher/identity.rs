@@ -201,14 +201,26 @@ impl IdentityReducedTarget {
     pub fn stdin(&self) -> Option<&crate::artifacts::SnapshotFile> {
         self.target.as_ref().expect("owned target").stdin()
     }
-    pub fn refuse_remaining_isolation(mut self) -> InitializationFailure {
-        let target = self.target.take().expect("owned target");
-        let mut result = target
+    pub(crate) fn initialize_seccomp(&mut self) -> io::Result<()> {
+        self.target
+            .as_mut()
+            .expect("owned target")
             .target
             .root
-            .refuse_stage(ExecutionStage::Seccomp, None);
+            .initialize_seccomp()
+    }
+    pub(crate) fn refuse_at(
+        mut self,
+        stage: ExecutionStage,
+        error: Option<&io::Error>,
+    ) -> InitializationFailure {
+        let target = self.target.take().expect("owned target");
+        let mut result = target.target.root.refuse_stage(stage, error);
         release_after_cleanup(&mut self.lease, &mut result);
         result
+    }
+    pub fn refuse_remaining_isolation(self) -> InitializationFailure {
+        self.refuse_at(ExecutionStage::Seccomp, None)
     }
 }
 impl Drop for IdentityReducedTarget {

@@ -22,3 +22,5 @@ pub mod proc_dev;
 pub mod protocol;
 #[cfg(target_os = "linux")]
 pub mod root;
+#[cfg(target_os = "linux")]
+pub mod seccomp;

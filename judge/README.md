@@ -352,3 +352,27 @@ setuid-root 文件无法恢复权限，跨 UID 信号/ptrace/文件访问拒绝�
 注入真实 setgroups EPERM，验证失败回滚；它不构成生产 seccomp 策略。fixture 仅可在
 规定独立 VM 使用，没有向 CLI 增加用户执行命令。后续 seccomp、全任务树/stdio/计量
 和运行后清理仍未验收，`run` 继续拒绝。
+
+### 生产 seccomp 初始化检查点
+
+`launcher/seccomp.rs` 的 `FilteredTarget` 在已降权的固定 PID 1 安装策略，父监督器
+冻结后读回 `Seccomp=2`、`NoNewPrivs=1` 和增加一个过滤器；内核错误按 seccomp 阶段
+拒绝，并先清空/回收任务再释放身份租约。这个类型仍在 exec 阶段拒绝，CLI `run` 未启用。
+
+`isolation/seccomp.rs` 固定支持 Linux x86_64，按 native、compile_c、compile_cpp
+建立默认 EPERM 的 syscall 白名单；兼容 i386 ABI 终止整个调用进程，x32/未知编号
+拒绝。clone 只允许明确的普通 fork 或 pthread flags；编译 profile 另允许 vfork 和
+编译输出权限设置。clone3 的指针参数不可由经典 BPF 检查，因此返回 ENOSYS，交由
+glibc 回退到受检查的 clone。过滤器由固定 Rust 数据生成，经 seccompiler 0.5.0 的
+安全 API 安装；请求不能传入 BPF。libc 仅提供 ABI 常量，依赖均限制在沙箱 crate。
+
+允许的语言操作仍受独立根目录、只读输入、任务身份和 cgroup 限额约束；seccomp
+不能检查路径字符串。控制通道 FD 3 的 recvmsg/sendmsg 和设置 I/O 超时仅用于可信
+初始化，FD 为 CLOEXEC；最终用户 stdio/FD 替换仍须另行验收。通用信号发送、网络
+创建、ptrace、namespace 重建和权限修改没有语言例外。pthread 取消/主动发送信号、
+用户自建 namespace、clone3 专用功能和非 x86_64 程序当前不受支持。
+
+`seccomp_vm.rs` 及固定 VM fixture 验证集成 init 安装、冻结读回、失败清理，以及
+fork/exec/pthread 的真实过滤器继承、i386 SIGSYS、x32 EPERM 和 clone3 ENOSYS。
+这些 fixture 仅在无共享挂载/无凭据、整体资源受限的独立 VM 中运行；普通 BPF
+回归不是内核隔离验收。进程树监督、最终 stdio 和完整运行安全验收仍待实现。
