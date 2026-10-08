@@ -14,6 +14,9 @@ class BodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
         limit = 8192 if scope["path"] == "/api/v1/auth/login" else 1024 * 1024
+        if scope["path"] == "/api/v1/submissions":
+            # Max256KiB UTF-8 source, worst-case JSON escaping plus bounded metadata.
+            limit = 6 * 256 * 1024 + 8192
         headers = dict(scope.get("headers", []))
         length = headers.get(b"content-length")
         if length is not None:

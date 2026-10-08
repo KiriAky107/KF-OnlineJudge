@@ -10,6 +10,7 @@ from kf_oj.api.body_limits import BodyLimitMiddleware
 from kf_oj.api.v1.identity import router as identity_router
 from kf_oj.api.v1.problems import router as problems_router
 from kf_oj.api.v1.router import router
+from kf_oj.api.v1.submissions import router as submission_router
 from kf_oj.api.v1.worker_artifacts import router as worker_router
 from kf_oj.core.logging import configure_logging
 from kf_oj.core.settings import Settings
@@ -18,6 +19,7 @@ from kf_oj.infra.artifacts.store import ArtifactStore
 from kf_oj.infra.db.session import build_engine, build_session_factory
 from kf_oj.modules.identity.service import IdentityService
 from kf_oj.modules.problems.service import ProblemService
+from kf_oj.modules.submissions.service import SubmissionService
 from kf_oj.modules.submissions.worker_access import WorkerAccess
 
 
@@ -50,6 +52,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     app.state.sessions, artifacts, settings.judge_admission
                 )
                 if artifacts is not None:
+                    app.state.submissions = SubmissionService(
+                        app.state.sessions, app.state.problems, artifacts, settings.judge_admission
+                    )
                     app.state.worker_access = WorkerAccess(
                         app.state.sessions, app.state.problems, artifacts
                     )
@@ -58,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.identity = None
             app.state.problems = None
             app.state.worker_access = None
+            app.state.submissions = None
             if engine is not None:
                 await engine.dispose()
             if store is not None:
@@ -84,4 +90,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(identity_router, prefix="/api/v1")
     app.include_router(problems_router, prefix="/api/v1")
     app.include_router(worker_router, prefix="/api/v1")
+    app.include_router(submission_router, prefix="/api/v1")
     return app

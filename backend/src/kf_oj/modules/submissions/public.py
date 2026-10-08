@@ -8,3 +8,11 @@ class WorkerAccessDenied(ValueError):
 
 class WorkerReadBusy(ValueError):
     pass
+
+
+class IdempotencyConflict(ValueError):
+    pass
+
+
+class SubmissionBusy(ValueError):
+    pass

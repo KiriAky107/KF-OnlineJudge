@@ -25,6 +25,38 @@
         "title": "ArtifactReference",
         "type": "object"
       },
+      "CreateSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "format": "uuid",
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "source": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "problem_version_id",
+          "language",
+          "idempotency_key",
+          "source"
+        ],
+        "title": "CreateSubmission",
+        "type": "object"
+      },
       "CurrentUser": {
         "additionalProperties": false,
         "properties": {
@@ -466,6 +498,58 @@
           "workdir_bytes"
         ],
         "title": "RunLimits",
+        "type": "object"
+      },
+      "SubmissionCreated": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "evaluation_id": {
+            "format": "uuid",
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "claimed",
+              "compiling",
+              "running",
+              "cancelling",
+              "finished",
+              "cancelled",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "evaluation_id",
+          "problem_version_id",
+          "language",
+          "state",
+          "created_at"
+        ],
+        "title": "SubmissionCreated",
         "type": "object"
       },
       "TestCase": {
@@ -940,6 +1024,47 @@
         "summary": "Problem Version",
         "tags": [
           "problems"
+        ]
+      }
+    },
+    "/api/v1/submissions": {
+      "post": {
+        "operationId": "create_api_v1_submissions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create",
+        "tags": [
+          "submissions"
         ]
       }
     }
