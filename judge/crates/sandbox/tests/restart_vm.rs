@@ -229,8 +229,75 @@ impl Drop for Owner {
         let _ = fs::remove_dir_all(&self.publications);
         let _ = fs::remove_file("/kf/restart-ready");
         let _ = fs::remove_file("/kf/restart-runtime.json");
+        let _ = fs::remove_file("/kf/restart-cleanup");
         let _ = rustix::process::set_child_subreaper(self.previous);
     }
+}
+#[test]
+#[ignore = "independent capped VM: repeated real owner death reuses the same run and UID only after full recovery"]
+fn repeated_restarts_reuse_only_fully_reclaimed_identity() {
+    for round in 0..3 {
+        let mut owner = Owner::start("live");
+        assert_eq!(record()["uid"], 100000);
+        assert_eq!(record()["run_id"], "restart-live");
+        owner.crash();
+        assert_eq!(recover()["items"][0]["status"], "reclaimed");
+        owner.finish();
+        println!(
+            "KF_LIFECYCLE_REUSE_PROOF round={round} same_uid=100000 same_run=restart-live actual_user_exec=1 all_resources_gone=1"
+        );
+        drop(owner);
+    }
+}
+#[test]
+#[ignore = "independent capped VM: actual capture unlink ENOTEMPTY retains UID after all target processes and root are removed"]
+fn capture_cleanup_failure_retains_identity_until_restart_repair() {
+    let mut owner = Owner::start("capture");
+    let capture = format!("/var/lib/kf-judge/captures/kf-{}", owner.run_id);
+    // The controller sees the bare mountpoint; the supervisor has a private
+    // mounted tmpfs at the same path. Never delete this foreign file implicitly.
+    fs::write(
+        format!("{capture}/foreign"),
+        b"capture deletion must preserve me",
+    )
+    .unwrap();
+    fs::write("/kf/restart-cleanup", b"now").unwrap();
+    let output = owner.child.take().unwrap().wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["capture_cleanup_errno"], 39);
+    assert_eq!(v["failure"]["stage"], "exec");
+    assert_eq!(v["cleanup_error"]["stage"], "cleanup");
+    assert_eq!(v["cleanup_error"]["code"], "cleanup_incomplete");
+    assert_eq!(v["user_exec_released"], false);
+    assert_eq!(v["owned_children_finished"], true);
+    owner.reap();
+    assert!(!std::path::Path::new(&owner.group()).exists());
+    assert!(!std::path::Path::new(&owner.task()).exists());
+    assert_eq!(record()["uid"], 100000);
+    assert_eq!(
+        fs::read(format!("{capture}/foreign")).unwrap(),
+        b"capture deletion must preserve me"
+    );
+    let recovery = recover();
+    assert_eq!(recovery["items"][0]["status"], "cleanup_failed");
+    assert_eq!(
+        recovery["items"][0]["cleanup_error"]["code"],
+        "cleanup_incomplete"
+    );
+    assert!(std::path::Path::new(LEASE).exists());
+    fs::remove_file(format!("{capture}/foreign")).unwrap();
+    assert_eq!(recover()["items"][0]["status"], "reclaimed");
+    empty();
+    assert_eq!(recover()["items"], serde_json::json!([]));
+    println!(
+        "KF_LIFECYCLE_CAPTURE_PROOF {}",
+        serde_json::json!({"target_result":v,"reserved_uid":100000,"foreign_preserved":true,"all_owned_pidfds_exited":owner.members.len(),"root_and_group_removed_before_uid_release":true,"fresh_service_recovery_after_explicit_repair":true,"repeat_cleanup_empty":true})
+    );
 }
 #[test]
 #[ignore = "independent capped VM: real SIGKILL and service restart before/after user exec with surviving residual"]

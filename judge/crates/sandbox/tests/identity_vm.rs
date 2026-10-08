@@ -217,7 +217,7 @@ fn incomplete_target_cleanup_keeps_identity_reserved() {
     drop(next);
     assert_eq!(fs::read(task.join("foreign")).unwrap(), b"keep");
     // VM operator restores the test baseline only after proving both task
-    // cgroups/children gone. Production restart recovery is still unimplemented.
+    // cgroups/children gone. Fresh-process restart recovery is tested separately.
     fs::remove_file(task.join("foreign")).unwrap();
     fs::remove_dir(task).unwrap();
     fs::remove_file(Path::new(LEASES).join("uid-100000/owner.json")).unwrap();

@@ -98,7 +98,10 @@ pub(super) fn run_case(case: &str) -> io::Result<serde_json::Value> {
         std::thread::sleep(Duration::from_secs(30));
         return Ok(serde_json::json!({"residual_deadline":true}));
     }
-    if !matches!(case, "restart-prepared" | "restart-live") {
+    if !matches!(
+        case,
+        "restart-prepared" | "restart-live" | "restart-capture"
+    ) {
         return Err(io::Error::other("unknown fixed restart case"));
     }
     let fixture = Fixture::new("/kf/bin/isolation-probe")?;
@@ -132,13 +135,38 @@ pub(super) fn run_case(case: &str) -> io::Result<serde_json::Value> {
     let (mut lease, dir) = CaptureLease::prepare(&config, &spec)?;
     let (pump, stdio) = crate::io::PipePump::prepare(target.take_stdin(), &spec, dir)?;
     target.root_mut().target.prepare_execution(&spec, stdio)?;
-    let _child = ready(&config, &spec, "prepared")?;
+    let capture_case = case == "restart-capture";
+    let _child = ready(
+        &config,
+        &spec,
+        if capture_case { "capture" } else { "prepared" },
+    )?;
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline {
+        if capture_case && std::path::Path::new("/kf/restart-cleanup").exists() {
+            break;
+        }
         std::thread::sleep(Duration::from_millis(10));
     }
     drop(pump);
-    lease.cleanup()?;
+    let capture = lease.cleanup();
+    if capture_case {
+        // The controller owns this exact fixture and repairs its foreign bare
+        // capture entry only after proving the failed UID remains reserved.
+        // Keep the delegated anchor alive for the fresh restart helper.
+        std::mem::forget(fixture);
+        let result = target.refuse_at(crate::outcome::ExecutionStage::Exec, None);
+        let reaped = owned.finish()?;
+        let e = capture
+            .err()
+            .ok_or_else(|| io::Error::other("expected real capture deletion failure"))?;
+        return Ok(serde_json::json!({
+            "case":case,"failure":result.failure,"cleanup_error":result.cleanup_failure,
+            "capture_cleanup_errno":e.raw_os_error(),"reaped_owned_orphans":reaped,
+            "user_exec_released":false,"owned_children_finished":true
+        }));
+    }
+    capture?;
     let result = target.refuse_at(crate::outcome::ExecutionStage::Exec, None);
     owned.finish()?;
     fs::remove_file("/kf/restart-ready")?;
