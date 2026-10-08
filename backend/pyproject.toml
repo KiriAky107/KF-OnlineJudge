@@ -17,9 +17,11 @@ dependencies = [
     "asyncpg>=0.30,<1",
     "alembic>=1.15,<2",
     "aio-pika>=9.5,<10",
+    "argon2-cffi>=25.1,<26",
 ]
 
 [project.scripts]
+kf-accounts = "kf_oj.modules.identity.cli:main"
 kf-learning-worker = "kf_oj.workers.learning:main"
 kf-outbox-publisher = "kf_oj.workers.outbox:main"
 

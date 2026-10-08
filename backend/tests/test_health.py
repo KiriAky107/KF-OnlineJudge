@@ -21,7 +21,9 @@ def test_liveness_without_database_or_queue() -> None:
 
 
 def test_production_disables_api_documentation() -> None:
-    app = create_app(Settings(_env_file=None, environment="production"))
+    app = create_app(
+        Settings(_env_file=None, environment="production", browser_origins=("https://oj.example",))
+    )
 
     async def request():
         async with httpx.AsyncClient(
