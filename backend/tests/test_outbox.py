@@ -217,3 +217,31 @@ asyncio.run(main())
     finally:
         await broker.close()
         await connection.close()
+
+
+def test_actual_transport_failure_does_not_log_connection_credentials(caplog):
+    """Local protocol refusal exercises descendant client loggers without a broker/DB."""
+
+    async def refused_connection():
+        touched = asyncio.Event()
+
+        async def refuse(reader, writer):
+            touched.set()
+            writer.close()
+            await writer.wait_closed()
+
+        listener = await asyncio.start_server(refuse, "127.0.0.1", 0)
+        port = listener.sockets[0].getsockname()[1]
+        broker = ConfirmedBroker(f"amqp://fixture:private-sentinel@127.0.0.1:{port}/")
+        try:
+            with pytest.raises(aio_pika.exceptions.AMQPConnectionError):
+                await broker.publish((uuid4(), uuid4(), uuid4()))
+            assert touched.is_set(), "must reach actual local transport refusal"
+        finally:
+            await broker.close()
+            listener.close()
+            await listener.wait_closed()
+
+    asyncio.run(refused_connection())
+    assert "private-sentinel" not in caplog.text
+    assert "amqp://" not in caplog.text

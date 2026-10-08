@@ -67,6 +67,9 @@ class OutboxRepository:
 
 class ConfirmedBroker:
     def __init__(self, url):
+        # Parent disabled does not suppress descendant loggers; set their inherited level.
+        for name in ("aio_pika", "aiormq", "pamqp"):
+            logging.getLogger(name).setLevel(logging.CRITICAL)
         self.url = url
         self.connection = None
         self.channel = None
