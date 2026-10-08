@@ -51,6 +51,8 @@ fn shared_judging_examples_match_python() {
             roundtrip::<StageReport>(&bytes, invalid, &name);
         } else if name.starts_with("judge-result.") {
             roundtrip::<JudgementReport>(&bytes, invalid, &name);
+        } else if name.starts_with("judge-stopped.") {
+            roundtrip::<StoppedReport>(&bytes, invalid, &name);
         } else if name.starts_with("judge-admission.") {
             roundtrip::<AdmissionPolicy>(&bytes, invalid, &name);
         } else {

@@ -91,6 +91,7 @@ kind!(ManifestKind, "judge.manifest");
 kind!(LeaseKind, "judge.lease");
 kind!(StageKind, "judge.stage");
 kind!(ResultKind, "judge.result");
+kind!(StoppedKind, "judge.stopped");
 kind!(ImageKind, "linux_gnu_cxx_x86_64_v1");
 kind!(Comparison, "exact_bytes");
 
@@ -407,6 +408,19 @@ impl StageReport {
             return Err("testcase index only belongs to running phase");
         }
         Ok(())
+    }
+}
+// A trusted ordinary Worker attests actual Root stop/recovery proof. No execution
+// result is accepted through this path; current attempt/fence still bind it.
+validated_struct!(StoppedReport {
+    schema_version: SchemaVersion,
+    kind: StoppedKind,
+    binding: LeaseBinding,
+    cleanup_complete: bool,
+});
+impl StoppedReport {
+    pub fn validate(&self) -> Validation {
+        self.binding.validate()
     }
 }
 validated_struct!(CompilationReport {

@@ -24,7 +24,8 @@
   ],
   "cancelling": [
     "cancelled",
-    "failed"
+    "failed",
+    "queued"
   ],
   "finished": [],
   "cancelled": [],

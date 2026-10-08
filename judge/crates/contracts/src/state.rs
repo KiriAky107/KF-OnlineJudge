@@ -23,7 +23,7 @@ impl EvaluationState {
                 | (Claimed, Compiling | Cancelling | Failed | Queued)
                 | (Compiling, Running | Finished | Cancelling | Failed | Queued)
                 | (Running, Finished | Cancelling | Failed | Queued)
-                | (Cancelling, Cancelled | Failed)
+                | (Cancelling, Cancelled | Failed | Queued)
         )
     }
 }

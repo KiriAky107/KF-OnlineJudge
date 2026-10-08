@@ -27,7 +27,7 @@ class EvaluationState(StrEnum):
                 self.QUEUED,
             },
             self.RUNNING: {self.FINISHED, self.CANCELLING, self.FAILED, self.QUEUED},
-            self.CANCELLING: {self.CANCELLED, self.FAILED},
+            self.CANCELLING: {self.CANCELLED, self.FAILED, self.QUEUED},
         }
         return target in transitions.get(self, set())
 

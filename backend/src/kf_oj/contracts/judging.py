@@ -352,12 +352,20 @@ class AdmissionPolicy(WireModel):
             raise ValueError("job exceeds trusted node budget")
 
 
+class StoppedReport(WireModel):
+    schema_version: Version
+    kind: Literal["judge.stopped"]
+    binding: LeaseBinding
+    cleanup_complete: StrictBool
+
+
 WIRE_MODELS = {
     "judge-manifest": JobManifest,
     "judge-lease": LeaseGrant,
     "judge-stage": StageReport,
     "judge-result": JudgementReport,
     "judge-admission": AdmissionPolicy,
+    "judge-stopped": StoppedReport,
 }
 
 
