@@ -318,3 +318,21 @@ fn configuration_cannot_enable_execution_or_bypass_required_fields() {
     invalid.as_object_mut().unwrap().remove("aggregate");
     assert!(serde_json::from_value::<RuntimeConfig>(invalid).is_err());
 }
+
+#[test]
+fn task_and_image_roots_cannot_overlap_private_capture_storage() {
+    for field in ["tasks", "image"] {
+        for path in [
+            "/var/lib/kf-judge/captures",
+            "/var/lib/kf-judge/captures/nested",
+        ] {
+            let mut c = config();
+            if field == "tasks" {
+                c.tasks_root = path.into();
+            } else {
+                c.image_root = path.into();
+            }
+            assert_eq!(c.validate().unwrap_err().code, "capture_lease_overlap");
+        }
+    }
+}

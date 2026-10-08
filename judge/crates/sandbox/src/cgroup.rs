@@ -55,6 +55,7 @@ pub struct DelegatedCgroup {
     policy: SpecPolicy,
     quota: u64,
     period: u64,
+    recovery_config: ValidatedRuntimeConfig,
 }
 
 impl DelegatedCgroup {
@@ -117,6 +118,7 @@ impl DelegatedCgroup {
             policy: config.spec_policy(),
             quota: budget.task_cpu_quota_us,
             period: budget.cpu_period_us,
+            recovery_config: config.clone(),
         })
     }
 
@@ -192,6 +194,12 @@ impl DelegatedCgroup {
             // bootstrap. Charge all initialization and descendant CPU from
             // enrollment; never estimate/subtract setup or reset peak later.
             task.baseline = Some(task.accounting_snapshot()?);
+            crate::cleanup::register(
+                &self.recovery_config,
+                spec,
+                crate::cleanup::Resource::Cgroup,
+                &task.fd,
+            )?;
             Ok::<_, io::Error>(())
         })();
         if let Err(source) = setup {
@@ -442,7 +450,7 @@ fn open_directory(path: &Path) -> io::Result<OwnedFd> {
     Ok(fd)
 }
 
-fn read(fd: &OwnedFd, name: &str) -> io::Result<String> {
+pub(crate) fn read(fd: &OwnedFd, name: &str) -> io::Result<String> {
     let file = rustix::fs::openat(
         fd,
         name,
@@ -459,7 +467,7 @@ fn read(fd: &OwnedFd, name: &str) -> io::Result<String> {
     Ok(text)
 }
 
-fn write(fd: &OwnedFd, name: &str, value: &str) -> io::Result<()> {
+pub(crate) fn write(fd: &OwnedFd, name: &str, value: &str) -> io::Result<()> {
     let file = rustix::fs::openat(
         fd,
         name,

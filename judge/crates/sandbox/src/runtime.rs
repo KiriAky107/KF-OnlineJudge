@@ -77,7 +77,7 @@ fn invalid(field: &'static str, code: &'static str) -> ConfigError {
 }
 
 /// Immutable structural policy; deliberately not an execution permit.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ValidatedRuntimeConfig(RuntimeConfig);
 
 impl ValidatedRuntimeConfig {
@@ -153,6 +153,12 @@ impl RuntimeConfig {
             *root == &identity_root || inside(root, &identity_root) || inside(&identity_root, root)
         }) {
             return Err(invalid("roots", "identity_lease_overlap"));
+        }
+        let capture_root = format!("{}/captures", self.state_root);
+        if [&self.tasks_root, &self.image_root].iter().any(|root| {
+            *root == &capture_root || inside(root, &capture_root) || inside(&capture_root, root)
+        }) {
+            return Err(invalid("roots", "capture_lease_overlap"));
         }
         if !inside(&self.delegated_cgroup_root, "/sys/fs/cgroup") {
             return Err(invalid("delegated_cgroup_root", "not_delegated_subtree"));

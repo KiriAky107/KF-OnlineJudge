@@ -8,7 +8,7 @@ use crate::runtime::ValidatedRuntimeConfig;
 use crate::spec::ValidatedSpec;
 use rustix::fd::OwnedFd;
 use rustix::fs::{AtFlags, Mode, OFlags};
-use std::{io, io::Write, path::Path};
+use std::{io, path::Path};
 
 const DIR: OFlags = OFlags::RDONLY
     .union(OFlags::DIRECTORY)
@@ -26,12 +26,14 @@ fn private(fd: &OwnedFd) -> io::Result<()> {
 }
 
 struct IdentityLease {
+    config: ValidatedRuntimeConfig,
     parent: OwnedFd,
     slot: OwnedFd,
     name: String,
     uid: u32,
     gid: u32,
     removed: bool,
+    initialized: bool,
 }
 impl IdentityLease {
     fn acquire(config: &ValidatedRuntimeConfig, spec: &ValidatedSpec) -> Result<Self, RootError> {
@@ -71,33 +73,20 @@ impl IdentityLease {
                 }
             };
             let mut lease = Self {
+                config: config.clone(),
                 parent,
                 slot,
                 name,
                 uid,
                 gid,
                 removed: false,
+                initialized: false,
             };
             let setup = (|| {
                 rustix::fs::fchmod(&lease.slot, Mode::from_raw_mode(0o700))?;
                 private(&lease.slot)?;
-                let marker = rustix::fs::openat(
-                    &lease.slot,
-                    "owner.json",
-                    OFlags::WRONLY
-                        | OFlags::CREATE
-                        | OFlags::EXCL
-                        | OFlags::CLOEXEC
-                        | OFlags::NOFOLLOW,
-                    Mode::from_raw_mode(0o600),
-                )?;
-                let mut marker = std::fs::File::from(marker);
-                serde_json::to_writer(
-                    &mut marker,
-                    &serde_json::json!({"version":1,"run_id":spec.spec().run_id,"uid":uid,"gid":gid}),
-                )?;
-                marker.write_all(b"\n")?;
-                marker.sync_all()?;
+                crate::cleanup::initialize_slot(config, spec, &lease.slot, uid, gid)?;
+                lease.initialized = true;
                 rustix::fs::fsync(&lease.slot)?;
                 rustix::fs::fsync(&lease.parent)?;
                 Ok::<_, io::Error>(())
@@ -123,6 +112,19 @@ impl IdentityLease {
         let b = rustix::fs::fstat(&self.slot)?;
         if (a.st_dev, a.st_ino) != (b.st_dev, b.st_ino) {
             return Err(denied("identity marker changed"));
+        }
+        crate::cleanup::verify_release(&self.slot)?;
+        if self.initialized {
+            crate::cleanup::verify_released_resources(
+                &self.config,
+                &self.slot,
+                self.uid,
+                self.gid,
+            )?;
+        }
+        match rustix::fs::unlinkat(&self.slot, ".owner.next", AtFlags::empty()) {
+            Ok(()) | Err(rustix::io::Errno::NOENT) => {}
+            Err(e) => return Err(e.into()),
         }
         match rustix::fs::unlinkat(&self.slot, "owner.json", AtFlags::empty()) {
             Ok(()) | Err(rustix::io::Errno::NOENT) => {}
@@ -179,7 +181,9 @@ impl IdentityReducedTarget {
                 return Err(e);
             }
         };
-        if let Err(e) = target.target.root.initialize_rlimits() {
+        if let Err(e) = crate::cleanup::verify_owned(config, spec, false)
+            .and_then(|()| target.target.root.initialize_rlimits())
+        {
             let mut e = target
                 .target
                 .root

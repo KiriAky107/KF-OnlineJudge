@@ -57,13 +57,13 @@ pub(crate) fn cancel_stage(
             } else {
                 drop(stdio);
             }
+            drop(pump);
+            lease.cleanup()?;
+            lease.cleanup()?;
             let result = t.refuse_at(crate::outcome::ExecutionStage::Exec, None);
             if result.cleanup_failure.is_some() {
                 return Err(fail(result));
             }
-            drop(pump);
-            lease.cleanup()?;
-            lease.cleanup()?;
         }
         _ => return Err(io::Error::other("fixed preparation stage")),
     }

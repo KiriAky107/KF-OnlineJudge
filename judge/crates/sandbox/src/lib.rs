@@ -21,6 +21,8 @@ pub mod io;
 #[cfg(target_os = "linux")]
 pub mod accounting;
 #[cfg(target_os = "linux")]
+pub mod cleanup;
+#[cfg(target_os = "linux")]
 pub mod supervisor;
 
 #[cfg(all(target_os = "linux", feature = "vm-acceptance"))]

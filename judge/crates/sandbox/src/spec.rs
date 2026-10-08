@@ -208,7 +208,7 @@ fn error(field: &'static str, code: ValidationCode) -> SpecError {
     SpecError { field, code }
 }
 
-fn identifier(value: &str, field: &'static str) -> Result<(), SpecError> {
+pub(crate) fn identifier(value: &str, field: &'static str) -> Result<(), SpecError> {
     if value.is_empty()
         || value.len() > 64
         || !value

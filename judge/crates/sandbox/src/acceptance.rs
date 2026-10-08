@@ -10,6 +10,7 @@ use std::{fs, io, io::Read, os::unix::fs::PermissionsExt, path::Path};
 pub(crate) mod isolation;
 mod normal;
 mod resources;
+pub(crate) mod restart;
 pub(crate) fn verify_guest(require_env: bool) -> io::Result<()> {
     if (require_env && std::env::var("KF_SANDBOX_INDEPENDENT_VM").as_deref() != Ok("1"))
         || fs::read_to_string("/kf/INDEPENDENT_VM")?.trim() != "isolated-test-guest"
@@ -116,6 +117,9 @@ fn prefix(file: &crate::artifacts::SnapshotFile) -> io::Result<String> {
 }
 pub fn run_case(case: &str) -> io::Result<serde_json::Value> {
     verify_guest(true)?;
+    if case.starts_with("restart-") {
+        return restart::run_case(case);
+    }
     if case.starts_with("normal-") {
         return normal::run_case(case);
     }

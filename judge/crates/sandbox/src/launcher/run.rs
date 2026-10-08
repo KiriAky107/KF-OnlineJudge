@@ -44,6 +44,7 @@ pub(crate) enum MonitorMode {
     Normal,
     CancelAfter(u64),
     FailAfter(u64),
+    RestartReady,
 }
 fn capture(status: CaptureStatus, id: &str) -> OutputCapture {
     OutputCapture {
@@ -103,6 +104,7 @@ pub(crate) fn execute(
         let work = target.root().pin_work()?;
         let (lease, dir) = CaptureLease::prepare(config, spec)?;
         let (pump, stdio) = PipePump::prepare(target.take_stdin(), spec, dir)?;
+        crate::cleanup::verify_owned(config, spec, true)?;
         target.root_mut().target.prepare_execution(spec, stdio)?;
         Ok::<_, io::Error>((work, lease, pump))
     })();
@@ -158,6 +160,19 @@ pub(crate) fn execute(
                 errors.push(error(ExecutionStage::Exec, ErrorCode::ProtocolFailed, &e));
                 None
             }
+        };
+        // Fixed VM crash probe only: retain a real supervisor-owned residual
+        // child in the same marked cgroup to exercise post-crash startup kill.
+        let _restart_child = if matches!(mode, MonitorMode::RestartReady) && main_fd.is_some() {
+            match crate::acceptance::restart::ready(config, spec, "live") {
+                Ok(child) => Some(child),
+                Err(e) => {
+                    errors.push(error(ExecutionStage::Exec, ErrorCode::OperationFailed, &e));
+                    None
+                }
+            }
+        } else {
+            None
         };
         let mut monitoring_failed = !errors.is_empty();
         if !monitoring_failed {

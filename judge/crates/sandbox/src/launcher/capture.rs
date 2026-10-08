@@ -75,6 +75,9 @@ impl CaptureLease {
             removed: false,
         };
         let mount = (|| {
+            let bare = rustix::fs::openat(&lease.parent, lease.name.as_str(), DIR, Mode::empty())?;
+            crate::cleanup::register(config, spec, crate::cleanup::Resource::Capture, &bare)?;
+            drop(bare);
             let data = std::ffi::CString::new(format!("size={size},nr_inodes=16,mode=0700"))?;
             rustix::mount::mount(
                 "tmpfs",

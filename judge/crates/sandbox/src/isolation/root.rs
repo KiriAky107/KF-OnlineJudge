@@ -180,6 +180,7 @@ impl RootLease {
         };
         if let Err(source) = (|| {
             safe_directory(&lease.task)?;
+            crate::cleanup::register(config, spec, crate::cleanup::Resource::Task, &lease.task)?;
             rustix::fs::mkdirat(&lease.task, "root", Mode::from_raw_mode(0o700))?;
             lease.root_created = true;
             Ok::<_, io::Error>(())
