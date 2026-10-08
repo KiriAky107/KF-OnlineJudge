@@ -7,6 +7,7 @@ use crate::{
     spec::{ExecutionSpec, SpecPolicy},
 };
 use std::{fs, io, io::Read, os::unix::fs::PermissionsExt, path::Path};
+pub(crate) mod isolation;
 mod normal;
 mod resources;
 pub(crate) fn verify_guest(require_env: bool) -> io::Result<()> {
@@ -120,6 +121,9 @@ pub fn run_case(case: &str) -> io::Result<serde_json::Value> {
     }
     if case.starts_with("resource-") {
         return resources::run_case(case);
+    }
+    if case.starts_with("isolation-") {
+        return isolation::run_case(case);
     }
     let rollback = case.strip_prefix("cancel-").filter(|s| {
         matches!(
