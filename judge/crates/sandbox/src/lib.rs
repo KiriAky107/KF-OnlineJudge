@@ -1,7 +1,5 @@
-//! Linux execution boundary: policy/contract checks and read-only observations.
-//!
-//! Execution contracts and lifecycle ordering precede OS launcher/isolation work.
-//! Until that work is verified, the CLI cannot execute any user program.
+//! Linux execution boundary: policy, kernel gates, bounded supervision and recovery.
+//! Ordinary operator/Worker entries require trusted authority and active isolation.
 
 pub mod launcher;
 pub mod outcome;
@@ -32,3 +30,6 @@ mod isolation;
 
 #[cfg(target_os = "linux")]
 pub mod execution;
+
+#[cfg(target_os = "linux")]
+pub mod rpc;

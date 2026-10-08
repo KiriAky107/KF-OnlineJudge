@@ -40,6 +40,13 @@ enum Command {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    /// One authenticated Worker request, in a dedicated finite root helper scope.
+    ServeOne {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        socket: PathBuf,
+    },
     /// Internal trusted launcher control entry; never runs a user program.
     #[cfg(target_os = "linux")]
     #[command(hide = true)]
@@ -117,6 +124,21 @@ fn main() -> ExitCode {
             #[cfg(not(target_os = "linux"))]
             {
                 let _ = (config, spec, artifacts, output);
+                spec_error("unsupported_platform", None)
+            }
+        }
+        Command::ServeOne { config, socket } => {
+            #[cfg(target_os = "linux")]
+            match kf_sandbox::rpc::serve_one(&config, &socket) {
+                Ok(result) => {
+                    println!("{result}");
+                    ExitCode::SUCCESS
+                }
+                Err(_) => spec_error("worker_helper_refused", None),
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (config, socket);
                 spec_error("unsupported_platform", None)
             }
         }

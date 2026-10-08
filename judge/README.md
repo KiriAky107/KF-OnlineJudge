@@ -33,6 +33,31 @@ kf-sandbox run --config /etc/kf-judge/runtime.json --spec request.json   --artif
 
 完成任务树终止、cgroup 空读回、owned 子进程回收、最终计量和导出后，才移除资源并释放 UID。stdout/stderr 和输出文件为不可变快照。普通文件入口按 run ID 排他发布 `stdout`、`stderr`、`artifact-N`，先写自身临时目录再原子安装，不覆盖已有目录；清理未完成时不发布。
 
+## Worker 和 Engine 的最小链路
+
+服务管理器先在有限监督器 cgroup 内启动一个新的 `kf-sandbox serve-one --config /etc/kf-judge/runtime.json --socket /run/kf-judge/task.sock`。socket 的祖先须由 root 持有、不可被 Worker 写入并允许其搜索；socket 排他创建为 root:worker 的 0660，既有路径不覆盖。一次新进程只接收一次请求，等待连接和准备帧有绝对截止时间，不提供常驻消费循环。
+
+普通用户运行：
+
+```sh
+kf-worker judge-once --socket /run/kf-judge/task.sock \
+  --job native-job.json --artifacts /srv/kf-worker/publication
+```
+
+本地单用例作业示例（不是平台任务通知协议）：
+
+```json
+{"request":{"run_id":"case-001","program_artifact":"program-001","stdin_artifact":"input-001"},"expected_artifact":"expected-001"}
+```
+
+Worker 选取业务授权的自身发布目录，准备有界封印的期望输出，并向 Engine 注入 `ExecutionPort`。适配器构造 native 规格，仅绑定程序与 stdin，不将期望输出放入用户运行根。helper 根据 `SO_PEERCRED` 核验配置中的 Worker UID/GID；客户端核验 helper 的 root 凭据。有界私有帧与 `SCM_RIGHTS` 只传持有的目录能力和只读封印输出，收到的 FD 重新检查类型、长度、访问模式、封印和 CLOEXEC，不传任意宿主挂载路径。
+
+helper 不接管 root 或其他身份的输入工件；每任务保留相同的隔离和预算门控。执行中客户端断开或出现额外控制数据会取消全树，清理后退出。socket 清理核对自身 inode，不删除外来替换。业务发布目录的选择与业务授权仍属于可信 Worker；文件所有权不是业务授权证明。
+
+Engine 仅在真实、无基础设施错误的 exit 0 后逐字节比较输出。非零退出/信号为 RuntimeError，CPU/墙钟、内存、输出限制分别映射 TLE/MLE/OLE，取消与 SystemError 单独表达；不可用计量保持 null。汇总在 Engine 内按输入顺序确定，基础设施错误或取消停止后续执行；空用例和重复 run ID 在执行前拒绝。`judge-once` 返回结构化 verdict、用例与实际计量。新增 `serde` 直接依赖用于本地作业/领域结果类型，Engine 不引入 sandbox 或 OS 库。
+
+首轮提供 native 单用例和编译/运行沙箱能力；平台队列消费、完整提交编排、交互题、SPJ 和部署仍未实现。`kf-worker --check` 只检查入口，不消费或执行任务。权限 helper 和镜像必须由部署方配置，Worker 不调用 sudo、不修改账号或权限。
+
 ## 监督和恢复
 
 CPU 总时间与墙钟使用可信监督器和单调时钟；CPU 带宽仅用于节流。内存 OOM 和 pids 超限依据所属 cgroup 的真实事件及计量，不能凭 SIGKILL 推断 MLE。并发排空二进制 stdout/stderr，独立限额、截断和提前 stdin 关闭均保留实际证据。监督器最终报告保留计量不可用状态、全部限制观察、取消、退出状态和清理错误；比较与成绩属于 Engine。

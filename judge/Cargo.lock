@@ -377,6 +377,7 @@ name = "kf-engine"
 version = "0.0.1"
 dependencies = [
  "kf-contracts",
+ "serde",
 ]
 
 [[package]]
@@ -400,6 +401,7 @@ dependencies = [
  "kf-contracts",
  "kf-engine",
  "kf-sandbox",
+ "serde",
  "serde_json",
 ]
 

@@ -76,13 +76,19 @@ fn read_pinned(fd: OwnedFd, limit: u64) -> io::Result<Vec<u8>> {
     }
     Ok(bytes)
 }
-pub fn read_spec(path: &Path) -> io::Result<ExecutionSpec> {
+pub fn read_bounded_file(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
+    if limit == 0 || limit > crate::spec::MAX_SPEC_BYTES {
+        return Err(invalid("bounded JSON ceiling"));
+    }
     let fd = rustix::fs::open(
         path,
         OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
         Mode::empty(),
     )?;
-    serde_json::from_slice(&read_pinned(fd, crate::spec::MAX_SPEC_BYTES)?)
+    read_pinned(fd, limit)
+}
+pub fn read_spec(path: &Path) -> io::Result<ExecutionSpec> {
+    serde_json::from_slice(&read_bounded_file(path, crate::spec::MAX_SPEC_BYTES)?)
         .map_err(|_| invalid("invalid execution JSON"))
 }
 pub fn load_config(path: &Path) -> io::Result<ValidatedRuntimeConfig> {
@@ -207,7 +213,7 @@ pub(crate) fn execute(
     config: &ValidatedRuntimeConfig,
     request: ExecutionSpec,
     artifacts: &ArtifactRoot,
-    mode: run::MonitorMode,
+    mode: run::MonitorMode<'_>,
 ) -> Result<(run::Completed, ValidatedSpec), RunFailure> {
     authorize(config).map_err(|e| refused("runtime_not_ready", &e))?;
     let spec = request

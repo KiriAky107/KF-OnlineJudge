@@ -43,7 +43,7 @@ pub enum ChildMessage {
 }
 
 /// A distinct fixed initialization protocol. There is no argv, host path,
-/// readiness claim. VM acceptance builds add a separately verified final gate.
+/// readiness claim. The final execution gate requires actual kernel acknowledgements.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NamespaceCommand {
@@ -105,7 +105,7 @@ pub enum NamespaceEvent {
     Cancelled {},
 }
 
-mod sealed {
+pub(crate) mod sealed {
     pub trait Sealed {}
 }
 

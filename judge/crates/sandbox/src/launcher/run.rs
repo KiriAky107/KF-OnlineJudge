@@ -39,7 +39,8 @@ pub(crate) struct RunProof {
     pub order: Vec<&'static str>,
 }
 #[derive(Clone, Copy)]
-pub(crate) enum MonitorMode {
+pub(crate) enum MonitorMode<'a> {
+    Peer(&'a rustix::fd::OwnedFd),
     Normal,
     #[cfg(feature = "vm-acceptance")]
     CancelAfter(u64),
@@ -78,15 +79,28 @@ fn consume(event: BudgetEvent) -> (ResourceUsage, Vec<LimitObservation>) {
     }
 }
 
+fn peer_closed(fd: &rustix::fd::OwnedFd) -> io::Result<bool> {
+    use rustix::event::{PollFd, PollFlags, poll};
+    let mut f = [PollFd::new(
+        fd,
+        PollFlags::IN | PollFlags::HUP | PollFlags::ERR,
+    )];
+    poll(
+        &mut f,
+        Some(&rustix::event::Timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        }),
+    )?;
+    Ok(!f[0].revents().is_empty())
+}
 pub(crate) fn execute(
     config: &ValidatedRuntimeConfig,
     spec: &ValidatedSpec,
     binary: &Path,
     artifacts: &ArtifactRoot,
-    mode: MonitorMode,
+    mode: MonitorMode<'_>,
 ) -> Result<Completed, InitializationFailure> {
-    #[cfg(not(feature = "vm-acceptance"))]
-    let _ = mode;
     let mut owned = OwnedChildren::begin().map_err(|e| InitializationFailure {
         failure: error(ExecutionStage::Preparation, ErrorCode::OperationFailed, &e),
         cleanup_failure: None,
@@ -114,10 +128,7 @@ pub(crate) fn execute(
     let bootstrap = target.root().bootstrap_pid();
     let mut errors = Vec::new();
     let mut output_limits = Vec::new();
-    #[cfg(feature = "vm-acceptance")]
     let mut cancelled = None;
-    #[cfg(not(feature = "vm-acceptance"))]
-    let cancelled: Option<u64> = None;
     let mut main = None;
     let mut reaped_descendants = 0;
     let mut order = vec!["verified_isolation", "exec_gate"];
@@ -146,6 +157,14 @@ pub(crate) fn execute(
             });
         }
         let released = (|| {
+            if let MonitorMode::Peer(fd) = mode
+                && peer_closed(fd)?
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "client disconnected before exec",
+                ));
+            }
             ns.control.send(&NamespaceCommand::ReleaseExecution {})?;
             budget.release_prepared_gate(&[bootstrap, init], &ns.init_pidfd)?;
             if ns.control.receive::<NamespaceEvent>()? != (NamespaceEvent::ExecutionSpawned {}) {
@@ -256,8 +275,10 @@ pub(crate) fn execute(
                         monitoring_failed = true;
                     }
                 }
-                #[cfg(feature = "vm-acceptance")]
                 match mode {
+                    MonitorMode::Peer(fd) if peer_closed(fd).unwrap_or(true) => {
+                        cancelled = Some(wall(&usage));
+                    }
                     #[cfg(feature = "vm-acceptance")]
                     MonitorMode::CancelAfter(t) if wall(&usage) >= t => {
                         cancelled = Some(wall(&usage))

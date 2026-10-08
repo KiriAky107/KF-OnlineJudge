@@ -247,7 +247,7 @@ impl std::error::Error for ReportError {}
 
 impl ExecutionReport {
     /// Consistency checks on trusted observations. This does not verify OS
-    /// isolation and never changes the CLI's refusal to execute.
+    /// isolation or supply an execution permit.
     pub fn classify(&self, spec: &ValidatedSpec) -> Result<ExecutionOutcome, ReportError> {
         let limits = &spec.spec().limits;
         if self.run_id != spec.spec().run_id || self.errors.len() > 16 || self.limits.len() > 8 {

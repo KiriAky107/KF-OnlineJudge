@@ -35,6 +35,23 @@ pub struct SnapshotFile {
 }
 
 impl SnapshotFile {
+    pub(crate) fn from_received(fd: OwnedFd, bytes: u64) -> io::Result<Self> {
+        let st = rustix::fs::fstat(&fd)?;
+        if FileType::from_raw_mode(st.st_mode) != FileType::RegularFile
+            || st.st_size < 0
+            || st.st_size as u64 != bytes
+            || bytes > MAX_SNAPSHOT_BYTES
+            || rustix::fs::fcntl_getfl(&fd)?.intersection(OFlags::ACCMODE) != OFlags::RDONLY
+            || !rustix::fs::fcntl_get_seals(&fd)?.contains(SEALS)
+            || !rustix::io::fcntl_getfd(&fd)?.contains(rustix::io::FdFlags::CLOEXEC)
+        {
+            return Err(refused("invalid received snapshot"));
+        }
+        Ok(Self {
+            file: File::from(fd),
+            bytes,
+        })
+    }
     pub fn bytes(&self) -> u64 {
         self.bytes
     }
@@ -106,10 +123,40 @@ pub struct ArtifactRoot {
     owner: u32,
 }
 
+impl AsFd for ArtifactRoot {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
+    }
+}
 impl ArtifactRoot {
+    pub fn open(path: &std::path::Path) -> io::Result<Self> {
+        Self::from_directory(rustix::fs::open(
+            path,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?)
+    }
+    pub fn snapshot_artifact(&self, id: &str, limit: u64) -> io::Result<SnapshotFile> {
+        if limit == 0 || limit > MAX_SNAPSHOT_BYTES {
+            return Err(refused("snapshot ceiling"));
+        }
+        let mut budget = SnapshotBudget {
+            file_bytes: limit,
+            remaining_bytes: limit,
+        };
+        self.snapshot_id(id, &mut budget, false)
+    }
+    pub(crate) fn from_worker_directory(fd: OwnedFd, owner: u32) -> io::Result<Self> {
+        if owner < 1000 {
+            return Err(refused("ordinary publication owner"));
+        }
+        Self::with_owner(fd, owner)
+    }
     pub fn from_directory(fd: OwnedFd) -> io::Result<Self> {
+        Self::with_owner(fd, rustix::process::geteuid().as_raw())
+    }
+    fn with_owner(fd: OwnedFd, owner: u32) -> io::Result<Self> {
         let stat = rustix::fs::fstat(&fd)?;
-        let owner = rustix::process::geteuid().as_raw();
         if FileType::from_raw_mode(stat.st_mode) != FileType::Directory
             || stat.st_uid != owner
             || stat.st_mode & 0o022 != 0
