@@ -6,6 +6,7 @@ from pathlib import Path
 
 from kf_oj.api.app import create_app
 from kf_oj.contracts.judge import JudgeTaskNotification
+from kf_oj.contracts.judging import WIRE_MODELS
 from kf_oj.core.settings import Settings
 
 
@@ -23,6 +24,15 @@ def main() -> None:
             Settings(_env_file=None, environment="test")
         ).openapi(),
     }
+    for name, model in WIRE_MODELS.items():
+        document = model.model_json_schema()
+        document["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+        document["$id"] = f"urn:kf-oj:{name}:v1"
+        document["$comment"] = (
+            "Structural schema; also run versioned model validation for cross-field "
+            "budgets, result consistency, UUID canonical form and UTF-8 byte limits."
+        )
+        outputs[root / f"contracts/schemas/{name}.v1.schema.json"] = document
     stale = []
     for path, document in outputs.items():
         content = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"

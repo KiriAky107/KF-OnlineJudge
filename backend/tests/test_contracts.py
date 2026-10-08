@@ -19,7 +19,11 @@ def test_shared_wire_examples(path: Path) -> None:
     if ".invalid-" in path.name:
         with pytest.raises(ValidationError):
             JudgeTaskNotification.model_validate(payload)
-        assert not validator.is_valid(payload)
+        if ".invalid-semantic-" in path.name:
+            # JSON Schema counts 1.0 as an integer; the wire decoder forbids coercion.
+            assert validator.is_valid(payload)
+        else:
+            assert not validator.is_valid(payload)
     else:
         notification = JudgeTaskNotification.model_validate(payload)
         validator.validate(payload)

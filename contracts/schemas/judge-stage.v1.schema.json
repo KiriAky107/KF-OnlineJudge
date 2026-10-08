@@ -1,0 +1,94 @@
+{
+  "$comment": "Structural schema; also run versioned model validation for cross-field budgets, result consistency, UUID canonical form and UTF-8 byte limits.",
+  "$defs": {
+    "LeaseBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "format": "uuid",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "evaluation_id": {
+          "format": "uuid",
+          "title": "Evaluation Id",
+          "type": "string"
+        },
+        "fencing_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Fencing Version",
+          "type": "integer"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evaluation_id",
+        "attempt_id",
+        "worker_id",
+        "fencing_version"
+      ],
+      "title": "LeaseBinding",
+      "type": "object"
+    }
+  },
+  "$id": "urn:kf-oj:judge-stage:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "binding": {
+      "$ref": "#/$defs/LeaseBinding"
+    },
+    "case_index": {
+      "anyOf": [
+        {
+          "exclusiveMaximum": 256,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Case Index"
+    },
+    "kind": {
+      "const": "judge.stage",
+      "title": "Kind",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sequence": {
+      "maximum": 9223372036854775807,
+      "minimum": 1,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "stage": {
+      "enum": [
+        "compiling",
+        "running"
+      ],
+      "title": "Stage",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "binding",
+    "sequence",
+    "stage",
+    "case_index"
+  ],
+  "title": "StageReport",
+  "type": "object"
+}

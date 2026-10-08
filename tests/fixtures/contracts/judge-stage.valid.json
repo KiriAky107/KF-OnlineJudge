@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "kind": "judge.stage",
+  "binding": {
+    "evaluation_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+    "attempt_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000007",
+    "worker_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000008",
+    "fencing_version": 1
+  },
+  "sequence": 1,
+  "stage": "compiling",
+  "case_index": null
+}
