@@ -22,6 +22,8 @@ dependencies = [
 
 [project.scripts]
 kf-accounts = "kf_oj.modules.identity.cli:main"
+kf-problems = "kf_oj.modules.problems.cli:main"
+kf-artifacts = "kf_oj.infra.artifacts.cli:main"
 kf-learning-worker = "kf_oj.workers.learning:main"
 kf-outbox-publisher = "kf_oj.workers.outbox:main"
 

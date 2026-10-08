@@ -8,11 +8,17 @@ from starlette.responses import JSONResponse
 from kf_oj import __version__
 from kf_oj.api.body_limits import BodyLimitMiddleware
 from kf_oj.api.v1.identity import router as identity_router
+from kf_oj.api.v1.problems import router as problems_router
 from kf_oj.api.v1.router import router
+from kf_oj.api.v1.worker_artifacts import router as worker_router
 from kf_oj.core.logging import configure_logging
 from kf_oj.core.settings import Settings
+from kf_oj.infra.artifacts.repository import ArtifactRepository
+from kf_oj.infra.artifacts.store import ArtifactStore
 from kf_oj.infra.db.session import build_engine, build_session_factory
 from kf_oj.modules.identity.service import IdentityService
+from kf_oj.modules.problems.service import ProblemService
+from kf_oj.modules.submissions.worker_access import WorkerAccess
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -24,6 +30,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         logger = logging.getLogger("kf_oj.api")
         logger.info("Platform API started")
         engine = None
+        store = None
         try:
             if settings.database_url is not None:
                 engine = build_engine(settings)
@@ -31,11 +38,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 app.state.identity = IdentityService(
                     app.state.sessions, lifetime_seconds=settings.session_lifetime_seconds
                 )
+                artifacts = None
+                if settings.artifact_root is not None:
+                    store = ArtifactStore(
+                        settings.artifact_root,
+                        max_bytes=settings.artifact_max_bytes,
+                        max_files=settings.artifact_max_files,
+                    )
+                    artifacts = ArtifactRepository(store)
+                app.state.problems = ProblemService(
+                    app.state.sessions, artifacts, settings.judge_admission
+                )
+                if artifacts is not None:
+                    app.state.worker_access = WorkerAccess(
+                        app.state.sessions, app.state.problems, artifacts
+                    )
             yield
         finally:
             app.state.identity = None
+            app.state.problems = None
+            app.state.worker_access = None
             if engine is not None:
                 await engine.dispose()
+            if store is not None:
+                store.close()
             logger.info("Platform API stopped")
 
     app = FastAPI(
@@ -56,4 +82,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(router, prefix="/api/v1")
     app.include_router(identity_router, prefix="/api/v1")
+    app.include_router(problems_router, prefix="/api/v1")
+    app.include_router(worker_router, prefix="/api/v1")
     return app

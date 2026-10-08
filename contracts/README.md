@@ -33,3 +33,8 @@ Coordinator 必须在事务锁内核对当前租约及状态规则，并将结�
 `cancelled`；清理失败必须保留独立故障，缺失计量始终为 null。
 
 生成器 `export.py` 是开发工具，允许读取 API 组合层；运行期的契约模型禁止依赖业务模块。
+# 任务清单字节身份
+
+Python/Rust 的 `manifest_bytes` 输出同一 UTF-8 JSON：递归排序对象键，无额外空白/换行。
+清单摘要是这些确切字节的 SHA-256，不能使用数据库 JSONB 的输出顺序或任意 prettify 后的字节。
+共享 `canonical-manifest.v1.txt` 为合成示例的字节验收，平台内部响应复用这些序列化字节。

@@ -162,6 +162,17 @@ class JobManifest(WireModel):
         return self
 
 
+def manifest_bytes(manifest: JobManifest) -> bytes:
+    """Stable UTF-8 bytes for persisted snapshots and their SHA-256 identity."""
+    return json.dumps(
+        manifest.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+
 class LeaseBinding(WireModel):
     evaluation_id: Identifier
     attempt_id: Identifier

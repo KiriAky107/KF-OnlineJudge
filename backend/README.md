@@ -15,11 +15,12 @@ make api
 make worker-check
 ```
 
-API 当前只有 `/api/v1/health/live`，不连接数据库或消息队列。
+API 提供存活、真实登录/退出/当前用户、公开题目与有效 Worker 租约的清单/工件读取。
+配置数据库后在 lifespan 内组合模块，配置缺失时业务端口明确不可用，存活接口仍可用。
 Worker 目前仅支持 `--check`，默认拒绝进入尚未实现的任务循环。
-日志、配置和迁移入口已建立；业务表、登录、判题投递和模型接入尚未实现。
+提交创建、判题投递/成绩和模型接入尚未实现。账号/题目/工件命令及限制见对应模块 README。
 
 Python 虚拟环境位于 `backend/.venv`，可在 `backend/` 直接使用 `uv sync --locked` 和 `uv run --locked`。
-数据库由 Alembic 唯一管理；业务模型落地后在 `migrations/env.py` 中显式登记元数据。
+数据库由 Alembic 唯一管理；业务模型在 `migrations/env.py` 中显式登记元数据。
 不要用 API 启动时的 `create_all` 代替迁移，也不要让 Rust 维护另一套迁移历史。
 配置示例在 `.env.example`；执行迁移前复制为 `.env` 并设置实际数据库连接。

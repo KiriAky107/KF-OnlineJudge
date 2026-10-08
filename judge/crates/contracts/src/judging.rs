@@ -20,6 +20,28 @@ pub fn decode_wire<T: serde::de::DeserializeOwned>(payload: &[u8]) -> Result<T, 
     serde_json::from_slice(payload).map_err(|_| "invalid wire payload")
 }
 
+/// Canonical snapshot bytes: UTF-8 JSON, recursively sorted object keys, no extra whitespace.
+pub fn manifest_bytes(manifest: &JobManifest) -> Result<Vec<u8>, &'static str> {
+    manifest.validate()?;
+    let mut value = serde_json::to_value(manifest).map_err(|_| "invalid manifest")?;
+    fn sorted(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                let mut entries: Vec<_> = std::mem::take(map).into_iter().collect();
+                entries.sort_by(|a, b| a.0.cmp(&b.0));
+                for (_, nested) in &mut entries {
+                    sorted(nested);
+                }
+                *map = entries.into_iter().collect();
+            }
+            serde_json::Value::Array(values) => values.iter_mut().for_each(sorted),
+            _ => {}
+        }
+    }
+    sorted(&mut value);
+    serde_json::to_vec(&value).map_err(|_| "invalid manifest")
+}
+
 fn bounded(value: u64, min: u64, max: u64) -> Validation {
     if (min..=max).contains(&value) {
         Ok(())

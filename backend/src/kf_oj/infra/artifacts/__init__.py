@@ -1,1 +1,1 @@
-"""Reserved for authenticated artifact access and digest verification."""
+"""Digest-addressed immutable storage; business ports enforce authorization."""

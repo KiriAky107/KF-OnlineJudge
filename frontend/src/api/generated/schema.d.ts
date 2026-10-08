@@ -75,10 +75,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/evaluations/{evaluation_id}/attempts/{attempt_id}/artifacts/{digest}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Artifact */
+        get: operations["artifact_api_v1_internal_evaluations__evaluation_id__attempts__attempt_id__artifacts__digest__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/evaluations/{evaluation_id}/attempts/{attempt_id}/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Manifest */
+        get: operations["manifest_api_v1_internal_evaluations__evaluation_id__attempts__attempt_id__manifest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/problems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Problems */
+        get: operations["list_problems_api_v1_problems_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/problems/versions/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Problem Version */
+        get: operations["problem_version_api_v1_problems_versions__version_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ArtifactReference */
+        ArtifactReference: {
+            /** Bytes */
+            bytes: number;
+            /** Digest */
+            digest: string;
+        };
         /** CurrentUser */
         CurrentUser: {
             /**
@@ -109,6 +184,53 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** JobManifest */
+        JobManifest: {
+            /** Cases */
+            cases: components["schemas"]["TestCase"][];
+            /**
+             * Comparison
+             * @constant
+             */
+            comparison: "exact_bytes";
+            compile_limits: components["schemas"]["RunLimits"];
+            /**
+             * Evaluation Id
+             * Format: uuid
+             */
+            evaluation_id: string;
+            /** Job Wall Time Us */
+            job_wall_time_us: number;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "judge.manifest";
+            language: components["schemas"]["Language"];
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            run_limits: components["schemas"]["RunLimits"];
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            source: components["schemas"]["ArtifactReference"];
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            toolchain: components["schemas"]["Toolchain"];
+        };
+        /**
+         * Language
+         * @enum {string}
+         */
+        Language: "c17" | "cpp20";
         /** LoginRequest */
         LoginRequest: {
             /**
@@ -129,6 +251,118 @@ export interface components {
              */
             expires_at: string;
             user: components["schemas"]["CurrentUser"];
+        };
+        /** ProblemDetail */
+        ProblemDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Languages */
+            languages: components["schemas"]["Language"][];
+            /** Revision */
+            revision: number;
+            run_limits: components["schemas"]["RunLimits"];
+            /** Samples */
+            samples: components["schemas"]["PublicSample"][];
+            /** Slug */
+            slug: string;
+            /** Statement */
+            statement: string;
+            /** Title */
+            title: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** ProblemPage */
+        ProblemPage: {
+            /** Items */
+            items: components["schemas"]["ProblemSummary"][];
+            /** Next After */
+            next_after: string | null;
+        };
+        /** ProblemSummary */
+        ProblemSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Languages */
+            languages: components["schemas"]["Language"][];
+            /** Revision */
+            revision: number;
+            /** Slug */
+            slug: string;
+            /** Title */
+            title: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** PublicSample */
+        PublicSample: {
+            /**
+             * Encoding
+             * @default base64
+             * @constant
+             */
+            encoding: "base64";
+            /** Input */
+            input: string;
+            /** Output */
+            output: string;
+        };
+        /** RunLimits */
+        RunLimits: {
+            /** Cpu Time Us */
+            cpu_time_us: number;
+            /** File Bytes */
+            file_bytes: number;
+            /** Memory Bytes */
+            memory_bytes: number;
+            /** Open Files */
+            open_files: number;
+            /** Processes */
+            processes: number;
+            /** Stack Bytes */
+            stack_bytes: number;
+            /** Stderr Bytes */
+            stderr_bytes: number;
+            /** Stdout Bytes */
+            stdout_bytes: number;
+            /** Wall Time Us */
+            wall_time_us: number;
+            /** Workdir Bytes */
+            workdir_bytes: number;
+        };
+        /** TestCase */
+        TestCase: {
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            expected: components["schemas"]["ArtifactReference"];
+            input: components["schemas"]["ArtifactReference"];
+        };
+        /** Toolchain */
+        Toolchain: {
+            /**
+             * Image Kind
+             * @constant
+             */
+            image_kind: "linux_gnu_cxx_x86_64_v1";
+            /** Image Revision */
+            image_revision: number;
+            /** Toolchain Id */
+            toolchain_id: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -239,6 +473,140 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    artifact_api_v1_internal_evaluations__evaluation_id__attempts__attempt_id__artifacts__digest__get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Worker-ID": string;
+                "X-Fencing-Version": number;
+            };
+            path: {
+                evaluation_id: string;
+                attempt_id: string;
+                digest: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    manifest_api_v1_internal_evaluations__evaluation_id__attempts__attempt_id__manifest_get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Worker-ID": string;
+                "X-Fencing-Version": number;
+            };
+            path: {
+                evaluation_id: string;
+                attempt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobManifest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_problems_api_v1_problems_get: {
+        parameters: {
+            query?: {
+                after?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    problem_version_api_v1_problems_versions__version_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

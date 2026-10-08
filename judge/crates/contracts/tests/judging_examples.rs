@@ -9,6 +9,15 @@ fn fixtures() -> PathBuf {
 fn fixture<T: DeserializeOwned>(name: &str) -> T {
     decode_wire(&fs::read(fixtures().join(format!("{name}.valid.json"))).unwrap()).unwrap()
 }
+
+#[test]
+fn canonical_manifest_bytes_match_python_snapshot() {
+    let manifest: JobManifest = fixture("judge-manifest");
+    assert_eq!(
+        manifest_bytes(&manifest).unwrap(),
+        fs::read(fixtures().join("canonical-manifest.v1.txt")).unwrap()
+    );
+}
 fn roundtrip<T: DeserializeOwned + serde::Serialize>(bytes: &[u8], invalid: bool, name: &str) {
     let result = decode_wire::<T>(bytes);
     if invalid {

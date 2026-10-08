@@ -1,6 +1,30 @@
 {
   "components": {
     "schemas": {
+      "ArtifactReference": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "maximum": 67108864.0,
+            "minimum": 0.0,
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "digest": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "digest",
+          "bytes"
+        ],
+        "title": "ArtifactReference",
+        "type": "object"
+      },
       "CurrentUser": {
         "additionalProperties": false,
         "properties": {
@@ -60,6 +84,96 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "JobManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/TestCase"
+            },
+            "maxItems": 256,
+            "minItems": 1,
+            "title": "Cases",
+            "type": "array"
+          },
+          "comparison": {
+            "const": "exact_bytes",
+            "title": "Comparison",
+            "type": "string"
+          },
+          "compile_limits": {
+            "$ref": "#/components/schemas/RunLimits"
+          },
+          "evaluation_id": {
+            "format": "uuid",
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "job_wall_time_us": {
+            "maximum": 3600000000.0,
+            "minimum": 1000.0,
+            "title": "Job Wall Time Us",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "judge.manifest",
+            "title": "Kind",
+            "type": "string"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "run_limits": {
+            "$ref": "#/components/schemas/RunLimits"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          },
+          "toolchain": {
+            "$ref": "#/components/schemas/Toolchain"
+          }
+        },
+        "required": [
+          "schema_version",
+          "kind",
+          "evaluation_id",
+          "submission_id",
+          "problem_version_id",
+          "language",
+          "toolchain",
+          "source",
+          "cases",
+          "comparison",
+          "compile_limits",
+          "run_limits",
+          "job_wall_time_us"
+        ],
+        "title": "JobManifest",
+        "type": "object"
+      },
+      "Language": {
+        "enum": [
+          "c17",
+          "cpp20"
+        ],
+        "title": "Language",
+        "type": "string"
+      },
       "LoginRequest": {
         "additionalProperties": false,
         "properties": {
@@ -111,6 +225,300 @@
         "title": "LoginResponse",
         "type": "object"
       },
+      "ProblemDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/Language"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "run_limits": {
+            "$ref": "#/components/schemas/RunLimits"
+          },
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/PublicSample"
+            },
+            "title": "Samples",
+            "type": "array"
+          },
+          "slug": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "title": "Slug",
+            "type": "string"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "version_id",
+          "revision",
+          "title",
+          "languages",
+          "statement",
+          "samples",
+          "run_limits"
+        ],
+        "title": "ProblemDetail",
+        "type": "object"
+      },
+      "ProblemPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProblemSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_after": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After"
+          }
+        },
+        "required": [
+          "items",
+          "next_after"
+        ],
+        "title": "ProblemPage",
+        "type": "object"
+      },
+      "ProblemSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/Language"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "slug": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "title": "Slug",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "version_id",
+          "revision",
+          "title",
+          "languages"
+        ],
+        "title": "ProblemSummary",
+        "type": "object"
+      },
+      "PublicSample": {
+        "additionalProperties": false,
+        "properties": {
+          "encoding": {
+            "const": "base64",
+            "default": "base64",
+            "title": "Encoding",
+            "type": "string"
+          },
+          "input": {
+            "maxLength": 87384,
+            "title": "Input",
+            "type": "string"
+          },
+          "output": {
+            "maxLength": 87384,
+            "title": "Output",
+            "type": "string"
+          }
+        },
+        "required": [
+          "input",
+          "output"
+        ],
+        "title": "PublicSample",
+        "type": "object"
+      },
+      "RunLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu_time_us": {
+            "maximum": 60000000.0,
+            "minimum": 1000.0,
+            "title": "Cpu Time Us",
+            "type": "integer"
+          },
+          "file_bytes": {
+            "maximum": 67108864.0,
+            "minimum": 1.0,
+            "title": "File Bytes",
+            "type": "integer"
+          },
+          "memory_bytes": {
+            "maximum": 2147483648.0,
+            "minimum": 1.0,
+            "title": "Memory Bytes",
+            "type": "integer"
+          },
+          "open_files": {
+            "maximum": 1024.0,
+            "minimum": 3.0,
+            "title": "Open Files",
+            "type": "integer"
+          },
+          "processes": {
+            "maximum": 128.0,
+            "minimum": 1.0,
+            "title": "Processes",
+            "type": "integer"
+          },
+          "stack_bytes": {
+            "maximum": 268435456.0,
+            "minimum": 1.0,
+            "title": "Stack Bytes",
+            "type": "integer"
+          },
+          "stderr_bytes": {
+            "maximum": 16777216.0,
+            "minimum": 1.0,
+            "title": "Stderr Bytes",
+            "type": "integer"
+          },
+          "stdout_bytes": {
+            "maximum": 16777216.0,
+            "minimum": 1.0,
+            "title": "Stdout Bytes",
+            "type": "integer"
+          },
+          "wall_time_us": {
+            "maximum": 120000000.0,
+            "minimum": 1000.0,
+            "title": "Wall Time Us",
+            "type": "integer"
+          },
+          "workdir_bytes": {
+            "maximum": 268435456.0,
+            "minimum": 1.0,
+            "title": "Workdir Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cpu_time_us",
+          "wall_time_us",
+          "memory_bytes",
+          "stack_bytes",
+          "processes",
+          "open_files",
+          "stdout_bytes",
+          "stderr_bytes",
+          "file_bytes",
+          "workdir_bytes"
+        ],
+        "title": "RunLimits",
+        "type": "object"
+      },
+      "TestCase": {
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "expected": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          },
+          "input": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          }
+        },
+        "required": [
+          "case_id",
+          "input",
+          "expected"
+        ],
+        "title": "TestCase",
+        "type": "object"
+      },
+      "Toolchain": {
+        "additionalProperties": false,
+        "properties": {
+          "image_kind": {
+            "const": "linux_gnu_cxx_x86_64_v1",
+            "title": "Image Kind",
+            "type": "string"
+          },
+          "image_revision": {
+            "maximum": 4294967295.0,
+            "minimum": 1.0,
+            "title": "Image Revision",
+            "type": "integer"
+          },
+          "toolchain_id": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "title": "Toolchain Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "toolchain_id",
+          "image_kind",
+          "image_revision"
+        ],
+        "title": "Toolchain",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -150,6 +558,12 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "WorkerLease": {
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
@@ -255,6 +669,277 @@
         "summary": "Liveness",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/internal/evaluations/{evaluation_id}/attempts/{attempt_id}/artifacts/{digest}": {
+      "get": {
+        "operationId": "artifact_api_v1_internal_evaluations__evaluation_id__attempts__attempt_id__artifacts__digest__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "evaluation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Evaluation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attempt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attempt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "digest",
+            "required": true,
+            "schema": {
+              "title": "Digest",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Worker-ID",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "X-Worker-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Fencing-Version",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "X-Fencing-Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "WorkerLease": []
+          }
+        ],
+        "summary": "Artifact",
+        "tags": [
+          "worker artifacts"
+        ]
+      }
+    },
+    "/api/v1/internal/evaluations/{evaluation_id}/attempts/{attempt_id}/manifest": {
+      "get": {
+        "operationId": "manifest_api_v1_internal_evaluations__evaluation_id__attempts__attempt_id__manifest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "evaluation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Evaluation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attempt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attempt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Worker-ID",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "X-Worker-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Fencing-Version",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "X-Fencing-Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobManifest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "WorkerLease": []
+          }
+        ],
+        "summary": "Manifest",
+        "tags": [
+          "worker artifacts"
+        ]
+      }
+    },
+    "/api/v1/problems": {
+      "get": {
+        "operationId": "list_problems_api_v1_problems_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Problems",
+        "tags": [
+          "problems"
+        ]
+      }
+    },
+    "/api/v1/problems/versions/{version_id}": {
+      "get": {
+        "operationId": "problem_version_api_v1_problems_versions__version_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Problem Version",
+        "tags": [
+          "problems"
         ]
       }
     }

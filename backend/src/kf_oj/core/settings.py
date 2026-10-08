@@ -1,7 +1,10 @@
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from kf_oj.contracts.judging import AdmissionPolicy
 
 
 class Settings(BaseSettings):
@@ -13,6 +16,10 @@ class Settings(BaseSettings):
     amqp_url: SecretStr | None = None
     browser_origins: tuple[str, ...] = ("http://localhost:5173", "http://localhost:8000")
     session_lifetime_seconds: int = Field(default=43200, ge=300, le=86400)
+    artifact_root: Path | None = None
+    artifact_max_bytes: int = Field(default=536870912, ge=1, le=16 * 1024**3)
+    artifact_max_files: int = Field(default=4096, ge=1, le=65536)
+    judge_admission: AdmissionPolicy | None = None
 
     @model_validator(mode="after")
     def secure_origins(self):
