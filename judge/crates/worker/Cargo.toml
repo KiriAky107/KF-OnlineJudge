@@ -12,6 +12,7 @@ kf-engine.workspace = true
 kf-sandbox.workspace = true
 clap.workspace = true
 serde_json.workspace = true
+sha2 = "=0.10.9"
 
 [lints]
 workspace = true

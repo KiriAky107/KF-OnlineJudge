@@ -111,3 +111,6 @@ pub mod native {
         kf_engine::judge(&mut port, &[case]).map_err(|_| io::Error::other("invalid judge request"))
     }
 }
+
+#[cfg(target_os = "linux")]
+pub mod pipeline;

@@ -52,11 +52,38 @@ kf-worker judge-once --socket /run/kf-judge/task.sock \
 
 Worker 选取业务授权的自身发布目录，准备有界封印的期望输出，并向 Engine 注入 `ExecutionPort`。适配器构造 native 规格，仅绑定程序与 stdin，不将期望输出放入用户运行根。helper 根据 `SO_PEERCRED` 核验配置中的 Worker UID/GID；客户端核验 helper 的 root 凭据。有界私有帧与 `SCM_RIGHTS` 只传持有的目录能力和只读封印输出，收到的 FD 重新检查类型、长度、访问模式、封印和 CLOEXEC，不传任意宿主挂载路径。
 
-helper 不接管 root 或其他身份的输入工件；每任务保留相同的隔离和预算门控。执行中客户端断开或出现额外控制数据会取消全树，清理后退出。socket 清理核对自身 inode，不删除外来替换。业务发布目录的选择与业务授权仍属于可信 Worker；文件所有权不是业务授权证明。
+helper 不接管 root 或其他身份的输入工件；每任务保留相同的隔离和预算门控。执行中客户端断开会取消全树，额外控制数据归为协议错误并拒绝执行，清理后退出。socket 清理核对自身 inode，不删除外来替换。业务发布目录的选择与业务授权仍属于可信 Worker；文件所有权不是业务授权证明。
 
 Engine 仅在真实、无基础设施错误的 exit 0 后逐字节比较输出。非零退出/信号为 RuntimeError，CPU/墙钟、内存、输出限制分别映射 TLE/MLE/OLE，取消与 SystemError 单独表达；不可用计量保持 null。汇总在 Engine 内按输入顺序确定，基础设施错误或取消停止后续执行；空用例和重复 run ID 在执行前拒绝。`judge-once` 返回结构化 verdict、用例与实际计量。新增 `serde` 直接依赖用于本地作业/领域结果类型，Engine 不引入 sandbox 或 OS 库。
 
-首轮提供 native 单用例和编译/运行沙箱能力；平台队列消费、完整提交编排、交互题、SPJ 和部署仍未实现。`kf-worker --check` 只检查入口，不消费或执行任务。权限 helper 和镜像必须由部署方配置，Worker 不调用 sudo、不修改账号或权限。
+本地已提供 native 单用例及编译一次、多测试点编排；平台队列消费、持久化协调、完整提交投递、交互题、SPJ 和部署仍未实现。`kf-worker --check` 只检查入口，不消费或执行任务。权限 helper 和镜像必须由部署方配置，Worker 不调用 sudo、不修改账号或权限。
+
+## 编译一次、多测试点
+
+Root 服务 `kf-sandbox factory --config /etc/kf-judge/runtime.json` 先核对有限 cgroup
+预留、配置/镜像权限和已确认归属的恢复记录，逐次产生独立单线程 helper。
+普通用户通过 `FactoryClient` 申请固定 run ID 的连接能力；配置、镜像、二进制、
+UID 池和宿主目录由服务决定。槽位满直接拒绝；有限持久 ID 记录跨重启阻止重放。
+工厂退出通过生命线取消 helper，清理失败保留租约并停止分配；服务配置见
+[部署说明](../deploy/README.md)。
+
+```sh
+kf-worker judge-submission --socket /var/lib/kf-judge/factory/control.sock \
+  --job submission.json --artifacts /srv/kf-worker/authorized \
+  --staging /srv/kf-worker/staging
+```
+
+本地作业包含版本化 `manifest`、`binding` 和 `manifest_digest`，清单摘要采用共享
+规范序列化。工件发布按已授权的 SHA-256 名称读取，暂存父目录由普通 Worker
+持有且为 0700。暂存日志记录进程启动时间、内核启动标识和目录/文件 inode；
+进程重启只回收已确认归属的旧文件，未知内容保留并拒绝继续。
+
+Engine 的编译、运行、期望值和时钟/取消端口分离。C17/C++20 映射固定 GNU 参数，
+无 shell 或用户 flags；每 attempt 编译一次，封印产物、计算摘要并完成清理后，
+按清单顺序逐点申请新 helper。每点只传程序和 stdin，期望值留在 Worker 比较端。
+编译失败/超限为 CE，准备、导出或清理失败为 SystemError；取消/基础设施失败停止
+后续点并列出跳过原因。计量分开保存编译消耗与运行 CPU 总量、内存峰值，缺失值
+保留 null；完整清单缺点不能 Accepted。`judge-submission` 返回真实报告与阶段 PID。
 
 ## 监督和恢复
 

@@ -47,6 +47,21 @@ enum Command {
         #[arg(long)]
         socket: PathBuf,
     },
+    /// Root factory: finite service lifetime and fresh authenticated helpers.
+    Factory {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long, default_value_t = 3600)]
+        lifetime_seconds: u64,
+    },
+    #[cfg(target_os = "linux")]
+    #[command(hide = true)]
+    FactoryChild {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        run_id: String,
+    },
     /// Internal trusted launcher control entry; never runs a user program.
     #[cfg(target_os = "linux")]
     #[command(hide = true)]
@@ -140,6 +155,33 @@ fn main() -> ExitCode {
             {
                 let _ = (config, socket);
                 spec_error("unsupported_platform", None)
+            }
+        }
+        Command::Factory {
+            config,
+            lifetime_seconds,
+        } => {
+            #[cfg(target_os = "linux")]
+            {
+                if kf_sandbox::factory::serve(&config, lifetime_seconds).is_ok() {
+                    ExitCode::SUCCESS
+                } else {
+                    spec_error("factory_refused", None)
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (config, lifetime_seconds);
+                spec_error("unsupported_platform", None)
+            }
+        }
+        #[cfg(target_os = "linux")]
+        Command::FactoryChild { config, run_id } => {
+            // stdout is the root factory lifeline, never a log stream.
+            if kf_sandbox::factory::child(&config, &run_id).is_ok() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(2)
             }
         }
         Command::Validate { spec } => validate_spec(spec),

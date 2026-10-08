@@ -41,6 +41,7 @@ pub(crate) struct RunProof {
 #[derive(Clone, Copy)]
 pub(crate) enum MonitorMode<'a> {
     Peer(&'a rustix::fd::OwnedFd),
+    FactoryPeers(&'a rustix::fd::OwnedFd, &'a rustix::fd::OwnedFd),
     Normal,
     #[cfg(feature = "vm-acceptance")]
     CancelAfter(u64),
@@ -79,7 +80,7 @@ fn consume(event: BudgetEvent) -> (ResourceUsage, Vec<LimitObservation>) {
     }
 }
 
-fn peer_closed(fd: &rustix::fd::OwnedFd) -> io::Result<bool> {
+pub(crate) fn peer_closed(fd: &rustix::fd::OwnedFd) -> io::Result<bool> {
     use rustix::event::{PollFd, PollFlags, poll};
     let mut f = [PollFd::new(
         fd,
@@ -92,7 +93,23 @@ fn peer_closed(fd: &rustix::fd::OwnedFd) -> io::Result<bool> {
             tv_nsec: 0,
         }),
     )?;
-    Ok(!f[0].revents().is_empty())
+    if f[0].revents().is_empty() {
+        return Ok(false);
+    }
+    let mut byte = [0u8; 1];
+    match rustix::net::recv(
+        fd,
+        &mut byte,
+        rustix::net::RecvFlags::PEEK | rustix::net::RecvFlags::DONTWAIT,
+    ) {
+        Ok((0, _)) => Ok(true),
+        Ok(_) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "unexpected control bytes during execution",
+        )),
+        Err(rustix::io::Errno::AGAIN) => Ok(false),
+        Err(e) => Err(e.into()),
+    }
 }
 pub(crate) fn execute(
     config: &ValidatedRuntimeConfig,
@@ -157,9 +174,11 @@ pub(crate) fn execute(
             });
         }
         let released = (|| {
-            if let MonitorMode::Peer(fd) = mode
-                && peer_closed(fd)?
-            {
+            if match mode {
+                MonitorMode::Peer(fd) => peer_closed(fd)?,
+                MonitorMode::FactoryPeers(a, b) => peer_closed(a)? || peer_closed(b)?,
+                _ => false,
+            } {
                 return Err(io::Error::new(
                     io::ErrorKind::Interrupted,
                     "client disconnected before exec",
@@ -174,6 +193,10 @@ pub(crate) fn execute(
         })();
         let main_fd = match released {
             Ok(fd) => Some(fd),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {
+                cancelled = Some(0);
+                None
+            }
             Err(e) => {
                 errors.push(error(ExecutionStage::Exec, ErrorCode::ProtocolFailed, &e));
                 None
@@ -194,7 +217,7 @@ pub(crate) fn execute(
             None
         };
         let mut monitoring_failed = !errors.is_empty();
-        if !monitoring_failed {
+        if !monitoring_failed && cancelled.is_none() {
             loop {
                 let event = match budget.poll() {
                     Ok(e) => e,
@@ -275,10 +298,21 @@ pub(crate) fn execute(
                         monitoring_failed = true;
                     }
                 }
-                match mode {
-                    MonitorMode::Peer(fd) if peer_closed(fd).unwrap_or(true) => {
-                        cancelled = Some(wall(&usage));
+                let connection = match mode {
+                    MonitorMode::Peer(fd) => peer_closed(fd),
+                    MonitorMode::FactoryPeers(a, b) => peer_closed(a)
+                        .and_then(|closed| if closed { Ok(true) } else { peer_closed(b) }),
+                    _ => Ok(false),
+                };
+                match connection {
+                    Ok(true) => cancelled = Some(wall(&usage)),
+                    Err(e) => {
+                        errors.push(error(ExecutionStage::Wait, ErrorCode::ProtocolFailed, &e));
+                        monitoring_failed = true;
                     }
+                    Ok(false) => {}
+                }
+                match mode {
                     #[cfg(feature = "vm-acceptance")]
                     MonitorMode::CancelAfter(t) if wall(&usage) >= t => {
                         cancelled = Some(wall(&usage))
@@ -476,7 +510,14 @@ pub(crate) fn execute(
     }
     let stdout = SnapshotFile::from_capture(pump.stdout());
     let stderr = SnapshotFile::from_capture(pump.stderr());
-    let outputs = if errors.iter().any(|e| e.stage == ExecutionStage::Cleanup) {
+    let compile_failed = matches!(
+        spec.spec().profile,
+        crate::spec::ExecutionProfile::CompileC | crate::spec::ExecutionProfile::CompileCpp
+    ) && (main != Some(Termination::Exited { code: 0 })
+        || cancelled.is_some()
+        || !limits.is_empty()
+        || !errors.is_empty());
+    let outputs = if compile_failed || errors.iter().any(|e| e.stage == ExecutionStage::Cleanup) {
         Vec::new()
     } else {
         match target.root().final_outputs(&work) {

@@ -14,6 +14,16 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
+    JudgeSubmission {
+        #[arg(long)]
+        socket: PathBuf,
+        #[arg(long)]
+        job: PathBuf,
+        #[arg(long)]
+        artifacts: PathBuf,
+        #[arg(long)]
+        staging: PathBuf,
+    },
     JudgeOnce {
         #[arg(long)]
         socket: PathBuf,
@@ -33,6 +43,31 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     match cli.command {
+        Some(Command::JudgeSubmission {
+            socket,
+            job,
+            artifacts,
+            staging,
+        }) => {
+            #[cfg(target_os = "linux")]
+            {
+                match kf_worker::pipeline::judge_local(&socket, &job, &artifacts, &staging) {
+                    Ok(result) => {
+                        println!("{}", serde_json::json!(result));
+                        ExitCode::SUCCESS
+                    }
+                    Err(_) => {
+                        eprintln!("submission_failed");
+                        ExitCode::from(2)
+                    }
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (socket, job, artifacts, staging);
+                ExitCode::from(2)
+            }
+        }
         Some(Command::JudgeOnce {
             socket,
             job,

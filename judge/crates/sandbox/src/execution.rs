@@ -77,7 +77,7 @@ fn read_pinned(fd: OwnedFd, limit: u64) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 pub fn read_bounded_file(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
-    if limit == 0 || limit > crate::spec::MAX_SPEC_BYTES {
+    if limit == 0 || limit > 262_144 {
         return Err(invalid("bounded JSON ceiling"));
     }
     let fd = rustix::fs::open(

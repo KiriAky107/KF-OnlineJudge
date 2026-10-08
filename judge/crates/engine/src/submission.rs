@@ -118,7 +118,7 @@ pub fn judge_submission<P: CompilationPort + RunPort + ExpectedPort + ControlPor
     };
     let mut cleanup_complete;
     let mut failure_code;
-    let compilation = match compilation {
+    let mut compilation = match compilation {
         Ok(c) => {
             c.report.validate()?;
             cleanup_complete = c.cleanup_complete;
@@ -142,6 +142,13 @@ pub fn judge_submission<P: CompilationPort + RunPort + ExpectedPort + ControlPor
             empty_compile(CompilationStatus::SystemError)
         }
     };
+    if failure_code.is_none() && p.elapsed_us() >= m.job_wall_time_us {
+        failure_code = Some(FailureCode::JobDeadline);
+        if compilation.status != CompilationStatus::Succeeded {
+            compilation.status = CompilationStatus::SystemError;
+            compilation.program = None;
+        }
+    }
     let mut cases = Vec::with_capacity(m.cases.len());
     let mut run_ids = Vec::with_capacity(m.cases.len());
     if let Some(program) = &compilation.program {
@@ -175,13 +182,18 @@ pub fn judge_submission<P: CompilationPort + RunPort + ExpectedPort + ControlPor
                     }
                 }
                 Ok(o) => {
-                    let verdict = if matches!(o.kind, ExecutionKind::Exited { code: 0 }) {
+                    let verdict = if o.kind == ExecutionKind::InfrastructureFailure {
+                        Verdict::SystemError
+                    } else {
                         match gate(p, m) {
                             Err(e) => {
                                 failure_code = Some(e.code);
                                 Verdict::SystemError
                             }
                             Ok(true) => Verdict::Cancelled,
+                            Ok(false) if !matches!(o.kind, ExecutionKind::Exited { code: 0 }) => {
+                                classify(&o, &[])
+                            }
                             Ok(false) => match p.expected(c) {
                                 Ok(bytes)
                                     if bytes.len() as u64 == c.expected.bytes
@@ -199,8 +211,6 @@ pub fn judge_submission<P: CompilationPort + RunPort + ExpectedPort + ControlPor
                                 }
                             },
                         }
-                    } else {
-                        classify(&o, &[])
                     };
                     if verdict == Verdict::SystemError && failure_code.is_none() {
                         failure_code = Some(FailureCode::SandboxUnavailable);
@@ -306,6 +316,7 @@ mod tests {
         expected_calls: usize,
         cancel_after: usize,
         clock: u64,
+        advance_us: u64,
         fail_compile: bool,
     }
     impl CompilationPort for Port {
@@ -353,6 +364,7 @@ mod tests {
     impl ControlPort for Port {
         fn elapsed_us(&self) -> u64 {
             self.clock
+                .saturating_add(self.calls as u64 * self.advance_us)
         }
         fn cancelled(&self) -> bool {
             self.calls >= self.cancel_after
@@ -389,6 +401,7 @@ mod tests {
             expected_calls: 0,
             cancel_after: usize::MAX,
             clock: 0,
+            advance_us: 0,
             fail_compile: false,
         }
     }
@@ -526,5 +539,17 @@ mod tests {
         });
         assert!(judge_submission(&mut p, &m, b, d).is_err());
         assert_eq!(p.compile_calls, 1);
+    }
+    #[test]
+    fn deadline_interrupt_is_infrastructure_and_overrides_cancel_kind() {
+        let (m, b, d) = fixture();
+        let mut p = port(vec![ExecutionKind::Cancelled]);
+        p.advance_us = m.job_wall_time_us;
+        let r = judge_submission(&mut p, &m, b, d).unwrap();
+        assert_eq!(r.report.verdict, Verdict::SystemError);
+        assert_eq!(r.report.failure_code, Some(FailureCode::JobDeadline));
+        assert_eq!(p.calls, 1);
+        assert_eq!(p.expected_calls, 0);
+        assert_eq!(r.skipped.len(), 2);
     }
 }

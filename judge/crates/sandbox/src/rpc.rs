@@ -64,7 +64,7 @@ impl WireMessage for Reply {
         }
     }
 }
-fn channel(stream: UnixStream, uid: u32, gid: u32) -> io::Result<ControlChannel> {
+pub(crate) fn channel(stream: UnixStream, uid: u32, gid: u32) -> io::Result<ControlChannel> {
     let c = rustix::net::sockopt::socket_peercred(&stream)?;
     ControlChannel::new(
         stream,
@@ -106,7 +106,15 @@ pub fn execute(
         .clone()
         .validate(&SpecPolicy::default())
         .map_err(|_| denied())?;
-    let mut c = channel(UnixStream::connect(socket)?, 0, 0)?;
+    let c = channel(UnixStream::connect(socket)?, 0, 0)?;
+    execute_channel(c, spec, publication, validated)
+}
+pub(crate) fn execute_channel(
+    mut c: ControlChannel,
+    spec: ExecutionSpec,
+    publication: &ArtifactRoot,
+    validated: crate::spec::ValidatedSpec,
+) -> io::Result<Executed> {
     c.send(&Request { spec })?;
     c.send_fd(publication)?;
     c.execution_deadline(validated.spec().limits.wall_time_us)?;
@@ -205,27 +213,44 @@ pub fn serve_one(config_path: &Path, socket: &Path) -> io::Result<serde_json::Va
         }
     };
     drop(listener);
+    serve_stream(&config, stream, None, None)
+}
+pub(crate) fn serve_stream(
+    config: &crate::runtime::ValidatedRuntimeConfig,
+    stream: UnixStream,
+    binding: Option<&str>,
+    guardian: Option<&OwnedFd>,
+) -> io::Result<serde_json::Value> {
     let ids = &config.config().identities;
     let mut c = channel(stream, ids.worker_uid, ids.worker_gid)?;
     let request = c.receive::<Request>()?;
+    if binding.is_some_and(|id| id != request.spec.run_id) {
+        return Err(denied());
+    }
     let artifacts = ArtifactRoot::from_worker_directory(c.receive_fd()?, ids.worker_uid)?;
     let peer = c.duplicate_stream()?;
     c.execution_deadline(request.spec.limits.wall_time_us)?;
     match execution::execute(
-        &config,
+        config,
         request.spec,
         &artifacts,
-        run::MonitorMode::Peer(&peer),
+        guardian.map_or(run::MonitorMode::Peer(&peer), |g| {
+            run::MonitorMode::FactoryPeers(&peer, g)
+        }),
     ) {
         Ok((result, _)) => {
             let report = result.report;
             // Cleanup failures remain in the report; caller may never claim a successful verdict.
-            if report.cancelled_at_wall_time_us.is_some() {
+            if report.cleanup != crate::outcome::CleanupState::Complete {
+                return Err(denied());
+            }
+            let sent = c.send(&Reply::Completed {
+                report: Box::new(report.clone()),
+            });
+            if sent.is_err() && report.cancelled_at_wall_time_us.is_some() {
                 return Ok(serde_json::json!({"report":report,"proof":result.proof}));
             }
-            c.send(&Reply::Completed {
-                report: Box::new(report.clone()),
-            })?;
+            sent?;
             c.send_fd(&result.stdout)?;
             c.send_fd(&result.stderr)?;
             for o in result.outputs {

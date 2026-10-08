@@ -363,3 +363,317 @@ fn snapshot(
     budget.remaining_bytes -= bytes;
     Ok(SnapshotFile { file, bytes })
 }
+
+/// Ordinary Worker staging, distinct from immutable hidden-data publication.
+/// Fixed entries only; no recursive cleanup or adoption of existing directories.
+pub struct StagePublication {
+    root: ArtifactRoot,
+    parent: OwnedFd,
+    name: String,
+    dev: u64,
+    ino: u64,
+    files: Vec<StageEntry>,
+    removed: bool,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StageEntry {
+    name: String,
+    dev: u64,
+    ino: u64,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StageOwner {
+    pid: u32,
+    ticks: u64,
+    boot: String,
+    dev: u64,
+    ino: u64,
+}
+fn stage_ticks(value: &str) -> io::Result<u64> {
+    value
+        .rsplit_once(") ")
+        .and_then(|(_, s)| s.split_whitespace().nth(19))
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .ok_or_else(|| refused("stage owner time"))
+}
+impl StagePublication {
+    pub fn create(parent_path: &std::path::Path, name: &str) -> io::Result<Self> {
+        crate::spec::identifier(name, "stage").map_err(|_| refused("stage identifier"))?;
+        let parent = rustix::fs::open(
+            parent_path,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        let st = rustix::fs::fstat(&parent)?;
+        if st.st_uid != rustix::process::geteuid().as_raw()
+            || st.st_uid < 1000
+            || st.st_mode & 0o7777 != 0o700
+        {
+            return Err(refused("private ordinary staging parent"));
+        }
+        rustix::fs::mkdirat(&parent, name, Mode::from_raw_mode(0o700))?;
+        let fd = rustix::fs::openat(
+            &parent,
+            name,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        let st = rustix::fs::fstat(&fd)?;
+        let value = Self {
+            root: ArtifactRoot::from_directory(fd)?,
+            parent,
+            name: name.into(),
+            dev: st.st_dev,
+            ino: st.st_ino,
+            files: vec![],
+            removed: false,
+        };
+        let header = StageOwner {
+            pid: std::process::id(),
+            ticks: stage_ticks(&std::fs::read_to_string("/proc/self/stat")?)?,
+            boot: std::fs::read_to_string("/proc/sys/kernel/random/boot_id")?
+                .trim()
+                .into(),
+            dev: st.st_dev,
+            ino: st.st_ino,
+        };
+        let journal = rustix::fs::openat(
+            &value.root.fd,
+            ".owner",
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::from_raw_mode(0o600),
+        )?;
+        let mut file = File::from(journal);
+        serde_json::to_writer(&mut file, &header)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        rustix::fs::fsync(&value.root.fd)?;
+        Ok(value)
+    }
+    /// Startup recovery authenticates both journal and inode. A reused PID or
+    /// foreign object cannot confer authority; unknown content is preserved.
+    pub fn recover(parent_path: &std::path::Path) -> io::Result<u32> {
+        use rustix::fd::AsRawFd;
+        let parent = rustix::fs::open(
+            parent_path,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        let st = rustix::fs::fstat(&parent)?;
+        if st.st_uid != rustix::process::geteuid().as_raw()
+            || st.st_uid < 1000
+            || st.st_mode & 0o7777 != 0o700
+        {
+            return Err(refused("ordinary recovery parent"));
+        }
+        let names: Vec<_> = std::fs::read_dir(format!("/proc/self/fd/{}", parent.as_raw_fd()))?
+            .take(513)
+            .map(|e| {
+                e?.file_name()
+                    .into_string()
+                    .map_err(|_| refused("stage name"))
+            })
+            .collect::<io::Result<_>>()?;
+        if names.len() > 512 {
+            return Err(refused("stage recovery count"));
+        }
+        let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id")?;
+        let mut recovered = 0;
+        for name in names {
+            crate::spec::identifier(&name, "stage")
+                .map_err(|_| refused("unrecognized staging entry retained"))?;
+            let fd = rustix::fs::openat(
+                &parent,
+                name.as_str(),
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )?;
+            let root = ArtifactRoot::from_directory(fd)?;
+            let st = rustix::fs::fstat(&root.fd)?;
+            let journal = rustix::fs::openat(
+                &root.fd,
+                ".owner",
+                OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )?;
+            let j = rustix::fs::fstat(&journal)?;
+            if j.st_uid != root.owner
+                || j.st_mode & 0o7777 != 0o600
+                || j.st_nlink != 1
+                || j.st_size < 0
+                || j.st_size > 2048
+                || FileType::from_raw_mode(j.st_mode) != FileType::RegularFile
+            {
+                return Err(refused("untrusted stage journal"));
+            }
+            let mut bytes = String::new();
+            readonly_handle(&journal)?
+                .take(2049)
+                .read_to_string(&mut bytes)?;
+            if bytes.len() > 2048 || !bytes.ends_with('\n') {
+                return Err(refused("stage journal framing"));
+            }
+            let mut lines = bytes.lines();
+            let owner: StageOwner =
+                serde_json::from_str(lines.next().ok_or_else(|| refused("stage journal"))?)
+                    .map_err(|_| refused("stage journal"))?;
+            if owner.boot != boot.trim()
+                || owner.pid < 2
+                || owner.dev != st.st_dev
+                || owner.ino != st.st_ino
+            {
+                return Err(refused("stage ownership binding"));
+            }
+            match std::fs::read_to_string(format!("/proc/{}/stat", owner.pid)) {
+                Ok(stat) if stage_ticks(&stat)? == owner.ticks => continue,
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+            let entries = lines
+                .map(|l| {
+                    serde_json::from_str::<StageEntry>(l)
+                        .map_err(|_| refused("stage entry journal"))
+                })
+                .collect::<io::Result<Vec<_>>>()?;
+            let mut unique = std::collections::HashSet::new();
+            if entries.len() > 2
+                || entries.iter().any(|e| {
+                    !matches!(e.name.as_str(), "source" | "program" | "stdin")
+                        || !unique.insert(e.name.clone())
+                })
+            {
+                return Err(refused("stage entry set"));
+            }
+            let mut value = Self {
+                root,
+                parent: rustix::io::fcntl_dupfd_cloexec(&parent, 3)?,
+                name,
+                dev: st.st_dev,
+                ino: st.st_ino,
+                files: entries,
+                removed: false,
+            };
+            value.cleanup()?;
+            recovered += 1;
+        }
+        Ok(recovered)
+    }
+    pub fn root(&self) -> &ArtifactRoot {
+        &self.root
+    }
+    pub fn put(&mut self, name: &str, reader: &mut impl Read, bytes: u64) -> io::Result<()> {
+        if !matches!(name, "source" | "program" | "stdin")
+            || self.files.len() >= 2
+            || bytes > MAX_SNAPSHOT_BYTES
+        {
+            return Err(refused("fixed staging entry/budget"));
+        }
+        let fd = rustix::fs::openat(
+            &self.root.fd,
+            name,
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::from_raw_mode(0o600),
+        )?;
+        let s = rustix::fs::fstat(&fd)?;
+        let entry = StageEntry {
+            name: name.into(),
+            dev: s.st_dev,
+            ino: s.st_ino,
+        };
+        let journal = rustix::fs::openat(
+            &self.root.fd,
+            ".owner",
+            OFlags::WRONLY | OFlags::APPEND | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        let mut file = File::from(journal);
+        serde_json::to_writer(&mut file, &entry)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        self.files.push(entry);
+        let mut file = File::from(fd);
+        let copied = io::copy(&mut reader.take(bytes + 1), &mut file)?;
+        if copied != bytes {
+            return Err(refused("staged artifact byte count"));
+        }
+        file.sync_all()
+    }
+    pub fn cleanup(&mut self) -> io::Result<()> {
+        if self.removed {
+            return Ok(());
+        }
+        let named = rustix::fs::statat(
+            &self.parent,
+            self.name.as_str(),
+            rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+        )?;
+        if named.st_dev != self.dev || named.st_ino != self.ino {
+            return Err(refused("foreign staging replacement"));
+        }
+        use rustix::fd::AsRawFd;
+        let actual: Vec<_> =
+            std::fs::read_dir(format!("/proc/self/fd/{}", self.root.fd.as_raw_fd()))?
+                .take(5)
+                .map(|e| Ok(e?.file_name()))
+                .collect::<io::Result<_>>()?;
+        if actual.len() != self.files.len() + 1
+            || actual
+                .iter()
+                .any(|n| n != ".owner" && !self.files.iter().any(|f| n == f.name.as_str()))
+        {
+            return Err(refused("foreign staging entry retained"));
+        }
+        for entry in &self.files {
+            let st = rustix::fs::statat(
+                &self.root.fd,
+                entry.name.as_str(),
+                rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+            )?;
+            if st.st_dev != entry.dev
+                || st.st_ino != entry.ino
+                || st.st_uid != self.root.owner
+                || st.st_nlink != 1
+                || FileType::from_raw_mode(st.st_mode) != FileType::RegularFile
+            {
+                return Err(refused("foreign staging content"));
+            }
+        }
+        let journal = rustix::fs::statat(
+            &self.root.fd,
+            ".owner",
+            rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+        )?;
+        if journal.st_uid != self.root.owner
+            || journal.st_nlink != 1
+            || journal.st_mode & 0o7777 != 0o600
+            || FileType::from_raw_mode(journal.st_mode) != FileType::RegularFile
+        {
+            return Err(refused("foreign staging journal"));
+        }
+        for entry in &self.files {
+            rustix::fs::unlinkat(
+                &self.root.fd,
+                entry.name.as_str(),
+                rustix::fs::AtFlags::empty(),
+            )?;
+        }
+        rustix::fs::unlinkat(&self.root.fd, ".owner", rustix::fs::AtFlags::empty())?;
+        self.files.clear();
+        rustix::fs::unlinkat(
+            &self.parent,
+            self.name.as_str(),
+            rustix::fs::AtFlags::REMOVEDIR,
+        )?;
+        self.removed = true;
+        Ok(())
+    }
+}
+impl Drop for StagePublication {
+    fn drop(&mut self) {
+        let _ = self.cleanup();
+    }
+}

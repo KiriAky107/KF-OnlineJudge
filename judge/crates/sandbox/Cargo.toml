@@ -29,3 +29,6 @@ workspace = true
 [[example]]
 name = "identity_probe"
 test = false
+
+[dev-dependencies]
+sha2 = "=0.10.9"

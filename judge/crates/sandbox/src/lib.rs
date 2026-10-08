@@ -33,3 +33,6 @@ pub mod execution;
 
 #[cfg(target_os = "linux")]
 pub mod rpc;
+
+#[cfg(target_os = "linux")]
+pub mod factory;
