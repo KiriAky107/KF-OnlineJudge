@@ -5,14 +5,19 @@ from alembic import context
 from sqlalchemy import Connection
 
 from kf_oj.core.settings import Settings
+from kf_oj.infra.artifacts import models as artifact_models  # noqa: F401
 from kf_oj.infra.db.base import Base
 from kf_oj.infra.db.session import build_engine
+from kf_oj.infra.messaging import models as messaging_models  # noqa: F401
+from kf_oj.modules.identity import models as identity_models  # noqa: F401
+from kf_oj.modules.problems import models as problem_models  # noqa: F401
+from kf_oj.modules.submissions import models as submission_models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Register each business module's ORM models here when its schema is implemented.
+# Explicit composition root. Infra and domains do not import foreign ORM models.
 target_metadata = Base.metadata
 
 
