@@ -1,5 +1,4 @@
-//! Private verified execution composition; currently callable only by fixed VM cases.
-//! The worker has no privilege operations and the ordinary CLI remains refused.
+//! Verified single-task composition, with a separate ordinary entry policy.
 use super::{
     blocked::{InitializationFailure, failure},
     capture::CaptureLease,
@@ -42,8 +41,11 @@ pub(crate) struct RunProof {
 #[derive(Clone, Copy)]
 pub(crate) enum MonitorMode {
     Normal,
+    #[cfg(feature = "vm-acceptance")]
     CancelAfter(u64),
+    #[cfg(feature = "vm-acceptance")]
     FailAfter(u64),
+    #[cfg(feature = "vm-acceptance")]
     RestartReady,
 }
 fn capture(status: CaptureStatus, id: &str) -> OutputCapture {
@@ -83,14 +85,8 @@ pub(crate) fn execute(
     artifacts: &ArtifactRoot,
     mode: MonitorMode,
 ) -> Result<Completed, InitializationFailure> {
-    crate::acceptance::verify_guest(true).map_err(|e| InitializationFailure {
-        failure: error(
-            ExecutionStage::Preparation,
-            ErrorCode::CapabilityUnavailable,
-            &e,
-        ),
-        cleanup_failure: None,
-    })?;
+    #[cfg(not(feature = "vm-acceptance"))]
+    let _ = mode;
     let mut owned = OwnedChildren::begin().map_err(|e| InitializationFailure {
         failure: error(ExecutionStage::Preparation, ErrorCode::OperationFailed, &e),
         cleanup_failure: None,
@@ -118,7 +114,10 @@ pub(crate) fn execute(
     let bootstrap = target.root().bootstrap_pid();
     let mut errors = Vec::new();
     let mut output_limits = Vec::new();
+    #[cfg(feature = "vm-acceptance")]
     let mut cancelled = None;
+    #[cfg(not(feature = "vm-acceptance"))]
+    let cancelled: Option<u64> = None;
     let mut main = None;
     let mut reaped_descendants = 0;
     let mut order = vec!["verified_isolation", "exec_gate"];
@@ -163,6 +162,7 @@ pub(crate) fn execute(
         };
         // Fixed VM crash probe only: retain a real supervisor-owned residual
         // child in the same marked cgroup to exercise post-crash startup kill.
+        #[cfg(feature = "vm-acceptance")]
         let _restart_child = if matches!(mode, MonitorMode::RestartReady) && main_fd.is_some() {
             match crate::acceptance::restart::ready(config, spec, "live") {
                 Ok(child) => Some(child),
@@ -256,10 +256,13 @@ pub(crate) fn execute(
                         monitoring_failed = true;
                     }
                 }
+                #[cfg(feature = "vm-acceptance")]
                 match mode {
+                    #[cfg(feature = "vm-acceptance")]
                     MonitorMode::CancelAfter(t) if wall(&usage) >= t => {
                         cancelled = Some(wall(&usage))
                     }
+                    #[cfg(feature = "vm-acceptance")]
                     MonitorMode::FailAfter(t) if wall(&usage) >= t => {
                         errors.push(error(
                             ExecutionStage::Wait,

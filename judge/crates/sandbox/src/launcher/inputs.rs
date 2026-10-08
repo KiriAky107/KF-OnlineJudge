@@ -62,11 +62,9 @@ impl InputBoundTarget {
             stdin: inputs.stdin,
         })
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn take_stdin(&mut self) -> Option<SnapshotFile> {
         self.stdin.take()
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn root_mut(&mut self) -> &mut super::root::RootedTarget {
         &mut self.target.root
     }

@@ -214,7 +214,6 @@ pub fn namespace_init(expected_outer_parent: u32, initialize_root: bool) -> io::
                                 NamespaceCommand::PrepareSeccomp { profile } => {
                                     super::seccomp::initialize(&mut channel, profile)?;
                                     match channel.receive::<NamespaceCommand>()? {
-                                        #[cfg(feature = "vm-acceptance")]
                                         NamespaceCommand::PrepareExecution { request } => {
                                             return super::execution::serve(&mut channel, *request);
                                         }
@@ -538,7 +537,6 @@ impl NamespacedTarget {
         Ok(())
     }
 
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn prepare_execution(
         &mut self,
         spec: &ValidatedSpec,

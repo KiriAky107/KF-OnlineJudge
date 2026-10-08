@@ -369,7 +369,7 @@ pub fn preflight(
     ] {
         refuse("capability_not_verified", subject);
     }
-    refuse("sandbox_not_implemented", "isolated_execution");
+    refuse("active_validation_required", "isolated_execution");
     RuntimePreflight {
         error: "runtime_not_ready",
         configuration_valid: true,

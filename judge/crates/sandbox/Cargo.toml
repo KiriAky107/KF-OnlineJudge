@@ -7,7 +7,7 @@ license.workspace = true
 
 [features]
 # Restricted to no-NIC/no-share/no-credential independent-VM acceptance.
-# The default CLI and private protocol continue to refuse execution.
+# Adds fixed VM probes and fault injection; ordinary execution uses the same kernel gates.
 vm-acceptance = []
 
 [dependencies]

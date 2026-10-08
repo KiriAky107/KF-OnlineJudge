@@ -25,14 +25,14 @@ pub mod root;
 #[cfg(target_os = "linux")]
 pub mod seccomp;
 
-#[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
+#[cfg(target_os = "linux")]
 pub(crate) mod execution;
-#[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
+#[cfg(target_os = "linux")]
 pub(crate) mod reap;
 
-#[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
+#[cfg(target_os = "linux")]
 pub(crate) mod capture;
 #[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
 pub(crate) mod rollback;
-#[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
+#[cfg(target_os = "linux")]
 pub(crate) mod run;

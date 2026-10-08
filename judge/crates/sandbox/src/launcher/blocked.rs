@@ -305,14 +305,11 @@ impl PreparedTarget {
             if let Err(mut error) = group.enroll(target) {
                 let stop = group.terminate_tree(CLEANUP).err();
                 let reap = target.terminate().err();
-                #[cfg(feature = "vm-acceptance")]
                 let orphan = if super::reap::is_owned_scope() {
                     super::reap::reap_current().err()
                 } else {
                     None
                 };
-                #[cfg(not(feature = "vm-acceptance"))]
-                let orphan: Option<io::Error> = None;
                 let remove = if stop.is_none() && reap.is_none() && orphan.is_none() {
                     group.remove_empty().err()
                 } else {
@@ -374,14 +371,11 @@ impl PreparedTarget {
             self.cgroup.terminate_tree(CLEANUP).err()
         };
         let reap_error = self.target.terminate().err();
-        #[cfg(feature = "vm-acceptance")]
         let orphan_error = if super::reap::is_owned_scope() {
             super::reap::reap_current().err()
         } else {
             None
         };
-        #[cfg(not(feature = "vm-acceptance"))]
-        let orphan_error: Option<io::Error> = None;
         let remove_error =
             if orphan_error.is_none() && group_error.is_none() && reap_error.is_none() {
                 self.cgroup.remove_empty().err()
@@ -416,7 +410,6 @@ impl PreparedTarget {
 impl Drop for PreparedTarget {
     fn drop(&mut self) {
         if self.cgroup.terminate_tree(CLEANUP).is_ok() && self.target.terminate().is_ok() {
-            #[cfg(feature = "vm-acceptance")]
             if super::reap::is_owned_scope() && super::reap::reap_current().is_err() {
                 self.cgroup.preserve_on_drop();
                 return;

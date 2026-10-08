@@ -203,7 +203,6 @@ impl Reaper {
             }
         }
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn main_pidfd(&self) -> &OwnedFd {
         &self.pidfd
     }

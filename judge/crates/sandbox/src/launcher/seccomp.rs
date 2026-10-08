@@ -22,15 +22,12 @@ impl FilteredTarget {
         }
         Ok(Self { target })
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn take_stdin(&mut self) -> Option<crate::artifacts::SnapshotFile> {
         self.target.take_stdin()
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn root_mut(&mut self) -> &mut super::root::RootedTarget {
         self.target.root_mut()
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn finish_resources(&mut self) -> io::Result<()> {
         self.target.finish_resources()
     }
@@ -43,7 +40,6 @@ impl FilteredTarget {
     pub fn stdin(&self) -> Option<&crate::artifacts::SnapshotFile> {
         self.target.stdin()
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn refuse_at(
         self,
         stage: ExecutionStage,

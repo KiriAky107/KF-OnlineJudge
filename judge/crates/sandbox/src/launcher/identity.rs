@@ -204,15 +204,12 @@ impl IdentityReducedTarget {
             lease,
         })
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn take_stdin(&mut self) -> Option<crate::artifacts::SnapshotFile> {
         self.target.as_mut().expect("owned target").take_stdin()
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn root_mut(&mut self) -> &mut super::root::RootedTarget {
         self.target.as_mut().expect("owned target").root_mut()
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn finish_resources(&mut self) -> io::Result<()> {
         self.root_mut().finish_resources()?;
         self.lease.release()

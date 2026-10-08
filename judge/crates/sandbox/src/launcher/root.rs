@@ -118,7 +118,6 @@ impl RootedTarget {
         self.outputs.collect(&work)
     }
 
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn pin_work(&self) -> io::Result<rustix::fd::OwnedFd> {
         self.cgroup()
             .verify_frozen_members(&[self.bootstrap_pid(), self.init_pid()])?;
@@ -129,7 +128,6 @@ impl RootedTarget {
             rustix::fs::Mode::empty(),
         )?)
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn final_outputs(
         &self,
         work: &rustix::fd::OwnedFd,
@@ -139,7 +137,6 @@ impl RootedTarget {
         }
         self.outputs.collect(work)
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn finish_resources(&mut self) -> io::Result<()> {
         self.target.prepared.cgroup.remove_empty()?;
         self.lease.cleanup()

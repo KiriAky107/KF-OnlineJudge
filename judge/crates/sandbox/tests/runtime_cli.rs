@@ -51,7 +51,7 @@ fn runtime_cli_reads_example_but_reports_unverified_capabilities_and_refuses() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|reason| reason["code"] == "sandbox_not_implemented")
+            .any(|reason| reason["code"] == "active_validation_required")
     );
 }
 

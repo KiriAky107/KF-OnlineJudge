@@ -38,7 +38,6 @@ impl SnapshotFile {
     pub fn bytes(&self) -> u64 {
         self.bytes
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn from_capture(capture: &crate::io::Capture) -> io::Result<Self> {
         let bytes = capture.status().retained;
         if bytes > MAX_SNAPSHOT_BYTES {

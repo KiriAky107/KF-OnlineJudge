@@ -15,9 +15,6 @@ use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
 pub const MAX_MESSAGE_BYTES: usize = 1024;
-#[cfg(not(feature = "vm-acceptance"))]
-const MAX_NAMESPACE_MESSAGE_BYTES: usize = 8192;
-#[cfg(feature = "vm-acceptance")]
 const MAX_NAMESPACE_MESSAGE_BYTES: usize = crate::spec::MAX_SPEC_BYTES as usize + 128;
 const FD_MARKER: u8 = 0xa5;
 pub const MAX_CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
@@ -76,11 +73,9 @@ pub enum NamespaceCommand {
     PrepareSeccomp {
         profile: crate::spec::ExecutionProfile,
     },
-    #[cfg(feature = "vm-acceptance")]
     PrepareExecution {
         request: Box<crate::spec::ExecutionSpec>,
     },
-    #[cfg(feature = "vm-acceptance")]
     ReleaseExecution {},
     Cancel {},
 }
@@ -99,11 +94,8 @@ pub enum NamespaceEvent {
     RlimitsInitialized {},
     IdentityInitialized {},
     SeccompInitialized {},
-    #[cfg(feature = "vm-acceptance")]
     ExecutionPrepared {},
-    #[cfg(feature = "vm-acceptance")]
     ExecutionSpawned {},
-    #[cfg(feature = "vm-acceptance")]
     Tree {
         record: super::execution::TreeRecord,
     },
@@ -146,7 +138,6 @@ impl WireMessage for NamespaceCommand {
             }
             Self::PrepareIdentity { uid, gid } => crate::isolation::identity::valid(*uid, *gid),
             Self::PrepareRlimits { plan } => plan.valid(),
-            #[cfg(feature = "vm-acceptance")]
             Self::PrepareExecution { request } => request
                 .clone()
                 .validate(&crate::spec::SpecPolicy::default())
@@ -205,7 +196,6 @@ pub struct ControlChannel {
     stream: UnixStream,
     deadline: Instant,
     poisoned: bool,
-    #[cfg(feature = "vm-acceptance")]
     pending: Vec<u8>,
 }
 
@@ -248,12 +238,10 @@ impl ControlChannel {
             stream,
             deadline,
             poisoned: false,
-            #[cfg(feature = "vm-acceptance")]
             pending: Vec::with_capacity(MAX_MESSAGE_BYTES + 8),
         })
     }
 
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn execution_deadline(&mut self, wall_us: u64) -> io::Result<()> {
         if wall_us == 0 || wall_us > 120_000_000 || self.poisoned || !self.pending.is_empty() {
             return Err(invalid("execution deadline"));
@@ -264,7 +252,6 @@ impl ControlChannel {
 
     /// Incremental receive of only the small runtime messages. Partial frames
     /// persist across ticks; descriptors and oversized lengths poison the stream.
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn try_receive<T: WireMessage>(&mut self) -> io::Result<Option<T>> {
         let result = (|| {
             self.remaining()?;
@@ -638,7 +625,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "vm-acceptance")]
     #[test]
     fn runtime_receive_preserves_partial_frame_and_rejects_fds() {
         let (mut a, mut b) = pair();

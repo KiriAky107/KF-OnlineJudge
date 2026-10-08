@@ -145,7 +145,6 @@ impl Roots {
 pub(crate) enum Resource {
     Task,
     Cgroup,
-    #[cfg(feature = "vm-acceptance")]
     Capture,
 }
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -296,7 +295,6 @@ pub(crate) fn register(
         let value = match resource {
             Resource::Task => &mut record.resources.task,
             Resource::Cgroup => &mut record.resources.cgroup,
-            #[cfg(feature = "vm-acceptance")]
             Resource::Capture => &mut record.resources.capture,
         };
         if value.is_some() {

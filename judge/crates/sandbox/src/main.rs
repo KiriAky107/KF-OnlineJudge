@@ -29,8 +29,17 @@ enum Command {
         #[arg(long)]
         config: PathBuf,
     },
-    /// Reserved execution entrypoint; refuses execution until isolation is implemented.
-    Run,
+    /// Dedicated root helper: requires trusted runtime, finite scope and all isolation gates.
+    Run {
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        spec: Option<PathBuf>,
+        #[arg(long)]
+        artifacts: Option<PathBuf>,
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     /// Internal trusted launcher control entry; never runs a user program.
     #[cfg(target_os = "linux")]
     #[command(hide = true)]
@@ -83,11 +92,33 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        Command::Run => {
-            eprintln!(
-                "{{\"error\":\"sandbox_not_implemented\",\"message\":\"isolated execution is unavailable\"}}"
-            );
-            ExitCode::from(2)
+        Command::Run {
+            config,
+            spec,
+            artifacts,
+            output,
+        } => {
+            let (Some(config), Some(spec), Some(artifacts), Some(output)) =
+                (config, spec, artifacts, output)
+            else {
+                return spec_error("execution_configuration_required", None);
+            };
+            #[cfg(target_os = "linux")]
+            match kf_sandbox::execution::run_files(&config, &spec, &artifacts, &output) {
+                Ok(result) => {
+                    println!("{result}");
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("{}", serde_json::json!(error));
+                    ExitCode::from(2)
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (config, spec, artifacts, output);
+                spec_error("unsupported_platform", None)
+            }
         }
         Command::Validate { spec } => validate_spec(spec),
         Command::CheckRuntime { config } => check_runtime(config),

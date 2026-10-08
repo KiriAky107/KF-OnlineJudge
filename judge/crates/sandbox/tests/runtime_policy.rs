@@ -257,7 +257,7 @@ fn visible_interfaces_or_a_caller_isolation_flag_never_grant_execution() {
         report
             .reasons
             .iter()
-            .any(|reason| reason.code == "sandbox_not_implemented")
+            .any(|reason| reason.code == "active_validation_required")
     );
     for subject in [
         "cgroup_delegation",

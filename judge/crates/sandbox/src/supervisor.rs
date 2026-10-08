@@ -109,7 +109,6 @@ impl<'a> BudgetSupervisor<'a> {
             Err(e) => Err(self.fail(e)),
         }
     }
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn release_prepared_gate(
         &mut self,
         members: &[u32],
@@ -122,7 +121,6 @@ impl<'a> BudgetSupervisor<'a> {
     }
     /// The authoritative final sample is deliberately after all owned wait
     /// operations. Earlier budget samples may stop the tree, never remove it.
-    #[cfg(feature = "vm-acceptance")]
     pub(crate) fn after_reap(&mut self) -> Result<BudgetEvent, SupervisionFailure> {
         self.finish_sample().map_err(|e| self.fail(e))
     }
