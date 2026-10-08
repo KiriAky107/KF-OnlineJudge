@@ -11,6 +11,9 @@
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #include <unistd.h>
+#define main isolated_danger_main
+#include "seccomp_danger_probe.c"
+#undef main
 static void check(int yes, const char *why) {
     if (!yes) { fprintf(stderr,"ISOLATION_FAIL %s errno=%d\n",why,errno); exit(1); }
 }
@@ -67,4 +70,65 @@ static void files(void) {
     errno=0;check(syscall(SYS_chroot,"/")==-1&&errno==EPERM,"chroot reconstruction refused");
     printf("FILES_OK proc dev input stdin fd root image\n");
 }
-int main(int argc,char **argv){check(argc>=2,"fixed mode");if(!strcmp(argv[1],"files")){files();return 0;}return 100;}
+static void identity(void) {
+    check(getuid()>=100000&&getuid()==geteuid()&&getgid()==getegid()&&getgroups(0,NULL)==0,"identity and groups");
+    check(prctl(PR_GET_NO_NEW_PRIVS,0,0,0,0)==1&&prctl(PR_GET_SECCOMP)==2,"identity NNP/filter");
+    FILE *f=fopen("/proc/self/status","r");check(f!=NULL,"status for caps");char line[256];int caps=0;
+    while(fgets(line,sizeof line,f))if(!strncmp(line,"Cap",3)){
+        char name[32];unsigned long long value;
+        check(sscanf(line,"%31s %llx",name,&value)==2&&value==0,"all capability sets zero");caps++;
+    }
+    fclose(f);check(caps==5,"five capability sets");
+}
+static void peer(void) {
+    identity();int fd=open("peer-secret",O_WRONLY|O_CREAT|O_EXCL,0600);check(fd>=0,"peer secret create");
+    check(write(fd,"peer-private-content",20)==20,"peer secret write");close(fd);
+    fd=open("peer-ready",O_WRONLY|O_CREAT|O_EXCL,0600);check(fd>=0&&write(fd,"ready",5)==5,"peer readiness");close(fd);
+    struct stat st;while(stat("peer-stop",&st)<0){check(errno==ENOENT,"peer stop state");usleep(10000);}
+    fd=open("peer-secret",O_RDONLY|O_CLOEXEC);char data[32];check(fd>=0&&read(fd,data,sizeof data)==20&&!memcmp(data,"peer-private-content",20),"peer secret preserved");close(fd);
+    printf("PEER_OK uid=%u\n",getuid());
+}
+static void cross(void) {
+    identity();FILE *f=fopen("/work/peer","r");check(f!=NULL,"peer metadata");
+    int pid,init,parent;unsigned uid;unsigned long long ns[6];
+    check(fscanf(f,"%d %d %d %u %llu %llu %llu %llu %llu %llu",&pid,&init,&parent,&uid,&ns[0],&ns[1],&ns[2],&ns[3],&ns[4],&ns[5])==10,"peer frame");fclose(f);
+    check(pid>2&&init>2&&parent>2&&uid>=100000&&uid!=getuid(),"live peer distinct identity");
+    const char *names[]={"mnt","pid","net","ipc","uts","cgroup"};char path[160];
+    for(int i=0;i<6;i++){
+        snprintf(path,sizeof path,"/proc/self/ns/%s",names[i]);struct stat st;check(!stat(path,&st)&&(unsigned long long)st.st_ino!=ns[i],"distinct peer namespace");
+    }
+    snprintf(path,sizeof path,"/proc/%d/root/work/peer-secret",pid);absent(path);
+    snprintf(path,sizeof path,"/proc/%d/mem",pid);absent(path);
+    snprintf(path,sizeof path,"/proc/%d/fd/3",pid);absent(path);
+    snprintf(path,sizeof path,"/proc/%d/ns/mnt",init);absent(path);
+    snprintf(path,sizeof path,"/proc/%d/root/kf/isolation-peer-frame",parent);absent(path);
+    absent("/var/lib/kf-judge/tasks/kf-isolation-peer/root/work/peer-secret");
+    DENY(syscall(SYS_kill,pid,0));DENY(syscall(SYS_kill,-1,SIGTERM));
+    DENY(syscall(SYS_ptrace,PTRACE_ATTACH,pid,NULL,NULL));
+    DENY(syscall(SYS_process_vm_readv,pid,NULL,0,NULL,0,0));
+    DENY(syscall(SYS_process_vm_writev,pid,NULL,0,NULL,0,0));
+    errno=0;check(syscall(SYS_pidfd_open,pid,0)==-1&&errno==ESRCH,"peer invisible to pidfd");
+    int fd=(int)syscall(SYS_pidfd_open,1,0);check(fd>=3,"own visible init pidfd");
+    DENY(syscall(SYS_pidfd_getfd,fd,3,0));
+    /* GCC may pass its own harmless descriptors to a wrapper. Reuse FD3
+       explicitly to test the number-based sendmsg exception on a non-socket. */
+    if(fd!=3){check(dup3(fd,3,O_CLOEXEC)==3,"reuse FD3 without control capability");close(fd);fd=3;}
+    struct msghdr msg={0};errno=0;check(sendmsg(fd,&msg,MSG_NOSIGNAL)==-1&&errno==ENOTSOCK,"FD3 cannot regain control endpoint");close(fd);
+    DENY(syscall(SYS_symlink,"/proc/1/root","/work/escape"));DENY(syscall(SYS_link,"/work/peer","/work/stolen"));
+    printf("CROSS_OK peer=%u self=%u denied=%u\n",uid,getuid(),denied);
+}
+int main(int argc,char **argv){
+    check(argc>=2,"fixed mode");
+    if(!strcmp(argv[1],"files")){files();return 0;}
+    if(!strcmp(argv[1],"peer")){peer();return 0;}
+    if(!strcmp(argv[1],"danger")){char *args[]={argv[0],argc>=3?argv[2]:"native",NULL};return isolated_danger_main(2,args);}
+    if(!strcmp(argv[1],"cross")){cross();return 0;}
+    if(!strcmp(argv[1],"identity")){
+        identity();struct stat st;struct statvfs v;
+        check(!stat("/usr/bin/kf-isolation-setuid",&st)&&st.st_uid==0&&(st.st_mode&06000)==06000,"actual setuid/setgid file");
+        check(!statvfs("/usr/bin/kf-isolation-setuid",&v)&&(v.f_flag&ST_NOSUID),"image nosuid");
+        char *args[]={"/usr/bin/kf-isolation-setuid","post-setuid",NULL};char *env[]={NULL};execve(args[0],args,env);check(0,"setuid exec");
+    }
+    if(!strcmp(argv[1],"post-setuid")){identity();printf("IDENTITY_OK uid=%u euid=%u\n",getuid(),geteuid());return 0;}
+    return 100;
+}

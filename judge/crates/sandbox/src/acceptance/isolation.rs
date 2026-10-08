@@ -2,11 +2,20 @@
 use super::{Fixture, describe};
 use crate::{
     launcher::run::{self, MonitorMode},
-    spec::{ExecutionSpec, InputArtifact, SpecPolicy},
+    spec::{ExecutionProfile, ExecutionSpec, InputArtifact, ResourceLimits, SpecPolicy},
 };
 use std::{fs, io, os::unix::fs::symlink};
 
 pub(super) fn run_case(case: &str) -> io::Result<serde_json::Value> {
+    if case == "isolation-peer"
+        || case.strip_prefix("isolation-").is_some_and(|s| {
+            ["danger-", "identity-", "cross-"]
+                .iter()
+                .any(|p| s.starts_with(p))
+        })
+    {
+        return matrix_case(case);
+    }
     if !matches!(case, "isolation-files" | "isolation-inherited-fd") {
         return Err(io::Error::other("unknown isolation case"));
     }
@@ -82,5 +91,105 @@ pub(super) fn run_case(case: &str) -> io::Result<serde_json::Value> {
         result.map_err(|e| io::Error::other(format!("isolation preparation: {:?}", e.failure)))?;
     let mut value = describe(case, &spec, &completed, false)?;
     value["outside_sentinels_unchanged"] = true.into();
+    Ok(value)
+}
+
+fn matrix_case(case: &str) -> io::Result<serde_json::Value> {
+    let (mode, profile) = if case == "isolation-peer" {
+        ("peer", ExecutionProfile::Native)
+    } else {
+        let (mode, profile) = case
+            .strip_prefix("isolation-")
+            .and_then(|s| s.split_once('-'))
+            .ok_or_else(|| io::Error::other("fixed matrix case"))?;
+        if !matches!(mode, "danger" | "identity" | "cross") {
+            return Err(io::Error::other("fixed matrix mode"));
+        }
+        (
+            mode,
+            match profile {
+                "native" => ExecutionProfile::Native,
+                "c" => ExecutionProfile::CompileC,
+                "cpp" => ExecutionProfile::CompileCpp,
+                _ => return Err(io::Error::other("fixed matrix profile")),
+            },
+        )
+    };
+    let fixture = Fixture::new("/kf/bin/isolation-probe")?;
+    let config = fixture.config()?;
+    let mut request: ExecutionSpec =
+        serde_json::from_str(include_str!("../../tests/fixtures/spec.valid.json"))?;
+    request.run_id = case.into();
+    request.profile = profile;
+    request.stdin_artifact = None;
+    request.limits = ResourceLimits::for_profile(profile);
+    request.limits.cpu_time_us = 2_000_000;
+    request.limits.wall_time_us = if mode == "peer" {
+        30_000_000
+    } else {
+        8_000_000
+    };
+    let label = match profile {
+        ExecutionProfile::Native => "native",
+        ExecutionProfile::CompileC => "compile_c",
+        ExecutionProfile::CompileCpp => "compile_cpp",
+    };
+    if profile == ExecutionProfile::Native {
+        request.argv.extend([mode.into(), label.into()]);
+    } else {
+        // Exercise user-controlled compiler wrappers through the real GNU
+        // driver. The image probe is fixed; we never replace GCC/G++ itself.
+        fs::write(
+            format!("{}/source-001", fixture.publications),
+            b"int isolated_source;\n",
+        )?;
+        request.inputs = vec![InputArtifact {
+            artifact_id: "source-001".into(),
+            path: "probe.c".into(),
+        }];
+        request.argv = vec![
+            if profile == ExecutionProfile::CompileC {
+                "/usr/bin/gcc"
+            } else {
+                "/usr/bin/g++"
+            }
+            .into(),
+            "-fsyntax-only".into(),
+            "/work/probe.c".into(),
+            "-wrapper".into(),
+            format!("/usr/bin/kf-isolation-probe,{mode},{label}"),
+        ];
+    }
+    if mode == "cross" {
+        let frame = fs::read("/kf/isolation-peer-frame")?;
+        if frame.len() > 512 {
+            return Err(io::Error::other("peer frame size"));
+        }
+        fs::write(format!("{}/peer-001", fixture.publications), frame)?;
+        request.inputs.push(InputArtifact {
+            artifact_id: "peer-001".into(),
+            path: "peer".into(),
+        });
+    }
+    let spec = request
+        .validate(&SpecPolicy::default())
+        .map_err(io::Error::other)?;
+    let completed = run::execute(
+        &config,
+        &spec,
+        &std::env::current_exe()?,
+        &fixture.root()?,
+        MonitorMode::Normal,
+    )
+    .map_err(|e| io::Error::other(format!("matrix initialization: {:?}", e.failure)))?;
+    let mut value = describe(case, &spec, &completed, false)?;
+    let mut stdout = String::new();
+    use std::io::Read;
+    completed
+        .stdout
+        .reader()?
+        .take(2048)
+        .read_to_string(&mut stdout)?;
+    value["probe_stdout"] = stdout.into();
     Ok(value)
 }
