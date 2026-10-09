@@ -246,3 +246,154 @@ def test_actual_v2_cancel_requires_matching_stop_protocol_and_fence(
             # This proves stop-report authority only; real JVM cleanup remains VM acceptance.
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("language", ["python313", "java21"])
+def test_actual_v2_expiry_late_report_and_finite_infrastructure_retry(
+    postgres_url, tmp_path, monkeypatch, language
+):
+    """Real PG/HTTP authority; reports/stop assertions remain synthetic, no user execution."""
+
+    async def run():
+        async with fixture(postgres_url, tmp_path, monkeypatch, import_builder=multi_import) as (
+            client,
+            c,
+            workers,
+            _,
+            create,
+        ):
+            worker = workers[0]
+            created = await create(language)
+            old = await claim(client, created, worker)
+            old_task = await manifest(c, old)
+            late = report_v2(old, old_task)
+            await c.execute(
+                "UPDATE judge_attempts SET expires_at=clock_timestamp()-interval '1 second'"
+            )
+            assert (
+                await client.post(
+                    "/internal/renew", json=old["binding"], headers=worker_headers(worker, old)
+                )
+            ).status_code == 409
+            for _ in range(60):
+                pending = (
+                    await client.get("/internal/pending-stops", headers=worker_headers(worker))
+                ).json()
+                if pending:
+                    break
+                await asyncio.sleep(0.05)
+            assert pending == [dict(schema_version=2, binding=old["binding"], case_count=2)]
+            stopped = dict(
+                schema_version=2,
+                kind="judge.stopped",
+                binding=old["binding"],
+                cleanup_complete=True,
+            )
+            assert (
+                await client.post("/internal/stopped", json=stopped, headers=worker_headers(worker))
+            ).status_code == 204
+            await c.execute(
+                "UPDATE evaluations SET not_before=clock_timestamp() WHERE id=$1",
+                created.evaluation_id,
+            )
+            fresh = await claim(client, created, worker)
+            assert fresh["attempt_number"] == 2 and fresh["binding"]["fencing_version"] == 2
+            assert (
+                await client.post(
+                    "/internal/report", json=late, headers=worker_headers(worker, old)
+                )
+            ).status_code == 409
+            assert (
+                await client.post(
+                    "/internal/stage",
+                    json=stage_v2(old, language, 1),
+                    headers=worker_headers(worker, old),
+                )
+            ).status_code == 409
+            for sequence, stage, index in [
+                (1, "compiling", None),
+                (2, "running", 0),
+                (3, "running", 1),
+            ]:
+                assert (
+                    await client.post(
+                        "/internal/stage",
+                        json=stage_v2(fresh, language, sequence, stage, index),
+                        headers=worker_headers(worker, fresh),
+                    )
+                ).status_code == 204
+            result = report_v2(fresh, await manifest(c, fresh))
+            assert (
+                await client.post(
+                    "/internal/report", json=result, headers=worker_headers(worker, fresh)
+                )
+            ).status_code == 204
+            digest = await c.fetchval(
+                "SELECT final_report_digest FROM evaluations WHERE id=$1", created.evaluation_id
+            )
+            assert (
+                await client.post(
+                    "/internal/report", json=late, headers=worker_headers(worker, old)
+                )
+            ).status_code == 409
+            assert (
+                await c.fetchval(
+                    "SELECT final_report_digest FROM evaluations WHERE id=$1", created.evaluation_id
+                )
+                == digest
+            )
+            assert (
+                await c.fetchval(
+                    "SELECT count(*) FROM case_results WHERE evaluation_id=$1",
+                    created.evaluation_id,
+                )
+                == 2
+            )
+            retry = await create(language)
+            for number in range(1, 4):
+                grant = await claim(client, retry, worker)
+                result = report_v2(grant, await manifest(c, grant)) | dict(
+                    compilation=dict(
+                        status="system_error",
+                        program=None,
+                        diagnostics="",
+                        diagnostics_truncated=False,
+                        cpu_time_us=None,
+                        memory_peak_bytes=None,
+                    ),
+                    cases=[],
+                    verdict="system_error",
+                    failure_code="artifact_unavailable",
+                    run_cpu_time_us=None,
+                    run_memory_peak_bytes=None,
+                )
+                assert grant["attempt_number"] == number
+                assert (
+                    await client.post(
+                        "/internal/report", json=result, headers=worker_headers(worker, grant)
+                    )
+                ).status_code == 204
+                assert await c.fetchval(
+                    "SELECT state FROM evaluations WHERE id=$1", retry.evaluation_id
+                ) == ("failed" if number == 3 else "queued")
+                if number < 3:
+                    await c.execute(
+                        "UPDATE evaluations SET not_before=clock_timestamp() WHERE id=$1",
+                        retry.evaluation_id,
+                    )
+            assert (
+                await client.post(
+                    "/internal/claim",
+                    json=notice(retry.evaluation_id),
+                    headers=worker_headers(worker),
+                )
+            ).status_code == 204
+            assert (
+                await c.fetchval(
+                    "SELECT count(*) FROM judge_attempts WHERE evaluation_id=$1",
+                    retry.evaluation_id,
+                )
+                == 3
+            )
+
+    asyncio.run(run())
