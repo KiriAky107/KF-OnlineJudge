@@ -876,3 +876,135 @@ public class Main {
     }
     println!("KF_MANAGED_FILE_WALL_STATUS=0 java21");
 }
+
+#[test]
+#[ignore = "actual held Java class-directory kernel links/seals/bounds only in independently capped VM"]
+fn java_class_exports_reject_links_replacement_and_partial_batches() {
+    use kf_sandbox::launcher::root::RootedTarget;
+    use rustix::fd::{AsFd, AsRawFd};
+    use std::io::Read;
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new("java21", ImageKind::LinuxOpenJdk21X86_64V1);
+    let mut request = f.request("java-export-refusals", ExecutionProfile::JavaCompile);
+    request.limits.file_bytes = 16 * 1024;
+    request.limits.workdir_bytes = 64 * 1024;
+    request.limits.stdout_bytes = 1;
+    request.limits.stderr_bytes = 1;
+    let config = f.root.validated();
+    let spec = request.validate(&config.spec_policy()).unwrap();
+    let target = RootedTarget::prepare(
+        &config,
+        &spec,
+        &PathBuf::from(std::env::var_os("KF_SANDBOX_PRODUCTION_BIN").unwrap()),
+    )
+    .unwrap();
+    let work = PathBuf::from(format!("/proc/{}/root/work", target.init_pid()));
+    let candidate = work.join("Main.class");
+    let canary = f.dir.join("outside-canary");
+    fs::write(&canary, b"never-export").unwrap();
+    let inode = fs::metadata(&canary).unwrap().ino();
+    let same_mount_canary = work.join("Canary.class");
+    fs::write(&same_mount_canary, b"never-export").unwrap();
+    let work_inode = fs::metadata(&same_mount_canary).unwrap().ino();
+    let descriptors = || fs::read_dir("/proc/self/fd").unwrap().count();
+    let before = descriptors();
+    for variant in 0..7 {
+        match variant {
+            0 => symlink(&canary, &candidate).unwrap(),
+            1 => fs::hard_link(&same_mount_canary, &candidate).unwrap(),
+            2 => fs::create_dir(&candidate).unwrap(),
+            3 => symlink("/proc/self/fd/0", &candidate).unwrap(),
+            4 => fs::write(&candidate, []).unwrap(),
+            5 => fs::write(&candidate, [0; 16 * 1024 + 1]).unwrap(),
+            6 => {
+                fs::write(&candidate, b"class").unwrap();
+                fs::rename(&candidate, work.join("Main$Held.class")).unwrap();
+                symlink(&canary, &candidate).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        assert!(target.snapshot_outputs().is_err(), "variant {variant}");
+        assert_eq!(fs::metadata(&canary).unwrap().ino(), inode);
+        assert_eq!(fs::read(&canary).unwrap(), b"never-export");
+        assert_eq!(fs::metadata(&same_mount_canary).unwrap().ino(), work_inode);
+        assert_eq!(fs::read(&same_mount_canary).unwrap(), b"never-export");
+        if variant == 2 {
+            fs::remove_dir(&candidate).unwrap();
+        } else {
+            fs::remove_file(&candidate).unwrap();
+        }
+        if variant == 6 {
+            fs::remove_file(work.join("Main$Held.class")).unwrap();
+        }
+        assert_eq!(descriptors(), before);
+    }
+    fs::remove_file(&same_mount_canary).unwrap();
+    fs::write(&candidate, [1; 16 * 1024]).unwrap();
+    fs::write(work.join("Main$1.class"), [2; 16 * 1024]).unwrap();
+    for name in ["Third.class", "Fourth.class", "Fifth.class"] {
+        fs::File::create(work.join(name))
+            .unwrap()
+            .set_len(16 * 1024)
+            .unwrap();
+    }
+    assert!(target.snapshot_outputs().is_err(), "total logical bytes");
+    assert_eq!(descriptors(), before, "partial batch must drop every FD");
+    for name in ["Third.class", "Fourth.class", "Fifth.class"] {
+        fs::remove_file(work.join(name)).unwrap();
+    }
+    let sealed = target.snapshot_outputs().unwrap();
+    assert_eq!(sealed.len(), 2);
+    assert_eq!(
+        sealed.iter().map(|o| o.file.bytes()).sum::<u64>(),
+        32 * 1024
+    );
+    for output in &sealed {
+        let mut bytes = vec![];
+        output
+            .file
+            .reader()
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        let expected = if output.path == "Main.class" {
+            vec![1; 16 * 1024]
+        } else {
+            vec![2; 16 * 1024]
+        };
+        assert_eq!(bytes, expected);
+        fs::write(work.join(&output.path), b"changed backing").unwrap();
+        let fd = rustix::fs::open(
+            format!("/proc/self/fd/{}", output.file.as_fd().as_raw_fd()),
+            rustix::fs::OFlags::RDWR | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )
+        .unwrap();
+        assert_eq!(
+            rustix::io::pwrite(&fd, b"tamper", 0),
+            Err(rustix::io::Errno::PERM)
+        );
+        assert_eq!(rustix::fs::ftruncate(&fd, 0), Err(rustix::io::Errno::PERM));
+        bytes.clear();
+        output
+            .file
+            .reader()
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, expected);
+    }
+    drop(sealed);
+    assert_eq!(descriptors(), before);
+    assert!(
+        target
+            .refuse_remaining_isolation()
+            .cleanup_failure
+            .is_none()
+    );
+    f.empty();
+    fs::remove_file(&canary).unwrap();
+    println!(
+        "KF_JAVA_CLASS_DIRECTORY_PROOF symlink=1 hardlink=1 directory=1 magiclink=1 empty=1 file_limit=1 total_limit=1 replacement=1 canary_inode_bytes_preserved=1 partial_fd_cleanup=1 kernel_seals=1 backing_mutation_safe=1 owned_zero=1"
+    );
+    println!("KF_JAVA_CLASS_DIRECTORY_STATUS=0");
+}
