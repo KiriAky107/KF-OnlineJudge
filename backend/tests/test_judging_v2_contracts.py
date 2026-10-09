@@ -220,3 +220,18 @@ def test_registry_is_explicit_for_each_protocol_and_retains_legacy_configuration
     raw["multi_runtime"]["prefetch"] = 2
     with pytest.raises(ValueError):
         Settings(_env_file=None, judge_admission=raw)
+
+
+def test_generic_admission_revalidates_constructed_values_in_both_generations():
+    registry = fixture("judge-registry.valid", v2.AdmissionRegistry)
+    old = ROOT / "tests/fixtures/contracts/judge-manifest.valid.json"
+    legacy = v1.decode_wire(v1.JobManifest, old.read_bytes())
+    for manifest in (legacy, fixture("judge-manifest.valid-python313", v2.JobManifest)):
+        for wrong in (
+            manifest.model_copy(update={"schema_version": True}),
+            manifest.model_copy(update={"job_wall_time_us": 1}),
+            manifest.model_copy(update={"cases": ()}),
+        ):
+            with pytest.raises(ValueError):
+                v2.admit_manifest(registry, wrong, 1)
+    v2.admit_manifest(registry, legacy, 1)

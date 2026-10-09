@@ -27,8 +27,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @asynccontextmanager
-async def fixture(postgres_url, tmp_path, monkeypatch):
-    _, policy = import_fixture(tmp_path / "import")
+async def fixture(
+    postgres_url, tmp_path, monkeypatch, *, import_builder=import_fixture, node_policy=None
+):
+    _, policy = import_builder(tmp_path / "import")
     engine = create_async_engine(postgres_url)
     platform_role(engine)
     monkeypatch.setattr("kf_oj.api.app.build_engine", lambda _: engine)
@@ -66,7 +68,7 @@ async def fixture(postgres_url, tmp_path, monkeypatch):
                 database_url=coord_url,
                 workers=workers,
                 platform_token=platform,
-                admission=policy.model_dump(mode="json"),
+                admission=(node_policy or policy).model_dump(mode="json"),
                 lease_seconds=5,
                 recovery_seconds=1,
             )
@@ -134,17 +136,20 @@ async def fixture(postgres_url, tmp_path, monkeypatch):
                     "cpu.max": "50000 100000",
                 }
 
-                async def create():
+                async def create(language="c17"):
                     return await app.state.submissions.create(
                         owner,
                         CreateSubmission(
                             problem_version_id=version,
-                            language="c17",
+                            language=language,
                             idempotency_key=uuid4(),
                             source="synthetic report fixture; never compiled on host",
                         ),
                     )
 
+                client.fixture_app = app
+                client.fixture_account = owner
+                client.fixture_version = version
                 client.coordinator_unit = unit
                 client.coordinator_role = role
                 yield client, c, workers, platform, create

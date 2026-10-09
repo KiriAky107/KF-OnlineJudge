@@ -8,6 +8,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use kf_contracts::judging_versions::{JudgementReport, StageReport, StoppedReport};
 use kf_contracts::{JudgeTaskNotification, judging::*};
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
@@ -158,19 +159,19 @@ async fn progress(State(app): State<App>, h: HeaderMap, b: Bytes) -> ApiResult<J
 }
 async fn stage(State(app): State<App>, h: HeaderMap, b: Bytes) -> ApiResult<StatusCode> {
     let r: StageReport = decode(&b)?;
-    bound_worker(&app, &h, &r.binding)?;
+    bound_worker(&app, &h, r.fields().binding)?;
     app.repository.stage(&r, lease(&h)?).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 async fn report(State(app): State<App>, h: HeaderMap, b: Bytes) -> ApiResult<StatusCode> {
     let r: JudgementReport = decode(&b)?;
-    bound_worker(&app, &h, &r.binding)?;
+    bound_worker(&app, &h, r.fields().binding)?;
     app.repository.report(&r, lease(&h)?).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 async fn stopped(State(app): State<App>, h: HeaderMap, b: Bytes) -> ApiResult<StatusCode> {
     let r: StoppedReport = decode(&b)?;
-    bound_worker(&app, &h, &r.binding)?;
+    bound_worker(&app, &h, r.binding())?;
     app.repository.stopped(&r).await?;
     Ok(StatusCode::NO_CONTENT)
 }

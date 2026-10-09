@@ -1,5 +1,6 @@
 //! Service-only secrets from a private local file; never format database/token values.
-use kf_contracts::judging::{AdmissionPolicy, Identifier, LeaseToken};
+use kf_contracts::judging::{Identifier, LeaseToken};
+use kf_contracts::judging_versions::NodeAdmission;
 use serde::Deserialize;
 use std::{collections::HashSet, fs, io, net::SocketAddr, path::Path};
 #[derive(Deserialize)]
@@ -15,7 +16,7 @@ pub struct Config {
     pub database_url: String,
     pub workers: Vec<WorkerIdentity>,
     pub platform_token: LeaseToken,
-    pub admission: AdmissionPolicy,
+    pub admission: NodeAdmission,
     pub lease_seconds: u32,
     pub recovery_seconds: u32,
 }

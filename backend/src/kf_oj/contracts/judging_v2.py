@@ -331,10 +331,16 @@ NodeAdmission = v1.AdmissionPolicy | AdmissionPolicy | AdmissionRegistry
 def admit_manifest(
     policy: NodeAdmission | None, manifest: v1.JobManifest | JobManifest, attempt_number: int
 ) -> None:
+    if type(manifest) not in (v1.JobManifest, JobManifest):
+        raise ValueError("unsupported manifest model")
+    # Copied/constructed values must pass the original strict protocol validators too.
+    manifest = type(manifest).model_validate(manifest.model_dump(mode="json"))
     if isinstance(policy, AdmissionRegistry):
         policy.admit(manifest, attempt_number)
     elif manifest.schema_version == 1 and type(policy) is v1.AdmissionPolicy:
-        policy.admit(manifest, attempt_number)
+        v1.AdmissionPolicy.model_validate(policy.model_dump(mode="json")).admit(
+            manifest, attempt_number
+        )
     elif manifest.schema_version == 2 and type(policy) is AdmissionPolicy:
         policy.admit(manifest, attempt_number)
     else:

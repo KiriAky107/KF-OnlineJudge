@@ -1,6 +1,7 @@
 //! Ordinary transport adapter. AMQP is a bounded wake-up; claim is sole authority.
 use crate::pipeline::{ArtifactPort, Attempt};
 use futures_lite::{StreamExt, future::block_on};
+use kf_contracts::judging_versions::{JobManifest as VersionedManifest, NodeAdmission};
 use kf_contracts::{JudgeTaskNotification, SchemaVersion, judging::*};
 use kf_engine::submission::{StageFailure, judge_submission};
 use kf_sandbox::{artifacts::StagePublication, factory::FactoryClient};
@@ -49,7 +50,7 @@ pub struct Config {
     pub amqp_url: String,
     pub socket: PathBuf,
     pub staging: PathBuf,
-    pub admission: AdmissionPolicy,
+    pub admission: NodeAdmission,
 }
 impl Config {
     pub fn load(path: &Path) -> io::Result<Self> {
@@ -85,8 +86,8 @@ impl Config {
         }
         if !c.socket.is_absolute()
             || !c.staging.is_absolute()
-            || c.admission.max_concurrent_jobs != 1
-            || c.admission.prefetch != 1
+            || c.admission.max_concurrent_jobs() != 1
+            || c.admission.prefetch() != 1
         {
             return Err(error());
         }
@@ -292,7 +293,7 @@ fn execute(c: &Config, r: &Remote, g: LeaseGrant, stop: &AtomicBool) -> io::Resu
     };
     let m = artifacts.manifest()?;
     c.admission
-        .admit(&m, g.attempt_number)
+        .admit(&VersionedManifest::V1(m.clone()), g.attempt_number)
         .map_err(|_| error())?;
     let cancel = AtomicBool::new(false);
     let done = AtomicBool::new(false);

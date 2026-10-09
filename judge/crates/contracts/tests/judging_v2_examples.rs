@@ -187,3 +187,77 @@ fn registry_explicitly_admits_both_protocols_without_promoting_legacy_policy() {
     wrong.multi_runtime.as_mut().unwrap().max_retries += 1;
     assert!(wrong.validate().is_err());
 }
+
+#[test]
+fn operator_admission_and_transport_dispatch_keep_generations_explicit() {
+    let original = fixtures().parent().unwrap().join("contracts");
+    let legacy_policy: versions::NodeAdmission =
+        v1::decode_wire(&fs::read(original.join("judge-admission.valid.json")).unwrap()).unwrap();
+    let multi_policy: versions::NodeAdmission = fixture("judge-admission.valid");
+    let registry: versions::NodeAdmission = fixture("judge-registry.valid");
+    let old_manifest: versions::JobManifest =
+        v1::decode_wire(&fs::read(original.join("judge-manifest.valid.json")).unwrap()).unwrap();
+    let new_manifest: versions::JobManifest = fixture("judge-manifest.valid-python313");
+    for policy in [&legacy_policy, &multi_policy, &registry] {
+        policy.validate().unwrap();
+        assert_eq!(policy.max_concurrent_jobs(), 1);
+        assert_eq!(policy.prefetch(), 1);
+        assert_eq!(policy.max_retries(), 2);
+    }
+    registry.admit(&old_manifest, 1).unwrap();
+    registry.admit(&new_manifest, 1).unwrap();
+    assert!(legacy_policy.admit(&new_manifest, 1).is_err());
+    assert!(multi_policy.admit(&old_manifest, 1).is_err());
+    let old_stage: versions::StageReport =
+        v1::decode_wire(&fs::read(original.join("judge-stage.valid.json")).unwrap()).unwrap();
+    let new_stage: versions::StageReport = fixture("judge-stage.valid-python313");
+    old_stage.validate_for_manifest(&old_manifest).unwrap();
+    new_stage.validate_for_manifest(&new_manifest).unwrap();
+    assert!(old_stage.validate_for_manifest(&new_manifest).is_err());
+    assert!(new_stage.validate_for_manifest(&old_manifest).is_err());
+    let old_stop: versions::StoppedReport =
+        v1::decode_wire(&fs::read(original.join("judge-stopped.valid.json")).unwrap()).unwrap();
+    let new_stop: versions::StoppedReport = fixture("judge-stopped.valid");
+    assert!(old_stop.validate_for_manifest(&new_manifest).is_err());
+    assert!(new_stop.validate_for_manifest(&old_manifest).is_err());
+    for manifest in [&old_manifest, &new_manifest] {
+        let legacy_grant: v1::LeaseGrant =
+            v1::decode_wire(&fs::read(original.join("judge-lease.valid.json")).unwrap()).unwrap();
+        let grant = versions::LeaseGrant::for_manifest(
+            manifest,
+            legacy_grant.binding,
+            legacy_grant.lease_token,
+            legacy_grant.attempt_number,
+            legacy_grant.expires_at_unix_ms,
+            legacy_grant.manifest_digest,
+        );
+        let value = serde_json::to_value(&grant).unwrap();
+        assert_eq!(
+            value["schema_version"].as_u64().unwrap(),
+            u64::from(manifest.version())
+        );
+        v1::decode_wire::<versions::LeaseGrant>(&serde_json::to_vec(&value).unwrap()).unwrap();
+    }
+}
+
+#[test]
+fn typed_compiler_output_checks_individual_files_and_collection_storage() {
+    let report: versions::JudgementReport = fixture("judge-result.valid-java21");
+    let mut manifest: versions::JobManifest = fixture("judge-manifest.valid-java21");
+    report.validate_program_budget(&manifest).unwrap();
+    let versions::JobManifest::V2(m) = &mut manifest else {
+        unreachable!()
+    };
+    m.compile_limits.stdout_bytes = 32;
+    m.compile_limits.stderr_bytes = 32;
+    m.compile_limits.file_bytes = 63;
+    m.validate().unwrap();
+    assert!(report.validate_program_budget(&manifest).is_err());
+    let versions::JobManifest::V2(m) = &mut manifest else {
+        unreachable!()
+    };
+    m.compile_limits.file_bytes = 64;
+    m.compile_limits.workdir_bytes = 128;
+    m.validate().unwrap();
+    assert!(report.validate_program_budget(&manifest).is_err());
+}
