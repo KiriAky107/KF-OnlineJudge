@@ -193,3 +193,28 @@ test('transport expires identity on401, preserves cancellation and never fills f
   )
   await assert.rejects(offline('http://localhost/api'), /网络中断/)
 })
+
+test('an old401 cannot expire a newly authenticated session', async () => {
+  let version = 0,
+    expired = 0
+  let complete: (response: Response) => void = () => {}
+  const transport = boundedFetch(
+    async () =>
+      new Promise<Response>((resolve) => {
+        complete = resolve
+      }),
+    () => {
+      expired++
+    },
+    () => version,
+  )
+  const old = transport('http://localhost/api/v1/auth/me')
+  version++ // A later login owns the browser identity.
+  complete(new Response('{}', { status: 401 }))
+  await old
+  assert.equal(expired, 0)
+  const current = transport('http://localhost/api/v1/auth/me')
+  complete(new Response('{}', { status: 401 }))
+  await current
+  assert.equal(expired, 1)
+})

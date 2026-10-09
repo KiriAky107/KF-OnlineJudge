@@ -1,5 +1,5 @@
 import { readonly, ref } from 'vue'
-import { api, onUnauthorized } from '../api/client'
+import { advanceAuthorization, api, onUnauthorized } from '../api/client'
 import { ApiError, csrfHeaders, unwrap } from '../api/transport'
 import type { components } from '../api/generated/schema'
 
@@ -7,6 +7,7 @@ const user = ref<components['schemas']['CurrentUser'] | null>(null)
 let generation = 0
 let pending: Promise<boolean> | undefined
 onUnauthorized(() => {
+  advanceAuthorization()
   generation++
   user.value = null
 })
@@ -30,6 +31,7 @@ async function refresh() {
 }
 
 async function login(username: string, password: string) {
+  advanceAuthorization()
   const current = ++generation
   user.value = null
   const data = unwrap(await api.POST('/api/v1/auth/login', { body: { username, password } }))
@@ -37,6 +39,7 @@ async function login(username: string, password: string) {
 }
 
 async function logout() {
+  advanceAuthorization()
   const response = await api.POST('/api/v1/auth/logout', { headers: csrfHeaders() })
   if (!response.response.ok && response.response.status !== 401)
     throw new ApiError(response.response.status)

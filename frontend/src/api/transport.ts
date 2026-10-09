@@ -15,8 +15,13 @@ export class ApiError extends Error {
   }
 }
 
-export function boundedFetch(fetcher: typeof fetch, unauthorized: () => void): typeof fetch {
+export function boundedFetch(
+  fetcher: typeof fetch,
+  unauthorized: () => void,
+  authorizationVersion: () => number = () => 0,
+): typeof fetch {
   return async (input, init) => {
+    const version = authorizationVersion()
     const request = new Request(input, init)
     try {
       const response = await fetcher(
@@ -26,7 +31,7 @@ export function boundedFetch(fetcher: typeof fetch, unauthorized: () => void): t
           signal: AbortSignal.any([request.signal, AbortSignal.timeout(10000)]),
         }),
       )
-      if (response.status === 401) unauthorized()
+      if (response.status === 401 && version === authorizationVersion()) unauthorized()
       return response
     } catch (error) {
       if (request.signal.aborted) throw error
