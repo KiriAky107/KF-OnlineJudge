@@ -214,12 +214,25 @@ pub(crate) fn authorize(config: &ValidatedRuntimeConfig) -> io::Result<()> {
     }
     Ok(())
 }
+/// Factory admission proves every advertised image under the same finite
+/// supervisor scope. Per-request authorization still revalidates its image.
+pub(crate) fn authorize_registry(config: &ValidatedRuntimeConfig) -> io::Result<()> {
+    authorize(config)?;
+    for registered in config.registered_configs() {
+        authorize(&registered)?;
+    }
+    Ok(())
+}
 pub(crate) fn execute(
     config: &ValidatedRuntimeConfig,
     request: ExecutionSpec,
     artifacts: &ArtifactRoot,
     mode: run::MonitorMode<'_>,
 ) -> Result<(run::Completed, ValidatedSpec), RunFailure> {
+    let selected = config
+        .for_request(&request)
+        .map_err(|_| refused("invalid_execution_spec", &invalid("request policy")))?;
+    let config = &selected;
     authorize(config).map_err(|e| refused("runtime_not_ready", &e))?;
     let spec = request
         .validate(&config.spec_policy())

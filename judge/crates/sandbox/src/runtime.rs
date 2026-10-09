@@ -8,6 +8,9 @@ use kf_contracts::SchemaVersion;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+mod registry;
+pub use registry::RegisteredImage;
+
 /// Initial support policy, not a claim that version alone proves capability.
 pub const MIN_KERNEL: (u16, u16) = (6, 6);
 pub const MAX_CONFIG_BYTES: u64 = 65_536;
@@ -88,6 +91,10 @@ pub struct RuntimeConfig {
     /// Explicit catalog fingerprint; absent only for the original GNU image.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_identity: Option<kf_contracts::judging_v2::RuntimeIdentity>,
+    /// Additional immutable images share this factory's identity/delegation
+    /// pools and aggregate budget. A request supplies only an exact identity.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_images: Vec<RegisteredImage>,
     pub delegated_cgroup_root: String,
     pub identities: IdentityPool,
     pub max_concurrent_runs: u32,
@@ -289,6 +296,7 @@ impl RuntimeConfig {
         {
             return Err(invalid("aggregate", "exceeds_service_ceiling"));
         }
+        registry::validate(&self)?;
         Ok(ValidatedRuntimeConfig(self))
     }
 }

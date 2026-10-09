@@ -2,7 +2,7 @@
 use kf_contracts::judging_v2::{ImageKind as ContractKind, RuntimeIdentity};
 use kf_sandbox::{
     profiles,
-    runtime::{ImageKind, RuntimeConfig},
+    runtime::{ImageKind, RegisteredImage, RuntimeConfig},
     spec::*,
 };
 
@@ -31,6 +31,115 @@ fn identity(profile: ExecutionProfile) -> RuntimeIdentity {
             .to_owned()
             .try_into()
             .unwrap(),
+    }
+}
+
+fn registry() -> RuntimeConfig {
+    let mut c: RuntimeConfig = serde_json::from_str(include_str!(
+        "../../../../deploy/sandbox.runtime.example.json"
+    ))
+    .unwrap();
+    for (profile, kind, root) in [
+        (
+            ExecutionProfile::PythonRun,
+            ImageKind::LinuxCPython313X86_64V1,
+            "python313",
+        ),
+        (
+            ExecutionProfile::JavaRun,
+            ImageKind::LinuxOpenJdk21X86_64V1,
+            "java21",
+        ),
+    ] {
+        c.runtime_images.push(RegisteredImage {
+            image_root: format!("/var/lib/kf-judge/images/{root}"),
+            image_kind: kind,
+            runtime_identity: identity(profile),
+            per_task_ceiling: c.per_task_ceiling.clone(),
+        });
+    }
+    c
+}
+
+#[test]
+fn image_selection_preserves_one_global_identity_pool_budget_and_legacy_wire() {
+    let c = registry().validate().unwrap();
+    for profile in [ExecutionProfile::PythonRun, ExecutionProfile::JavaRun] {
+        let selected = c.for_request(&request(profile)).unwrap();
+        let p = selected.config();
+        assert_eq!(p.runtime_identity, Some(identity(profile)));
+        assert_eq!(p.identities, c.config().identities);
+        assert_eq!(p.aggregate, c.config().aggregate);
+        assert_eq!(p.state_root, c.config().state_root);
+        assert_eq!(p.tasks_root, c.config().tasks_root);
+        assert_eq!(p.delegated_cgroup_root, c.config().delegated_cgroup_root);
+        assert_eq!(p.max_concurrent_runs, c.config().max_concurrent_runs);
+        assert!(p.runtime_images.is_empty());
+    }
+    let legacy: ExecutionSpec =
+        serde_json::from_str(include_str!("fixtures/spec.valid.json")).unwrap();
+    let selected = c.for_request(&legacy).unwrap();
+    let original: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../deploy/sandbox.runtime.example.json"
+    ))
+    .unwrap();
+    assert_eq!(serde_json::to_value(selected.config()).unwrap(), original);
+}
+
+#[test]
+fn registry_cannot_grant_unregistered_identity_profile_or_wider_stage_budget() {
+    let mut c = registry();
+    c.runtime_images[0].per_task_ceiling.memory_bytes = 64 << 20;
+    c.runtime_images[0].per_task_ceiling.stack_bytes = 8 << 20;
+    let c = c.validate().unwrap();
+    let good = request(ExecutionProfile::PythonRun);
+    assert!(c.for_request(&good).is_ok());
+    let mut wrong = good.clone();
+    wrong.runtime_identity.as_mut().unwrap().image_digest = "b".repeat(64).try_into().unwrap();
+    assert!(c.for_request(&wrong).is_err());
+    let mut wrong = good.clone();
+    wrong.runtime_identity = None;
+    assert!(c.for_request(&wrong).is_err());
+    let mut wrong = request(ExecutionProfile::JavaRun);
+    wrong.runtime_identity = good.runtime_identity.clone();
+    assert!(c.for_request(&wrong).is_err());
+    let mut wrong = good;
+    wrong.limits.memory_bytes = 128 << 20;
+    assert!(c.for_request(&wrong).is_err());
+}
+
+#[test]
+fn registry_rejects_overlapping_images_private_roots_duplicate_families_and_capacity() {
+    for path in [
+        "/tmp/python",
+        "/var/lib/kf-judge/tasks/x",
+        "/var/lib/kf-judge/identities/x",
+        "/var/lib/kf-judge/captures/x",
+        "/var/lib/kf-judge/factory/x",
+        "/var/lib/kf-judge/images/java21",
+        "/var/lib/kf-judge/images/java21/nested",
+        "/var/lib/kf-judge/images",
+        "/var/lib/kf-judge/images/../x",
+    ] {
+        let mut c = registry();
+        c.runtime_images[0].image_root = path.into();
+        assert!(c.validate().is_err(), "{path}");
+    }
+    let mut c = registry();
+    c.runtime_images[1].runtime_identity = c.runtime_images[0].runtime_identity.clone();
+    c.runtime_images[1].image_kind = c.runtime_images[0].image_kind;
+    assert_eq!(c.validate().unwrap_err().code, "duplicate_runtime_family");
+    for field in ["memory_bytes", "processes", "workdir_bytes"] {
+        let mut value = serde_json::to_value(registry()).unwrap();
+        let n = value["runtime_images"][0]["per_task_ceiling"][field]
+            .as_u64()
+            .unwrap();
+        value["runtime_images"][0]["per_task_ceiling"][field] = (n + 1).into();
+        let c: RuntimeConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            c.validate().unwrap_err().code,
+            "ceiling_exceeds_global_budget"
+        );
     }
 }
 

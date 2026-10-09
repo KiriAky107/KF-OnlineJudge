@@ -173,7 +173,7 @@ impl Drop for SocketLease<'_> {
 /// the finite helper scope. No internal sudo, account changes or deployment.
 pub fn serve_one(config_path: &Path, socket: &Path) -> io::Result<serde_json::Value> {
     let config = execution::load_config(config_path)?;
-    execution::authorize(&config)?;
+    execution::authorize_registry(&config)?;
     let parent = crate::isolation::root::open_directory(socket.parent().ok_or_else(denied)?)?;
     let name = socket.file_name().ok_or_else(denied)?;
     // Refuse replacement, including an existing stale/foreign socket.

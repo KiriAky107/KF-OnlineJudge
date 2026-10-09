@@ -321,7 +321,7 @@ pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
         return Err(denied());
     }
     let config = execution::load_config(config_path)?;
-    execution::authorize(&config)?;
+    execution::authorize_registry(&config)?;
     let policy = config.config();
     if policy.aggregate.supervisor_processes < 4 + 8 * policy.max_concurrent_runs {
         return Err(denied());
