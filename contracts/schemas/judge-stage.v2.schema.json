@@ -1,0 +1,106 @@
+{
+  "$comment": "Multi-runtime protocol. Also validate runtime/source/attempt bindings, startup and node budgets, canonical bounded class sets and result consistency.",
+  "$defs": {
+    "LeaseBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "format": "uuid",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "evaluation_id": {
+          "format": "uuid",
+          "title": "Evaluation Id",
+          "type": "string"
+        },
+        "fencing_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Fencing Version",
+          "type": "integer"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evaluation_id",
+        "attempt_id",
+        "worker_id",
+        "fencing_version"
+      ],
+      "title": "LeaseBinding",
+      "type": "object"
+    },
+    "PreparationKind": {
+      "enum": [
+        "compile",
+        "syntax_check"
+      ],
+      "title": "PreparationKind",
+      "type": "string"
+    }
+  },
+  "$id": "urn:kf-oj:judge-stage:v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "binding": {
+      "$ref": "#/$defs/LeaseBinding"
+    },
+    "case_index": {
+      "anyOf": [
+        {
+          "exclusiveMaximum": 256,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Case Index"
+    },
+    "kind": {
+      "const": "judge.stage",
+      "title": "Kind",
+      "type": "string"
+    },
+    "preparation_kind": {
+      "$ref": "#/$defs/PreparationKind"
+    },
+    "schema_version": {
+      "const": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sequence": {
+      "maximum": 9223372036854775807,
+      "minimum": 1,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "stage": {
+      "enum": [
+        "compiling",
+        "running"
+      ],
+      "title": "Stage",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "binding",
+    "sequence",
+    "stage",
+    "case_index",
+    "preparation_kind"
+  ],
+  "title": "StageReport",
+  "type": "object"
+}

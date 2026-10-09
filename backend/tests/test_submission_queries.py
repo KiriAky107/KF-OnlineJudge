@@ -27,7 +27,10 @@ def test_cursor_and_control_configuration_fail_closed():
     Settings(_env_file=None, coordinator_url="http://127.0.0.1:8100", coordinator_token="a" * 64)
 
 
-def test_actual_owned_history_source_result_and_cancel(postgres_url, tmp_path, monkeypatch):
+@pytest.mark.parametrize("wire_version", [1, 2])
+def test_actual_owned_history_source_result_and_cancel(
+    postgres_url, tmp_path, monkeypatch, wire_version
+):
     async def run():
         app, engine, mod = await setup_app(postgres_url, tmp_path)
         monkeypatch.setattr(mod, "build_engine", lambda _: engine)
@@ -52,9 +55,17 @@ def test_actual_owned_history_source_result_and_cancel(postgres_url, tmp_path, m
                     )
                 )
             # Synthetic contract projection only, never claimed as a real judgement.
-            fixture = Path(__file__).parents[2] / "tests/fixtures/contracts/judge-result.valid.json"
+            fixture = Path(__file__).parents[2] / (
+                "tests/fixtures/contracts/judge-result.valid.json"
+                if wire_version == 1
+                else "tests/fixtures/contracts-v2/judge-result.valid-c17.json"
+            )
             report = json.loads(fixture.read_text())
             report["binding"]["evaluation_id"] = str(records[0].evaluation_id)
+            if wire_version == 2:
+                report["compilation"]["program"]["binding"]["evaluation_id"] = str(
+                    records[0].evaluation_id
+                )
             admin = create_async_engine(postgres_url)
             async with admin.begin() as conn:
                 await conn.execute(text("SET LOCAL ROLE kf_oj_coordinator"))

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub mod judging;
+pub mod judging_v2;
+pub mod judging_versions;
 pub mod state;
 
 pub const SCHEMA_VERSION: u16 = 1;

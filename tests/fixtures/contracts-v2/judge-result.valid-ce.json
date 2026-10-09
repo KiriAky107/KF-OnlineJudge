@@ -1,0 +1,25 @@
+{
+  "schema_version": 2,
+  "kind": "judge.result",
+  "binding": {
+    "evaluation_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+    "attempt_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000007",
+    "worker_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000008",
+    "fencing_version": 1
+  },
+  "manifest_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "compilation": {
+    "status": "compilation_error",
+    "program": null,
+    "diagnostics": "synthetic compiler diagnostic\n",
+    "diagnostics_truncated": false,
+    "cpu_time_us": 100000,
+    "memory_peak_bytes": 16777216
+  },
+  "cases": [],
+  "verdict": "compilation_error",
+  "cleanup_complete": true,
+  "failure_code": null,
+  "run_cpu_time_us": null,
+  "run_memory_peak_bytes": null
+}

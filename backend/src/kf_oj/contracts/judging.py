@@ -375,7 +375,7 @@ WIRE_MODELS = {
 }
 
 
-def decode_wire[T: WireModel](model: type[T], payload: bytes) -> T:
+def decode_wire[T: BaseModel](model: type[T], payload: bytes) -> T:
     """UTF-8, bounded size and no ambiguous duplicate members before model validation."""
     if len(payload) > MAX_WIRE_BYTES:
         raise ValueError("wire payload exceeds byte budget")

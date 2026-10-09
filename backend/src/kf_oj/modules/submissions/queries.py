@@ -1,11 +1,13 @@
 import base64
+import json
 from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from kf_oj.contracts.judging import MAX_SOURCE_BYTES, ArtifactReference, JudgementReport
+from kf_oj.contracts.judging import MAX_SOURCE_BYTES, ArtifactReference
+from kf_oj.contracts.judging_versions import decode_report
 from kf_oj.contracts.submissions import (
     CancellationAccepted,
     PublicCaseResult,
@@ -115,7 +117,11 @@ class SubmissionQueries:
         if evaluation.state in {"finished", "failed", "cancelled"} and evaluation.final_report:
             # A single joined snapshot, strict validation and explicit projection prevent leaking
             # internal bindings, artifacts, hidden case identifiers or partial attempt reports.
-            report = JudgementReport.model_validate(evaluation.final_report)
+            report = decode_report(
+                json.dumps(
+                    evaluation.final_report, ensure_ascii=False, separators=(",", ":")
+                ).encode()
+            )
             if str(report.binding.evaluation_id) != str(evaluation.id):
                 raise ValueError("stored result binding invalid")
             if report.verdict.value != evaluation.verdict:

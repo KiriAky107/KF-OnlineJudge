@@ -7,10 +7,10 @@ from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from kf_oj.contracts.judging import (
-    JobManifest,
-    LeaseBinding,
-    decode_wire,
+from kf_oj.contracts.judging import LeaseBinding
+from kf_oj.contracts.judging_versions import (
+    Manifest,
+    decode_manifest,
     manifest_bytes,
 )
 from kf_oj.infra.artifacts.repository import ArtifactRepository
@@ -40,7 +40,7 @@ class WorkerAccess:
             raise WorkerAccessDenied("worker grant rejected")
         return hashlib.sha256(token.encode("ascii")).hexdigest()
 
-    async def _manifest(self, session, binding: LeaseBinding, token: str) -> JobManifest:
+    async def _manifest(self, session, binding: LeaseBinding, token: str) -> Manifest:
         row = await repository.leased_submission(session, binding, self._token_hash(token))
         if row is None:
             raise WorkerAccessDenied("worker grant rejected")
@@ -49,7 +49,7 @@ class WorkerAccess:
         # runtime roles; use canonical bytes for both retrieval and digest verification.
 
         try:
-            manifest = decode_wire(JobManifest, json.dumps(attempt.manifest).encode())
+            manifest = decode_manifest(json.dumps(attempt.manifest).encode())
             if (
                 manifest.evaluation_id != evaluation.id
                 or manifest.submission_id != submission.id

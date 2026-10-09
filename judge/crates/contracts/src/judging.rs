@@ -42,7 +42,7 @@ pub fn manifest_bytes(manifest: &JobManifest) -> Result<Vec<u8>, &'static str> {
     serde_json::to_vec(&value).map_err(|_| "invalid manifest")
 }
 
-fn bounded(value: u64, min: u64, max: u64) -> Validation {
+pub(crate) fn bounded(value: u64, min: u64, max: u64) -> Validation {
     if (min..=max).contains(&value) {
         Ok(())
     } else {
@@ -52,7 +52,7 @@ fn bounded(value: u64, min: u64, max: u64) -> Validation {
 fn measure(value: Option<u64>) -> Validation {
     value.map_or(Ok(()), |v| bounded(v, 0, I64_MAX))
 }
-fn required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+pub(crate) fn required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,
@@ -78,6 +78,7 @@ macro_rules! validated_struct {
         }
     };
 }
+pub(crate) use validated_struct;
 macro_rules! kind {
     ($name:ident, $wire:literal) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
