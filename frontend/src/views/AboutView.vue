@@ -62,18 +62,19 @@ const features = [
           <p>
             这是实际的 API 存活检查。{{ version && state === 'connected' ? '版本 ' + version : '' }}
           </p>
-          <p>数据库、题库、评测与学习服务将分别接入。</p>
+          <p>题库和评测服务的可用情况，以各页面的实际响应为准。</p>
         </div>
         <el-button :loading="state === 'loading'" @click="refresh">重新检查</el-button>
       </div></PanelCard
     ><PanelCard title="使用说明" icon="about"
       ><div class="detail-prose">
         <p>
-          当前为前端预览版本。题目、比赛、排名和用户信息使用示例数据；页面筛选、导航和本地代码草稿已可使用。
+          账号登录、题库和提交记录已接入实际服务。题目页按题目版本公布可提交的语言、运行版本及限额。
         </p>
         <p style="margin-top: 12px">
-          题目页可以选择语言、切换编辑器主题、保存草稿和填写自测输入。实际评测、账号和团队创建将在服务接入后开放。
+          题目页可以选择语言、切换编辑器主题和保存本地草稿。提交后可查看评测结果、诊断和本人源码；进行中的评测可申请取消。
         </p>
+        <p style="margin-top: 12px">比赛、排名、讨论和团队功能仍在开发，相关页面保留示例内容。</p>
         <p style="margin-top: 12px">备案信息待填写，平台规则和联系方式将在上线前补充。</p>
       </div></PanelCard
     >
