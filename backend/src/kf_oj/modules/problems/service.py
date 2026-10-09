@@ -5,23 +5,28 @@ from uuid import UUID, uuid4, uuid5
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from kf_oj.contracts import judging_v2 as v2
 from kf_oj.contracts.judging import (
     MAX_PACKAGE_BYTES,
     MAX_SOURCE_BYTES,
-    AdmissionPolicy,
     ArtifactReference,
-    JobManifest,
     Language,
     RunLimits,
     TestCase,
     Toolchain,
     decode_wire,
 )
-from kf_oj.contracts.problems import ProblemDetail, ProblemPage, ProblemSummary, PublicSample
+from kf_oj.contracts.problems import (
+    ProblemDetail,
+    ProblemPage,
+    ProblemSummary,
+    PublicLanguageConfiguration,
+    PublicSample,
+)
 from kf_oj.infra.artifacts.models import Artifact
 from kf_oj.infra.artifacts.repository import ArtifactRepository
 from kf_oj.modules.problems import repository
-from kf_oj.modules.problems.import_format import ProblemImport
+from kf_oj.modules.problems.import_format import ImportEnvelope, ProblemImport
 from kf_oj.modules.problems.local_files import LocalImportFiles
 from kf_oj.modules.problems.models import Problem, ProblemCase, ProblemVersion
 from kf_oj.modules.problems.public import JudgingVersion, ProblemUnavailable
@@ -32,7 +37,7 @@ class ProblemService:
         self,
         sessions: async_sessionmaker,
         artifacts: ArtifactRepository | None = None,
-        policy: AdmissionPolicy | None = None,
+        policy: v2.NodeAdmission | None = None,
     ):
         self.sessions, self.artifacts, self.policy = sessions, artifacts, policy
 
@@ -41,7 +46,12 @@ class ProblemService:
             raise ValueError("artifact store and trusted node policy required for import")
         files = LocalImportFiles(root)
         try:
-            manifest = decode_wire(ProblemImport, files.read(manifest_file, 256 * 1024))
+            manifest = decode_wire(ImportEnvelope, files.read(manifest_file, 256 * 1024)).root
+            stdout_limit = (
+                manifest.run_limits.stdout_bytes
+                if isinstance(manifest, ProblemImport)
+                else min(c.run_limits.stdout_bytes for c in manifest.language_configurations)
+            )
             statement = files.read(manifest.statement_file, 256 * 1024).decode("utf-8")
             if not statement or "\x00" in statement or "\x00" in manifest.title:
                 raise ValueError("invalid public text")
@@ -52,9 +62,7 @@ class ProblemService:
             for case in manifest.cases:
                 data = files.read(case.input_file, remaining)
                 remaining -= len(data)
-                answer = files.read(
-                    case.expected_file, min(remaining, manifest.run_limits.stdout_bytes)
-                )
+                answer = files.read(case.expected_file, min(remaining, stdout_limit))
                 remaining -= len(answer)
                 payloads.append((data, answer))
             samples = tuple(
@@ -75,22 +83,27 @@ class ProblemService:
             )
             for case, (data, answer) in zip(manifest.cases, payloads, strict=True)
         )
-        check = JobManifest(
-            schema_version=1,
-            kind="judge.manifest",
-            evaluation_id=uuid4(),
-            submission_id=uuid4(),
-            problem_version_id=version_id,
-            language=manifest.languages[0],
-            toolchain=manifest.toolchain,
-            source=ArtifactReference(digest="0" * 64, bytes=MAX_SOURCE_BYTES),
-            cases=cases,
-            comparison=manifest.comparison,
-            compile_limits=manifest.compile_limits,
-            run_limits=manifest.run_limits,
-            job_wall_time_us=manifest.job_wall_time_us,
+        legacy = isinstance(manifest, ProblemImport)
+        projection = JudgingVersion(
+            version_id,
+            uuid4(),
+            manifest.languages,
+            manifest.toolchain if legacy else None,
+            manifest.compile_limits if legacy else None,
+            manifest.run_limits if legacy else None,
+            manifest.job_wall_time_us if legacy else None,
+            cases,
+            manifest.schema_version,
+            () if legacy else manifest.language_configurations,
         )
-        self.policy.admit(check, 1)
+        for language in manifest.languages:
+            check = projection.manifest(
+                uuid4(),
+                uuid4(),
+                language,
+                ArtifactReference(digest="0" * 64, bytes=MAX_SOURCE_BYTES),
+            )
+            v2.admit_manifest(self.policy, check, 1)
         async with self.sessions.begin() as session:
             # Lock existing and not-yet-existing logical slugs before assigning revisions.
             await repository.lock_slug(session, manifest.slug)
@@ -110,10 +123,18 @@ class ProblemService:
                     title=manifest.title,
                     statement=statement,
                     languages=[lang.value for lang in manifest.languages],
-                    toolchain=manifest.toolchain.model_dump(mode="json"),
-                    compile_limits=manifest.compile_limits.model_dump(mode="json"),
-                    run_limits=manifest.run_limits.model_dump(mode="json"),
-                    job_wall_time_us=manifest.job_wall_time_us,
+                    judging_schema_version=manifest.schema_version,
+                    language_configurations=(
+                        None
+                        if legacy
+                        else [c.model_dump(mode="json") for c in manifest.language_configurations]
+                    ),
+                    toolchain=manifest.toolchain.model_dump(mode="json") if legacy else None,
+                    compile_limits=manifest.compile_limits.model_dump(mode="json")
+                    if legacy
+                    else None,
+                    run_limits=manifest.run_limits.model_dump(mode="json") if legacy else None,
+                    job_wall_time_us=manifest.job_wall_time_us if legacy else None,
                     comparison=manifest.comparison,
                     public_samples=[s.model_dump() for s in samples],
                 )
@@ -176,7 +197,17 @@ class ProblemService:
                 **self._summary(problem, version).model_dump(),
                 statement=version.statement,
                 samples=tuple(PublicSample.model_validate(s) for s in version.public_samples),
-                run_limits=RunLimits.model_validate(version.run_limits),
+                run_limits=(
+                    RunLimits.model_validate(version.run_limits)
+                    if version.judging_schema_version == 1
+                    else None
+                ),
+                language_configurations=tuple(
+                    PublicLanguageConfiguration.from_configuration(
+                        v2.LanguageConfiguration.model_validate(c)
+                    )
+                    for c in version.language_configurations or ()
+                ),
             )
 
     async def for_submission(self, session, version_id: UUID) -> JudgingVersion:
@@ -215,10 +246,24 @@ class ProblemService:
         return JudgingVersion(
             version.id,
             problem.id,
-            tuple(Language(v) for v in version.languages),
-            Toolchain.model_validate(version.toolchain),
-            RunLimits.model_validate(version.compile_limits),
-            RunLimits.model_validate(version.run_limits),
+            tuple(
+                (Language if version.judging_schema_version == 1 else v2.Language)(v)
+                for v in version.languages
+            ),
+            Toolchain.model_validate(version.toolchain)
+            if version.judging_schema_version == 1
+            else None,
+            RunLimits.model_validate(version.compile_limits)
+            if version.judging_schema_version == 1
+            else None,
+            RunLimits.model_validate(version.run_limits)
+            if version.judging_schema_version == 1
+            else None,
             version.job_wall_time_us,
             tuple(refs),
+            version.judging_schema_version,
+            tuple(
+                v2.LanguageConfiguration.model_validate(c)
+                for c in version.language_configurations or ()
+            ),
         )

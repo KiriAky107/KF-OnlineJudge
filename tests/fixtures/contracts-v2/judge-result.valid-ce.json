@@ -7,7 +7,7 @@
     "worker_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000008",
     "fencing_version": 1
   },
-  "manifest_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "manifest_digest": "effeeb1bfa6e1b48bf22f7d21ebf0a3aec9f09de98f31195e50a3369d4db0f4d",
   "compilation": {
     "status": "compilation_error",
     "program": null,

@@ -1,0 +1,349 @@
+{
+  "$comment": "Multi-runtime protocol. Also validate runtime/source/attempt bindings, startup and node budgets, canonical bounded class sets and result consistency.",
+  "$defs": {
+    "Language": {
+      "enum": [
+        "c17",
+        "cpp20",
+        "python313",
+        "java21"
+      ],
+      "title": "Language",
+      "type": "string"
+    },
+    "RunLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu_time_us": {
+          "maximum": 60000000,
+          "minimum": 1000,
+          "title": "Cpu Time Us",
+          "type": "integer"
+        },
+        "file_bytes": {
+          "maximum": 67108864,
+          "minimum": 1,
+          "title": "File Bytes",
+          "type": "integer"
+        },
+        "memory_bytes": {
+          "maximum": 2147483648,
+          "minimum": 1,
+          "title": "Memory Bytes",
+          "type": "integer"
+        },
+        "open_files": {
+          "maximum": 1024,
+          "minimum": 3,
+          "title": "Open Files",
+          "type": "integer"
+        },
+        "processes": {
+          "maximum": 128,
+          "minimum": 1,
+          "title": "Processes",
+          "type": "integer"
+        },
+        "stack_bytes": {
+          "maximum": 268435456,
+          "minimum": 1,
+          "title": "Stack Bytes",
+          "type": "integer"
+        },
+        "stderr_bytes": {
+          "maximum": 16777216,
+          "minimum": 1,
+          "title": "Stderr Bytes",
+          "type": "integer"
+        },
+        "stdout_bytes": {
+          "maximum": 16777216,
+          "minimum": 1,
+          "title": "Stdout Bytes",
+          "type": "integer"
+        },
+        "wall_time_us": {
+          "maximum": 120000000,
+          "minimum": 1000,
+          "title": "Wall Time Us",
+          "type": "integer"
+        },
+        "workdir_bytes": {
+          "maximum": 268435456,
+          "minimum": 1,
+          "title": "Workdir Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cpu_time_us",
+        "wall_time_us",
+        "memory_bytes",
+        "stack_bytes",
+        "processes",
+        "open_files",
+        "stdout_bytes",
+        "stderr_bytes",
+        "file_bytes",
+        "workdir_bytes"
+      ],
+      "title": "RunLimits",
+      "type": "object"
+    },
+    "RuntimeCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "compile_ceiling": {
+          "$ref": "#/$defs/RunLimits"
+        },
+        "language": {
+          "$ref": "#/$defs/Language"
+        },
+        "run_ceiling": {
+          "$ref": "#/$defs/RunLimits"
+        },
+        "toolchain": {
+          "$ref": "#/$defs/RuntimeIdentity"
+        }
+      },
+      "required": [
+        "language",
+        "toolchain",
+        "compile_ceiling",
+        "run_ceiling"
+      ],
+      "title": "RuntimeCapability",
+      "type": "object"
+    },
+    "RuntimeIdentity": {
+      "additionalProperties": false,
+      "description": "An exact identity matched against trusted configuration, never a host path.",
+      "properties": {
+        "image_digest": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Image Digest",
+          "type": "string"
+        },
+        "image_kind": {
+          "enum": [
+            "linux_gnu_cxx_x86_64_v1",
+            "linux_cpython313_x86_64_v1",
+            "linux_openjdk21_x86_64_v1"
+          ],
+          "title": "Image Kind",
+          "type": "string"
+        },
+        "image_revision": {
+          "maximum": 4294967295,
+          "minimum": 1,
+          "title": "Image Revision",
+          "type": "integer"
+        },
+        "runtime_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$",
+          "title": "Runtime Version",
+          "type": "string"
+        },
+        "toolchain_id": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+          "title": "Toolchain Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "toolchain_id",
+        "image_kind",
+        "image_revision",
+        "image_digest",
+        "runtime_version"
+      ],
+      "title": "RuntimeIdentity",
+      "type": "object"
+    },
+    "Toolchain": {
+      "additionalProperties": false,
+      "properties": {
+        "image_kind": {
+          "const": "linux_gnu_cxx_x86_64_v1",
+          "title": "Image Kind",
+          "type": "string"
+        },
+        "image_revision": {
+          "maximum": 4294967295,
+          "minimum": 1,
+          "title": "Image Revision",
+          "type": "integer"
+        },
+        "toolchain_id": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+          "title": "Toolchain Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "toolchain_id",
+        "image_kind",
+        "image_revision"
+      ],
+      "title": "Toolchain",
+      "type": "object"
+    },
+    "kf_oj__contracts__judging__AdmissionPolicy": {
+      "additionalProperties": false,
+      "description": "Trusted node policy. A manifest never supplies or replaces this policy.",
+      "properties": {
+        "compile_ceiling": {
+          "$ref": "#/$defs/RunLimits"
+        },
+        "max_concurrent_jobs": {
+          "default": 1,
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Max Concurrent Jobs",
+          "type": "integer"
+        },
+        "max_job_wall_time_us": {
+          "maximum": 3600000000,
+          "minimum": 1000,
+          "title": "Max Job Wall Time Us",
+          "type": "integer"
+        },
+        "max_package_bytes": {
+          "maximum": 67108864,
+          "minimum": 1,
+          "title": "Max Package Bytes",
+          "type": "integer"
+        },
+        "max_retries": {
+          "default": 2,
+          "maximum": 4,
+          "minimum": 0,
+          "title": "Max Retries",
+          "type": "integer"
+        },
+        "prefetch": {
+          "default": 1,
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Prefetch",
+          "type": "integer"
+        },
+        "run_ceiling": {
+          "$ref": "#/$defs/RunLimits"
+        },
+        "toolchain": {
+          "$ref": "#/$defs/Toolchain"
+        }
+      },
+      "required": [
+        "max_job_wall_time_us",
+        "max_package_bytes",
+        "toolchain",
+        "compile_ceiling",
+        "run_ceiling"
+      ],
+      "title": "AdmissionPolicy",
+      "type": "object"
+    },
+    "kf_oj__contracts__judging_v2__AdmissionPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "$ref": "#/$defs/RuntimeCapability"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "max_concurrent_jobs": {
+          "default": 1,
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Max Concurrent Jobs",
+          "type": "integer"
+        },
+        "max_job_wall_time_us": {
+          "maximum": 3600000000,
+          "minimum": 1000,
+          "title": "Max Job Wall Time Us",
+          "type": "integer"
+        },
+        "max_package_bytes": {
+          "maximum": 67108864,
+          "minimum": 1,
+          "title": "Max Package Bytes",
+          "type": "integer"
+        },
+        "max_retries": {
+          "default": 2,
+          "maximum": 4,
+          "minimum": 0,
+          "title": "Max Retries",
+          "type": "integer"
+        },
+        "prefetch": {
+          "default": 1,
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Prefetch",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": 2,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "max_job_wall_time_us",
+        "max_package_bytes",
+        "capabilities"
+      ],
+      "title": "AdmissionPolicy",
+      "type": "object"
+    }
+  },
+  "$id": "urn:kf-oj:judge-registry:v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Explicit operator opt-in for both protocol generations; no silent conversion.",
+  "properties": {
+    "legacy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/kf_oj__contracts__judging__AdmissionPolicy"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "multi_runtime": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/kf_oj__contracts__judging_v2__AdmissionPolicy"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schema_version": {
+      "const": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "legacy",
+    "multi_runtime"
+  ],
+  "title": "AdmissionRegistry",
+  "type": "object"
+}

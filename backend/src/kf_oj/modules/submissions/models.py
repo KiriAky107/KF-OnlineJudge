@@ -28,7 +28,7 @@ class Submission(CreatedAt, Base):
     __table_args__ = (
         UniqueConstraint("account_id", "idempotency_key"),
         UniqueConstraint("id", "problem_version_id"),
-        CheckConstraint("language IN ('c17', 'cpp20')", name="language"),
+        CheckConstraint("language IN ('c17','cpp20','python313','java21')", name="language"),
         CheckConstraint("request_digest ~ '^[0-9a-f]{64}$'", name="request_digest"),
         ForeignKeyConstraint(
             ["problem_version_id", "problem_id"],
@@ -44,7 +44,7 @@ class Submission(CreatedAt, Base):
     account_id: Mapped[UUID] = mapped_column(ForeignKey("accounts.id"))
     problem_id: Mapped[UUID]
     problem_version_id: Mapped[UUID]
-    language: Mapped[str] = mapped_column(String(8))
+    language: Mapped[str] = mapped_column(String(16))
     source_digest: Mapped[str] = mapped_column(String(64))
     artifact_state: Mapped[str] = mapped_column(String(8), Computed("'ready'", persisted=True))
     idempotency_key: Mapped[UUID]

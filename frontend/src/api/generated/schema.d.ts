@@ -254,7 +254,7 @@ export interface components {
              * Format: uuid
              */
             idempotency_key: string;
-            language: components["schemas"]["Language"];
+            language: components["schemas"]["Language-Input"];
             /**
              * Problem Version Id
              * Format: uuid
@@ -320,7 +320,7 @@ export interface components {
              * @constant
              */
             kind: "judge.manifest";
-            language: components["schemas"]["Language"];
+            language: components["schemas"]["kf_oj__contracts__judging__Language"];
             /**
              * Problem Version Id
              * Format: uuid
@@ -344,7 +344,7 @@ export interface components {
          * Language
          * @enum {string}
          */
-        Language: "c17" | "cpp20";
+        "Language-Input": "c17" | "cpp20" | "python313" | "java21";
         /** LoginRequest */
         LoginRequest: {
             /**
@@ -366,6 +366,11 @@ export interface components {
             expires_at: string;
             user: components["schemas"]["CurrentUser"];
         };
+        /**
+         * PreparationKind
+         * @enum {string}
+         */
+        PreparationKind: "compile" | "syntax_check";
         /** ProblemDetail */
         ProblemDetail: {
             /**
@@ -373,11 +378,16 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Language Configurations
+             * @default []
+             */
+            language_configurations: components["schemas"]["PublicLanguageConfiguration"][];
             /** Languages */
-            languages: components["schemas"]["Language"][];
+            languages: components["schemas"]["kf_oj__contracts__judging_v2__Language"][];
             /** Revision */
             revision: number;
-            run_limits: components["schemas"]["RunLimits"];
+            run_limits: components["schemas"]["RunLimits"] | null;
             /** Samples */
             samples: components["schemas"]["PublicSample"][];
             /** Slug */
@@ -407,7 +417,7 @@ export interface components {
              */
             id: string;
             /** Languages */
-            languages: components["schemas"]["Language"][];
+            languages: components["schemas"]["kf_oj__contracts__judging_v2__Language"][];
             /** Revision */
             revision: number;
             /** Slug */
@@ -445,6 +455,21 @@ export interface components {
             diagnostics_truncated: boolean;
             /** Memory Peak Bytes */
             memory_peak_bytes: number | null;
+        };
+        /** PublicLanguageConfiguration */
+        PublicLanguageConfiguration: {
+            compile_limits: components["schemas"]["RunLimits"];
+            /** Entrypoint */
+            entrypoint: string;
+            /** Job Wall Time Us */
+            job_wall_time_us: number;
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
+            preparation_kind: components["schemas"]["PreparationKind"];
+            run_limits: components["schemas"]["RunLimits"];
+            /** Runtime Version */
+            runtime_version: string;
+            /** Source Name */
+            source_name: string;
         };
         /** PublicSample */
         PublicSample: {
@@ -494,7 +519,7 @@ export interface components {
              * Format: uuid
              */
             evaluation_id: string;
-            language: components["schemas"]["Language"];
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
             /**
              * Problem Version Id
              * Format: uuid
@@ -526,7 +551,7 @@ export interface components {
              */
             evaluation_id: string;
             failure_code: components["schemas"]["FailureCode"] | null;
-            language: components["schemas"]["Language"];
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
             /**
              * Problem Version Id
              * Format: uuid
@@ -559,7 +584,7 @@ export interface components {
         };
         /** SubmissionSource */
         SubmissionSource: {
-            language: components["schemas"]["Language"];
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
             /** Source */
             source: string;
             /**
@@ -583,7 +608,7 @@ export interface components {
              */
             evaluation_id: string;
             failure_code: components["schemas"]["FailureCode"] | null;
-            language: components["schemas"]["Language"];
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
             /**
              * Problem Version Id
              * Format: uuid
@@ -646,6 +671,16 @@ export interface components {
          * @enum {string}
          */
         Verdict: "accepted" | "wrong_answer" | "compilation_error" | "runtime_error" | "time_limit_exceeded" | "memory_limit_exceeded" | "output_limit_exceeded" | "cancelled" | "system_error";
+        /**
+         * Language
+         * @enum {string}
+         */
+        kf_oj__contracts__judging__Language: "c17" | "cpp20";
+        /**
+         * Language
+         * @enum {string}
+         */
+        kf_oj__contracts__judging_v2__Language: "c17" | "cpp20" | "python313" | "java21";
     };
     responses: never;
     parameters: never;

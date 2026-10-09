@@ -38,6 +38,7 @@ fn shared_v2_acceptance_rejection_and_canonical_bytes_match_python() {
             "judge-stage" => roundtrip::<v2::StageReport>(&data, invalid, &name),
             "judge-result" => roundtrip::<v2::JudgementReport>(&data, invalid, &name),
             "judge-admission" => roundtrip::<v2::AdmissionPolicy>(&data, invalid, &name),
+            "judge-registry" => roundtrip::<v2::AdmissionRegistry>(&data, invalid, &name),
             "judge-stopped" => roundtrip::<v2::StoppedReport>(&data, invalid, &name),
             _ => panic!("unrecognized fixture {name}"),
         }
@@ -72,17 +73,18 @@ fn runtime_identity_admission_and_program_binding_are_exact() {
         wrong = manifest.clone();
         wrong.toolchain.image_digest = "f".repeat(64).try_into().unwrap();
         assert!(policy.admit(&wrong, 1).is_err());
+        let digest: v1::Digest =
+            fs::read_to_string(fixtures().join(format!("canonical-manifest.{language}.sha256")))
+                .unwrap()
+                .trim()
+                .to_owned()
+                .try_into()
+                .unwrap();
         let result: v2::JudgementReport = fixture(&format!("judge-result.valid-{language}"));
-        result
-            .validate_for_manifest(&manifest, &result.manifest_digest)
-            .unwrap();
+        result.validate_for_manifest(&manifest, &digest).unwrap();
         let mut wrong = manifest.clone();
         wrong.source.bytes += 1;
-        assert!(
-            result
-                .validate_for_manifest(&wrong, &result.manifest_digest)
-                .is_err()
-        );
+        assert!(result.validate_for_manifest(&wrong, &digest).is_err());
         let stage: v2::StageReport = fixture(&format!("judge-stage.valid-{language}"));
         stage.validate_for_manifest(&manifest).unwrap();
     }
@@ -128,7 +130,16 @@ fn storage_boundary_retains_version_identity_and_rejects_mismatched_results() {
     old_report
         .validate_for_manifest(&old_manifest, &digest)
         .unwrap();
-    report.validate_for_manifest(&manifest, &digest).unwrap();
+    let new_digest: v1::Digest =
+        fs::read_to_string(fixtures().join("canonical-manifest.python313.sha256"))
+            .unwrap()
+            .trim()
+            .to_owned()
+            .try_into()
+            .unwrap();
+    report
+        .validate_for_manifest(&manifest, &new_digest)
+        .unwrap();
     assert!(
         old_report
             .validate_for_manifest(&manifest, &digest)
@@ -153,4 +164,26 @@ fn storage_boundary_retains_version_identity_and_rejects_mismatched_results() {
         let invalid = text.replace("\"schema_version\": 2", replacement);
         assert!(v1::decode_wire::<versions::JobManifest>(invalid.as_bytes()).is_err());
     }
+}
+
+#[test]
+fn registry_explicitly_admits_both_protocols_without_promoting_legacy_policy() {
+    let registry: v2::AdmissionRegistry = fixture("judge-registry.valid");
+    let original = fixtures().parent().unwrap().join("contracts");
+    let old: versions::JobManifest =
+        v1::decode_wire(&fs::read(original.join("judge-manifest.valid.json")).unwrap()).unwrap();
+    registry.admit(&old, 1).unwrap();
+    for language in ["c17", "cpp20", "python313", "java21"] {
+        let manifest: versions::JobManifest = fixture(&format!("judge-manifest.valid-{language}"));
+        registry.admit(&manifest, 1).unwrap();
+        let mut restricted = registry.clone();
+        restricted.multi_runtime = None;
+        assert!(restricted.admit(&manifest, 1).is_err());
+        restricted = registry.clone();
+        restricted.legacy = None;
+        assert!(restricted.admit(&old, 1).is_err());
+    }
+    let mut wrong = registry;
+    wrong.multi_runtime.as_mut().unwrap().max_retries += 1;
+    assert!(wrong.validate().is_err());
 }

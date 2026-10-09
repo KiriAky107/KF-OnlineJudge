@@ -7,7 +7,7 @@
     "worker_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000008",
     "fencing_version": 1
   },
-  "manifest_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "manifest_digest": "bf188ef30f24cf213bbcb145dcc81a034f9c5e4a8dc1198e2ccd6b71be8e50b8",
   "compilation": {
     "status": "succeeded",
     "program": {

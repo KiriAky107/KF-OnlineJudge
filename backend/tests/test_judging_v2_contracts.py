@@ -98,25 +98,27 @@ def test_shared_capabilities_refuse_absent_changed_runtime_and_over_budget():
 def test_results_bind_exact_source_runtime_attempt_and_case_order(language):
     manifest = fixture(f"judge-manifest.valid-{language}", v2.JobManifest)
     result = fixture(f"judge-result.valid-{language}", v2.JudgementReport)
-    result.validate_for_manifest(manifest, result.manifest_digest)
+    digest = hashlib.sha256(versions.manifest_bytes(manifest)).hexdigest()
+    assert digest == (FIXTURES / f"canonical-manifest.{language}.sha256").read_text().strip()
+    result.validate_for_manifest(manifest, digest)
     for field, value in (("digest", "f" * 64), ("bytes", manifest.source.bytes + 1)):
         other = manifest.model_copy(
             update={"source": manifest.source.model_copy(update={field: value})}
         )
         with pytest.raises(ValueError):
-            result.validate_for_manifest(other, result.manifest_digest)
+            result.validate_for_manifest(other, digest)
     with pytest.raises(ValueError):
         result.validate_for_manifest(manifest, "f" * 64)
     changed_runtime = manifest.model_copy(
         update={"toolchain": manifest.toolchain.model_copy(update={"image_digest": "e" * 64})}
     )
     with pytest.raises(ValueError):
-        result.validate_for_manifest(changed_runtime, result.manifest_digest)
+        result.validate_for_manifest(changed_runtime, digest)
     short = result.model_dump(mode="json")
     short.update(cases=short["cases"][:1], run_cpu_time_us=100, run_memory_peak_bytes=256 * 1024)
     valid_partial = v2.JudgementReport.model_validate(short)
     with pytest.raises(ValueError):
-        valid_partial.validate_for_manifest(manifest, result.manifest_digest)
+        valid_partial.validate_for_manifest(manifest, digest)
 
 
 def test_python_check_is_not_an_accepted_result_and_stage_kind_is_bound():
@@ -172,7 +174,9 @@ def test_storage_boundary_reads_both_versions_without_rewriting_or_cross_version
         (FIXTURES / "judge-manifest.valid-python313.json").read_bytes()
     )
     report = versions.decode_report((FIXTURES / "judge-result.valid-python313.json").read_bytes())
-    versions.validate_report(report, manifest, report.manifest_digest)
+    versions.validate_report(
+        report, manifest, hashlib.sha256(versions.manifest_bytes(manifest)).hexdigest()
+    )
     for result, task in ((old_report, manifest), (report, old_manifest)):
         with pytest.raises(ValueError):
             versions.validate_report(result, task, result.manifest_digest)
@@ -184,3 +188,35 @@ def test_storage_boundary_reads_both_versions_without_rewriting_or_cross_version
     ):
         with pytest.raises(ValueError):
             versions.decode_manifest(invalid)
+
+
+def test_registry_is_explicit_for_each_protocol_and_retains_legacy_configuration():
+    from kf_oj.core.settings import Settings
+
+    registry = fixture("judge-registry.valid", v2.AdmissionRegistry)
+    original = ROOT / "tests/fixtures/contracts"
+    legacy = v1.decode_wire(v1.JobManifest, (original / "judge-manifest.valid.json").read_bytes())
+    registry.admit(legacy, 1)
+    assert registry.legacy.model_dump(mode="json") == json.loads(
+        (original / "judge-admission.valid.json").read_text()
+    )
+    for language in v2.Language:
+        manifest = fixture(f"judge-manifest.valid-{language}", v2.JobManifest)
+        registry.admit(manifest, 1)
+        with pytest.raises(ValueError, match="protocol"):
+            v2.admit_manifest(registry.legacy, manifest, 1)
+        for field, value in (("image_digest", "f" * 64), ("runtime_version", "other")):
+            changed = manifest.model_copy(
+                update={"toolchain": manifest.toolchain.model_copy(update={field: value})}
+            )
+            with pytest.raises(ValueError):
+                registry.admit(changed, 1)
+    with pytest.raises(ValueError, match="protocol"):
+        v2.admit_manifest(registry.multi_runtime, legacy, 1)
+    for policy in (registry.legacy, registry.multi_runtime, registry):
+        settings = Settings(_env_file=None, judge_admission=policy.model_dump(mode="json"))
+        assert type(settings.judge_admission) is type(policy)
+    raw = registry.model_dump(mode="json")
+    raw["multi_runtime"]["prefetch"] = 2
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, judge_admission=raw)

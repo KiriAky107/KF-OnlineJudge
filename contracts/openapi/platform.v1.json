@@ -72,7 +72,7 @@
             "type": "string"
           },
           "language": {
-            "$ref": "#/components/schemas/Language"
+            "$ref": "#/components/schemas/Language-Input"
           },
           "problem_version_id": {
             "format": "uuid",
@@ -202,7 +202,7 @@
             "type": "string"
           },
           "language": {
-            "$ref": "#/components/schemas/Language"
+            "$ref": "#/components/schemas/kf_oj__contracts__judging__Language"
           },
           "problem_version_id": {
             "format": "uuid",
@@ -247,10 +247,12 @@
         "title": "JobManifest",
         "type": "object"
       },
-      "Language": {
+      "Language-Input": {
         "enum": [
           "c17",
-          "cpp20"
+          "cpp20",
+          "python313",
+          "java21"
         ],
         "title": "Language",
         "type": "string"
@@ -306,6 +308,14 @@
         "title": "LoginResponse",
         "type": "object"
       },
+      "PreparationKind": {
+        "enum": [
+          "compile",
+          "syntax_check"
+        ],
+        "title": "PreparationKind",
+        "type": "string"
+      },
       "ProblemDetail": {
         "additionalProperties": false,
         "properties": {
@@ -314,9 +324,17 @@
             "title": "Id",
             "type": "string"
           },
+          "language_configurations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PublicLanguageConfiguration"
+            },
+            "title": "Language Configurations",
+            "type": "array"
+          },
           "languages": {
             "items": {
-              "$ref": "#/components/schemas/Language"
+              "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
             },
             "title": "Languages",
             "type": "array"
@@ -326,7 +344,14 @@
             "type": "integer"
           },
           "run_limits": {
-            "$ref": "#/components/schemas/RunLimits"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunLimits"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "samples": {
             "items": {
@@ -408,7 +433,7 @@
           },
           "languages": {
             "items": {
-              "$ref": "#/components/schemas/Language"
+              "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
             },
             "title": "Languages",
             "type": "array"
@@ -554,6 +579,51 @@
         "title": "PublicJudgement",
         "type": "object"
       },
+      "PublicLanguageConfiguration": {
+        "additionalProperties": false,
+        "properties": {
+          "compile_limits": {
+            "$ref": "#/components/schemas/RunLimits"
+          },
+          "entrypoint": {
+            "title": "Entrypoint",
+            "type": "string"
+          },
+          "job_wall_time_us": {
+            "title": "Job Wall Time Us",
+            "type": "integer"
+          },
+          "language": {
+            "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
+          },
+          "preparation_kind": {
+            "$ref": "#/components/schemas/PreparationKind"
+          },
+          "run_limits": {
+            "$ref": "#/components/schemas/RunLimits"
+          },
+          "runtime_version": {
+            "title": "Runtime Version",
+            "type": "string"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "language",
+          "runtime_version",
+          "source_name",
+          "entrypoint",
+          "preparation_kind",
+          "compile_limits",
+          "run_limits",
+          "job_wall_time_us"
+        ],
+        "title": "PublicLanguageConfiguration",
+        "type": "object"
+      },
       "PublicSample": {
         "additionalProperties": false,
         "properties": {
@@ -674,7 +744,7 @@
             "type": "string"
           },
           "language": {
-            "$ref": "#/components/schemas/Language"
+            "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
           },
           "problem_version_id": {
             "format": "uuid",
@@ -740,7 +810,7 @@
             ]
           },
           "language": {
-            "$ref": "#/components/schemas/Language"
+            "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
           },
           "problem_version_id": {
             "format": "uuid",
@@ -841,7 +911,7 @@
         "additionalProperties": false,
         "properties": {
           "language": {
-            "$ref": "#/components/schemas/Language"
+            "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
           },
           "source": {
             "maxLength": 262144,
@@ -890,7 +960,7 @@
             ]
           },
           "language": {
-            "$ref": "#/components/schemas/Language"
+            "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
           },
           "problem_version_id": {
             "format": "uuid",
@@ -1051,6 +1121,24 @@
           "system_error"
         ],
         "title": "Verdict",
+        "type": "string"
+      },
+      "kf_oj__contracts__judging__Language": {
+        "enum": [
+          "c17",
+          "cpp20"
+        ],
+        "title": "Language",
+        "type": "string"
+      },
+      "kf_oj__contracts__judging_v2__Language": {
+        "enum": [
+          "c17",
+          "cpp20",
+          "python313",
+          "java21"
+        ],
+        "title": "Language",
         "type": "string"
       }
     },

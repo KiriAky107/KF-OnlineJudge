@@ -37,6 +37,11 @@ const wireLanguage = computed(() =>
 const supported = computed(
   () => wireLanguage.value !== null && !!problem.value?.languages.includes(wireLanguage.value),
 )
+const runLimits = computed(
+  () =>
+    problem.value?.language_configurations?.find((c) => c.language === wireLanguage.value)
+      ?.run_limits ?? problem.value?.run_limits,
+)
 const draftText = computed(
   () =>
     ({
@@ -182,9 +187,10 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="problem-limits">
-          <span>CPU 限制：{{ problem.run_limits.cpu_time_us / 1000 }} ms</span
-          ><span>墙钟限制：{{ problem.run_limits.wall_time_us / 1000 }} ms</span
-          ><span>内存限制：{{ problem.run_limits.memory_bytes / 1048576 }} MiB</span
+          <span>CPU 限制：{{ runLimits ? runLimits.cpu_time_us / 1000 + ' ms' : '未提供' }}</span
+          ><span>墙钟限制：{{ runLimits ? runLimits.wall_time_us / 1000 + ' ms' : '未提供' }}</span
+          ><span
+            >内存限制：{{ runLimits ? runLimits.memory_bytes / 1048576 + ' MiB' : '未提供' }}</span
           ><span>精确字节比较</span>
         </div>
         <div class="detail-prose">

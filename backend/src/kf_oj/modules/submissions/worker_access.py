@@ -64,15 +64,12 @@ class WorkerAccess:
                 raise WorkerAccessDenied("worker snapshot rejected")
             version = await self.problems.for_submission(session, manifest.problem_version_id)
             await self.artifacts.check_metadata(session, manifest.source)
-            if (
-                version.problem_id != submission.problem_id
-                or manifest.language not in version.languages
-                or manifest.toolchain != version.toolchain
-                or manifest.cases != version.cases
-                or manifest.compile_limits != version.compile_limits
-                or manifest.run_limits != version.run_limits
-                or manifest.job_wall_time_us != version.job_wall_time_us
-            ):
+            expected = version.manifest(
+                manifest.evaluation_id, manifest.submission_id, manifest.language, manifest.source
+            )
+            if version.problem_id != submission.problem_id or manifest_bytes(
+                manifest
+            ) != manifest_bytes(expected):
                 raise WorkerAccessDenied("worker snapshot rejected")
             return manifest
         except (ValueError, ProblemUnavailable):

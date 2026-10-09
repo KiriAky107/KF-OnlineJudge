@@ -8,11 +8,11 @@ from kf_oj.contracts.judging import (
     CompilationStatus,
     FailureCode,
     Identifier,
-    Language,
     Measurement,
     Verdict,
     WireModel,
 )
+from kf_oj.contracts.judging_v2 import Language
 
 EvaluationState = Literal[
     "queued", "claimed", "compiling", "running", "cancelling", "finished", "cancelled", "failed"

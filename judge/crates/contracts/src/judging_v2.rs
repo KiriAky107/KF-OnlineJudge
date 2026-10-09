@@ -653,6 +653,52 @@ impl JudgementReport {
     }
 }
 
+validated_struct!(AdmissionRegistry {
+    schema_version: SchemaVersion,
+    #[serde(deserialize_with = "v1::required_option")] legacy: Option<v1::AdmissionPolicy>,
+    #[serde(deserialize_with = "v1::required_option")] multi_runtime: Option<AdmissionPolicy>,
+});
+impl AdmissionRegistry {
+    pub fn validate(&self) -> Validation {
+        if self.legacy.is_none() && self.multi_runtime.is_none() {
+            return Err("node must advertise at least one explicit protocol capability");
+        }
+        if let Some(policy) = &self.legacy {
+            policy.validate()?;
+        }
+        if let Some(policy) = &self.multi_runtime {
+            policy.validate()?;
+        }
+        if let (Some(legacy), Some(multi)) = (&self.legacy, &self.multi_runtime)
+            && (legacy.max_concurrent_jobs != multi.max_concurrent_jobs
+                || legacy.prefetch != multi.prefetch
+                || legacy.max_retries != multi.max_retries)
+        {
+            return Err("protocol policies disagree on node capacity or retries");
+        }
+        Ok(())
+    }
+    pub fn admit(
+        &self,
+        manifest: &super::judging_versions::JobManifest,
+        attempt_number: u32,
+    ) -> Validation {
+        self.validate()?;
+        match manifest {
+            super::judging_versions::JobManifest::V1(manifest) => self
+                .legacy
+                .as_ref()
+                .ok_or("unsupported manifest protocol")?
+                .admit(manifest, attempt_number),
+            super::judging_versions::JobManifest::V2(manifest) => self
+                .multi_runtime
+                .as_ref()
+                .ok_or("unsupported manifest protocol")?
+                .admit(manifest, attempt_number),
+        }
+    }
+}
+
 pub fn manifest_bytes(manifest: &JobManifest) -> Result<Vec<u8>, &'static str> {
     manifest.validate()?;
     let mut value = serde_json::to_value(manifest).map_err(|_| "invalid manifest")?;

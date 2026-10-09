@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from sqlalchemy import func, select, text
 
-from kf_oj.contracts.judging import JobManifest
+from kf_oj.contracts.judging_v2 import admit_manifest
 from kf_oj.contracts.submissions import CreateSubmission, SubmissionCreated
 from kf_oj.infra.artifacts.repository import ArtifactRepository
 from kf_oj.infra.messaging.models import Outbox
@@ -38,7 +38,9 @@ class SubmissionService:
 
     async def create(self, principal: Principal, request: CreateSubmission) -> SubmissionCreated:
         # Validate even trusted non-HTTP callers. No path or argv is accepted.
-        request = CreateSubmission.model_validate(request.model_dump())
+        request = CreateSubmission.model_validate(
+            request.model_dump(exclude={"language"}) | {"language": request.language}
+        )
         source = request.source.encode("utf-8")
         request_digest = hashlib.sha256(
             json.dumps(
@@ -92,22 +94,8 @@ class SubmissionService:
             # but cannot leave an evaluation that refers to non-durable bytes.
             reference = await self.artifacts.put(session, source)
             submission_id, evaluation_id = uuid4(), uuid4()
-            manifest = JobManifest(
-                schema_version=1,
-                kind="judge.manifest",
-                evaluation_id=evaluation_id,
-                submission_id=submission_id,
-                problem_version_id=version.version_id,
-                language=request.language,
-                toolchain=version.toolchain,
-                source=reference,
-                cases=version.cases,
-                comparison="exact_bytes",
-                compile_limits=version.compile_limits,
-                run_limits=version.run_limits,
-                job_wall_time_us=version.job_wall_time_us,
-            )
-            self.admission.admit(manifest, 1)
+            manifest = version.manifest(evaluation_id, submission_id, request.language, reference)
+            admit_manifest(self.admission, manifest, 1)
             submission = Submission(
                 id=submission_id,
                 account_id=principal.account_id,

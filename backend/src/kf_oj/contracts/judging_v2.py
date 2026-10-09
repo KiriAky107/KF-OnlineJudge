@@ -302,6 +302,45 @@ class AdmissionPolicy(v1.WireModel):
             raise ValueError("job exceeds trusted runtime capability or budget")
 
 
+class AdmissionRegistry(v1.WireModel):
+    """Explicit operator opt-in for both protocol generations; no silent conversion."""
+
+    schema_version: Version
+    legacy: v1.AdmissionPolicy | None
+    multi_runtime: AdmissionPolicy | None
+
+    @model_validator(mode="after")
+    def at_least_one_protocol(self) -> Self:
+        if self.legacy is None and self.multi_runtime is None:
+            raise ValueError("node must advertise at least one explicit protocol capability")
+        if self.legacy is not None and self.multi_runtime is not None:
+            for field in ("max_concurrent_jobs", "prefetch", "max_retries"):
+                if getattr(self.legacy, field) != getattr(self.multi_runtime, field):
+                    raise ValueError("protocol policies disagree on node capacity or retries")
+        return self
+
+    def admit(self, manifest: v1.JobManifest | JobManifest, attempt_number: int) -> None:
+        AdmissionRegistry.model_validate(self.model_dump(mode="json"))
+        policy = self.legacy if manifest.schema_version == 1 else self.multi_runtime
+        admit_manifest(policy, manifest, attempt_number)
+
+
+NodeAdmission = v1.AdmissionPolicy | AdmissionPolicy | AdmissionRegistry
+
+
+def admit_manifest(
+    policy: NodeAdmission | None, manifest: v1.JobManifest | JobManifest, attempt_number: int
+) -> None:
+    if isinstance(policy, AdmissionRegistry):
+        policy.admit(manifest, attempt_number)
+    elif manifest.schema_version == 1 and type(policy) is v1.AdmissionPolicy:
+        policy.admit(manifest, attempt_number)
+    elif manifest.schema_version == 2 and type(policy) is AdmissionPolicy:
+        policy.admit(manifest, attempt_number)
+    else:
+        raise ValueError("node does not advertise this manifest protocol")
+
+
 WIRE_MODELS = {
     "judge-manifest": JobManifest,
     "judge-lease": LeaseGrant,
@@ -309,4 +348,5 @@ WIRE_MODELS = {
     "judge-result": JudgementReport,
     "judge-admission": AdmissionPolicy,
     "judge-stopped": StoppedReport,
+    "judge-registry": AdmissionRegistry,
 }

@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from kf_oj.contracts.judging import AdmissionPolicy
+from kf_oj.contracts.judging_v2 import NodeAdmission
 
 
 class Settings(BaseSettings):
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     artifact_root: Path | None = None
     artifact_max_bytes: int = Field(default=536870912, ge=1, le=16 * 1024**3)
     artifact_max_files: int = Field(default=4096, ge=1, le=65536)
-    judge_admission: AdmissionPolicy | None = None
+    judge_admission: NodeAdmission | None = None
     coordinator_url: str | None = None
     coordinator_token: SecretStr | None = None
 

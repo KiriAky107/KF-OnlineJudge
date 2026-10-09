@@ -30,7 +30,9 @@ def test_canonical_manifest_snapshot():
     assert manifest_bytes(manifest) == (root / "canonical-manifest.v1.txt").read_bytes()
 
 
-async def install_attempt(sessions, app, account, version_id, *, source=b"synthetic source"):
+async def install_attempt(
+    sessions, app, account, version_id, *, source=b"synthetic source", language="c17"
+):
     # Explicit controlled DB fixture, not a simulated Coordinator API or claimed execution.
     # E implements actual transactional claim; here the real B01 schema protects associations.
     submission_id, evaluation_id, attempt_id, worker_id = (uuid4() for _ in range(4))
@@ -44,7 +46,7 @@ async def install_attempt(sessions, app, account, version_id, *, source=b"synthe
                 account_id=account.account_id,
                 problem_id=projected.problem_id,
                 problem_version_id=version_id,
-                language="c17",
+                language=language,
                 source_digest=source_ref.digest,
                 idempotency_key=uuid4(),
                 request_digest="e" * 64,
@@ -58,21 +60,7 @@ async def install_attempt(sessions, app, account, version_id, *, source=b"synthe
                 id=evaluation_id, submission_id=submission_id, problem_version_id=version_id
             )
         )
-    manifest = JobManifest(
-        schema_version=1,
-        kind="judge.manifest",
-        evaluation_id=evaluation_id,
-        submission_id=submission_id,
-        problem_version_id=version_id,
-        language="c17",
-        toolchain=projected.toolchain,
-        source=source_ref,
-        cases=projected.cases,
-        comparison="exact_bytes",
-        compile_limits=projected.compile_limits,
-        run_limits=projected.run_limits,
-        job_wall_time_us=projected.job_wall_time_us,
-    )
+    manifest = projected.manifest(evaluation_id, submission_id, language, source_ref)
     async with sessions.begin() as session:
         await session.execute(text("SET LOCAL ROLE kf_oj_coordinator"))
         now = await session.scalar(select(func.now()))

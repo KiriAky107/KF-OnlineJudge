@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -54,6 +55,17 @@ class ProblemVersion(CreatedAt, Base):
         CheckConstraint("char_length(title) BETWEEN 1 AND 160", name="title_size"),
         CheckConstraint("comparison = 'exact_bytes'", name="comparison"),
         CheckConstraint("job_wall_time_us BETWEEN 1000 AND 3600000000", name="job_wall"),
+        CheckConstraint("judging_schema_version IN (1,2)", name="judging_schema"),
+        CheckConstraint(
+            "(judging_schema_version = 1 AND language_configurations IS NULL "
+            "AND toolchain IS NOT NULL AND compile_limits IS NOT NULL "
+            "AND run_limits IS NOT NULL AND job_wall_time_us IS NOT NULL) OR "
+            "(judging_schema_version = 2 AND language_configurations IS NOT NULL "
+            "AND toolchain IS NULL AND compile_limits IS NULL "
+            "AND run_limits IS NULL AND job_wall_time_us IS NULL "
+            "AND public.kf_valid_language_configurations(languages, language_configurations))",
+            name="language_configurations",
+        ),
         Index("ix_problem_versions_public", "problem_id", "published_at"),
     )
 
@@ -63,10 +75,12 @@ class ProblemVersion(CreatedAt, Base):
     title: Mapped[str] = mapped_column(String(160))
     statement: Mapped[str] = mapped_column(Text)
     languages: Mapped[list[str]] = mapped_column(JSONB)
-    toolchain: Mapped[dict] = mapped_column(JSONB)
-    compile_limits: Mapped[dict] = mapped_column(JSONB)
-    run_limits: Mapped[dict] = mapped_column(JSONB)
-    job_wall_time_us: Mapped[int] = mapped_column(BigInteger)
+    judging_schema_version: Mapped[int] = mapped_column(SmallInteger, server_default="1")
+    language_configurations: Mapped[list[dict] | None] = mapped_column(JSONB(none_as_null=True))
+    toolchain: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    compile_limits: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    run_limits: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    job_wall_time_us: Mapped[int | None] = mapped_column(BigInteger)
     comparison: Mapped[str] = mapped_column(String(16), server_default="exact_bytes")
     public_samples: Mapped[list[dict]] = mapped_column(JSONB)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
