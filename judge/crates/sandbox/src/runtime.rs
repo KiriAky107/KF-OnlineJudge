@@ -16,6 +16,40 @@ pub const MAX_CONFIG_BYTES: u64 = 65_536;
 pub enum ImageKind {
     #[serde(rename = "linux_gnu_cxx_x86_64_v1")]
     LinuxGnuCxxX86_64V1,
+    #[serde(rename = "linux_cpython313_x86_64_v1")]
+    LinuxCPython313X86_64V1,
+    #[serde(rename = "linux_openjdk21_x86_64_v1")]
+    LinuxOpenJdk21X86_64V1,
+}
+
+impl ImageKind {
+    pub fn supports(self, profile: crate::spec::ExecutionProfile) -> bool {
+        use crate::spec::ExecutionProfile as P;
+        matches!(
+            (self, profile),
+            (
+                Self::LinuxGnuCxxX86_64V1,
+                P::Native | P::CompileC | P::CompileCpp
+            ) | (Self::LinuxCPython313X86_64V1, P::PythonCheck | P::PythonRun)
+                | (Self::LinuxOpenJdk21X86_64V1, P::JavaCompile | P::JavaRun)
+        )
+    }
+    pub fn contract_kind(self) -> kf_contracts::judging_v2::ImageKind {
+        use kf_contracts::judging_v2::ImageKind as K;
+        match self {
+            Self::LinuxGnuCxxX86_64V1 => K::GnuCxx,
+            Self::LinuxCPython313X86_64V1 => K::CPython313,
+            Self::LinuxOpenJdk21X86_64V1 => K::OpenJdk21,
+        }
+    }
+    pub fn language(self) -> kf_contracts::judging_v2::Language {
+        use kf_contracts::judging_v2::Language as L;
+        match self {
+            Self::LinuxGnuCxxX86_64V1 => L::C17,
+            Self::LinuxCPython313X86_64V1 => L::Python313,
+            Self::LinuxOpenJdk21X86_64V1 => L::Java21,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,6 +85,9 @@ pub struct RuntimeConfig {
     pub tasks_root: String,
     pub image_root: String,
     pub image_kind: ImageKind,
+    /// Explicit catalog fingerprint; absent only for the original GNU image.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_identity: Option<kf_contracts::judging_v2::RuntimeIdentity>,
     pub delegated_cgroup_root: String,
     pub identities: IdentityPool,
     pub max_concurrent_runs: u32,
@@ -88,6 +125,7 @@ impl ValidatedRuntimeConfig {
     pub fn spec_policy(&self) -> SpecPolicy {
         SpecPolicy::with_limits_ceiling(self.0.per_task_ceiling.clone())
             .expect("validated immutable limits ceiling")
+            .for_image(self.0.image_kind)
     }
 
     /// Slot mapping only; the supervisor must lease slots until the old task
@@ -129,6 +167,18 @@ fn fits(each: u64, slots: u32, reserve: u64, total: u64) -> bool {
 
 impl RuntimeConfig {
     pub fn validate(self) -> Result<ValidatedRuntimeConfig, ConfigError> {
+        match &self.runtime_identity {
+            Some(identity) if identity.image_kind == self.image_kind.contract_kind() => identity
+                .validate_for_language(self.image_kind.language())
+                .map_err(|_| invalid("runtime_identity", "invalid_fixed_identity"))?,
+            None if self.image_kind == ImageKind::LinuxGnuCxxX86_64V1 => {}
+            _ => {
+                return Err(invalid(
+                    "runtime_identity",
+                    "missing_or_mismatched_identity",
+                ));
+            }
+        }
         for (field, value) in [
             ("state_root", &self.state_root),
             ("tasks_root", &self.tasks_root),
@@ -343,12 +393,21 @@ pub fn preflight(
     }
     // A controlled directory image includes a GNU C/C++ toolchain, runtime
     // loader and immutable manifest. Content/ownership checks come later.
-    for (subject, relative) in [
+    let binaries: &[(&str, &str)] = match policy.image_kind {
+        ImageKind::LinuxGnuCxxX86_64V1 => &[("gcc", "usr/bin/gcc"), ("g++", "usr/bin/g++")],
+        ImageKind::LinuxCPython313X86_64V1 => &[
+            ("python", "usr/bin/python3.13"),
+            ("python_checker", "usr/lib/kf/python_check.py"),
+        ],
+        ImageKind::LinuxOpenJdk21X86_64V1 => &[
+            ("java", "usr/lib/jvm/bin/java"),
+            ("javac", "usr/lib/jvm/bin/javac"),
+        ],
+    };
+    for &(subject, relative) in binaries.iter().chain(&[
         ("image_manifest", "manifest.json"),
-        ("gcc", "usr/bin/gcc"),
-        ("g++", "usr/bin/g++"),
         ("dynamic_loader", "lib64/ld-linux-x86-64.so.2"),
-    ] {
+    ]) {
         if !Path::new(&policy.image_root).join(relative).is_file() {
             refuse("image_file_not_visible", subject);
         }

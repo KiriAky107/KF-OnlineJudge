@@ -133,6 +133,7 @@ fn matrix_case(case: &str) -> io::Result<serde_json::Value> {
         ExecutionProfile::Native => "native",
         ExecutionProfile::CompileC => "compile_c",
         ExecutionProfile::CompileCpp => "compile_cpp",
+        _ => return Err(io::Error::other("GNU isolation probe profile")),
     };
     if profile == ExecutionProfile::Native {
         request.argv.extend([mode.into(), label.into()]);

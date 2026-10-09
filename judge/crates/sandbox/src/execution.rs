@@ -154,11 +154,16 @@ pub(crate) fn authorize(config: &ValidatedRuntimeConfig) -> io::Result<()> {
     if st.st_uid != 0 || st.st_gid != 0 || st.st_mode & 0o7022 != 0 {
         return Err(invalid("image manifest ownership"));
     }
-    let m: serde_json::Value = serde_json::from_slice(&read_pinned(manifest, 8192)?)
-        .map_err(|_| invalid("image manifest JSON"))?;
-    if m != serde_json::json!({"image_kind":"linux_gnu_cxx_x86_64_v1","architecture":"x86_64","revision":1})
-    {
-        return Err(invalid("unsupported image manifest"));
+    let bytes = read_pinned(manifest, crate::image::MAX_CATALOG_BYTES)?;
+    if let Some(identity) = &c.runtime_identity {
+        crate::image::verify(&image, identity, &bytes)?;
+    } else {
+        let m: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|_| invalid("image manifest JSON"))?;
+        if m != serde_json::json!({"image_kind":"linux_gnu_cxx_x86_64_v1","architecture":"x86_64","revision":1})
+        {
+            return Err(invalid("unsupported image manifest"));
+        }
     }
     let own = std::fs::read_to_string("/proc/self/cgroup")?;
     let path = own

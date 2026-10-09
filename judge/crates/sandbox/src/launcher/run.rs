@@ -510,13 +510,11 @@ pub(crate) fn execute(
     }
     let stdout = SnapshotFile::from_capture(pump.stdout());
     let stderr = SnapshotFile::from_capture(pump.stderr());
-    let compile_failed = matches!(
-        spec.spec().profile,
-        crate::spec::ExecutionProfile::CompileC | crate::spec::ExecutionProfile::CompileCpp
-    ) && (main != Some(Termination::Exited { code: 0 })
-        || cancelled.is_some()
-        || !limits.is_empty()
-        || !errors.is_empty());
+    let compile_failed = spec.spec().profile.prepares_program()
+        && (main != Some(Termination::Exited { code: 0 })
+            || cancelled.is_some()
+            || !limits.is_empty()
+            || !errors.is_empty());
     let outputs = if compile_failed || errors.iter().any(|e| e.stage == ExecutionStage::Cleanup) {
         Vec::new()
     } else {

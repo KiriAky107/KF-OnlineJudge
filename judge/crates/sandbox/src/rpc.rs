@@ -56,7 +56,7 @@ impl WireMessage for Reply {
     fn valid(&self) -> bool {
         match self {
             Self::Completed { report } => {
-                report.artifacts.len() <= 16
+                report.artifacts.len() <= kf_contracts::judging_v2::MAX_CLASS_FILES
                     && report.errors.len() <= 16
                     && report.limits.len() <= 8
             }

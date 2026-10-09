@@ -130,10 +130,11 @@ impl WireMessage for NamespaceCommand {
             }
             .valid(),
             Self::PrepareInputs { count, bytes } => {
-                *count <= 64 && *bytes <= crate::artifacts::MAX_SNAPSHOT_BYTES
+                *count <= kf_contracts::judging_v2::MAX_CLASS_FILES as u32
+                    && *bytes <= crate::artifacts::MAX_SNAPSHOT_BYTES
             }
             Self::AttachInput { path, bytes, .. } => {
-                crate::spec::path(path, "input").is_ok()
+                crate::spec::artifact_path(path, "input").is_ok()
                     && *bytes <= crate::artifacts::MAX_SNAPSHOT_BYTES
             }
             Self::PrepareIdentity { uid, gid } => crate::isolation::identity::valid(*uid, *gid),
@@ -517,6 +518,53 @@ impl Write for FixedBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn class_bindings_allow_flat_inner_names_and_a_bounded_complete_set() {
+        for name in [
+            "Main.class",
+            "Main$1.class",
+            "Main$Inner.class",
+            "Helper.class",
+        ] {
+            assert!(
+                NamespaceCommand::AttachInput {
+                    path: name.into(),
+                    bytes: 1,
+                    executable: false,
+                }
+                .valid()
+            );
+        }
+        for name in [
+            "../Main.class",
+            "pkg/Main$Inner.class",
+            "Main$1.class/child",
+        ] {
+            assert!(
+                !NamespaceCommand::AttachInput {
+                    path: name.into(),
+                    bytes: 1,
+                    executable: false,
+                }
+                .valid()
+            );
+        }
+        assert!(
+            NamespaceCommand::PrepareInputs {
+                count: 256,
+                bytes: 1024
+            }
+            .valid()
+        );
+        assert!(
+            !NamespaceCommand::PrepareInputs {
+                count: 257,
+                bytes: 1024
+            }
+            .valid()
+        );
+    }
 
     fn pair() -> (ControlChannel, ControlChannel) {
         let (a, b) = UnixStream::pair().unwrap();

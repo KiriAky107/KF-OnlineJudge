@@ -18,15 +18,41 @@ pub enum ExecutionProfile {
     Native,
     CompileC,
     CompileCpp,
+    PythonCheck,
+    PythonRun,
+    JavaCompile,
+    JavaRun,
 }
 
 impl ExecutionProfile {
     /// Trusted image-local compiler tools only; never inherit the host PATH.
     pub fn compiler_search_path(self) -> Option<&'static str> {
         match self {
-            Self::Native => None,
+            Self::Native
+            | Self::PythonCheck
+            | Self::PythonRun
+            | Self::JavaCompile
+            | Self::JavaRun => None,
             Self::CompileC | Self::CompileCpp => Some("/usr/bin"),
         }
+    }
+
+    pub fn prepares_program(self) -> bool {
+        matches!(
+            self,
+            Self::CompileC | Self::CompileCpp | Self::PythonCheck | Self::JavaCompile
+        )
+    }
+
+    pub fn gnu_compiler(self) -> bool {
+        matches!(self, Self::CompileC | Self::CompileCpp)
+    }
+
+    pub fn managed_runtime(self) -> bool {
+        matches!(
+            self,
+            Self::PythonCheck | Self::PythonRun | Self::JavaCompile | Self::JavaRun
+        )
     }
 }
 
@@ -66,7 +92,9 @@ impl Default for ResourceLimits {
 impl ResourceLimits {
     pub fn for_profile(profile: ExecutionProfile) -> Self {
         match profile {
-            ExecutionProfile::Native => Self::default(),
+            ExecutionProfile::Native
+            | ExecutionProfile::PythonCheck
+            | ExecutionProfile::PythonRun => Self::default(),
             ExecutionProfile::CompileC | ExecutionProfile::CompileCpp => Self {
                 cpu_time_us: 10_000_000,
                 wall_time_us: 30_000_000,
@@ -76,6 +104,20 @@ impl ResourceLimits {
                 open_files: 128,
                 file_bytes: 64 * MIB,
                 workdir_bytes: 256 * MIB,
+                ..Self::default()
+            },
+            ExecutionProfile::JavaCompile => Self {
+                memory_bytes: 512 * MIB,
+                processes: 32,
+                open_files: 128,
+                cpu_time_us: 10_000_000,
+                wall_time_us: 30_000_000,
+                ..Self::default()
+            },
+            ExecutionProfile::JavaRun => Self {
+                memory_bytes: 384 * MIB,
+                processes: 32,
+                open_files: 64,
                 ..Self::default()
             },
         }
@@ -129,12 +171,14 @@ pub struct ExecutionSpec {
 #[derive(Clone, Debug)]
 pub struct SpecPolicy {
     limits_ceiling: ResourceLimits,
+    image_kind: Option<crate::runtime::ImageKind>,
 }
 
 impl Default for SpecPolicy {
     fn default() -> Self {
         Self {
             limits_ceiling: ResourceLimits::ceilings(),
+            image_kind: None,
         }
     }
 }
@@ -144,7 +188,13 @@ impl SpecPolicy {
         validate_limits(&limits, &ResourceLimits::ceilings())?;
         Ok(Self {
             limits_ceiling: limits,
+            image_kind: None,
         })
+    }
+
+    pub(crate) fn for_image(mut self, kind: crate::runtime::ImageKind) -> Self {
+        self.image_kind = Some(kind);
+        self
     }
 }
 
@@ -162,7 +212,15 @@ impl ValidatedSpec {
     /// image-local PATH/TMPDIR defaults through their environment whitelist.
     pub fn execution_environment(&self) -> BTreeMap<String, String> {
         let mut env = BTreeMap::from([
-            ("LANG".into(), "C".into()),
+            (
+                "LANG".into(),
+                if self.0.profile.managed_runtime() {
+                    "C.UTF-8"
+                } else {
+                    "C"
+                }
+                .into(),
+            ),
             ("TZ".into(), "UTC".into()),
             ("TMPDIR".into(), "/tmp".into()),
         ]);
@@ -238,6 +296,14 @@ pub(crate) fn path(value: &str, field: &'static str) -> Result<(), SpecError> {
     Ok(())
 }
 
+pub(crate) fn artifact_path(value: &str, field: &'static str) -> Result<(), SpecError> {
+    if kf_contracts::judging_v2::class_name(value) {
+        Ok(())
+    } else {
+        path(value, field)
+    }
+}
+
 fn overlaps(left: &str, right: &str) -> bool {
     left == right
         || left
@@ -308,16 +374,36 @@ impl ExecutionSpec {
                 return Err(error("env", ValidationCode::InvalidEnvironment));
             }
         }
+        if self.profile.managed_runtime() && (!self.env.is_empty() || self.cwd != ".") {
+            return Err(error("env_or_cwd", ValidationCode::InvalidEnvironment));
+        }
+        if policy
+            .image_kind
+            .is_some_and(|kind| !kind.supports(self.profile))
+        {
+            return Err(error("profile", ValidationCode::UnsupportedExecutable));
+        }
         if self.cwd != "." {
             path(&self.cwd, "cwd")?;
         }
-        if self.inputs.len() > 64 || self.outputs.len() > 16 {
+        if self.inputs.len()
+            > if self.profile == ExecutionProfile::JavaRun {
+                kf_contracts::judging_v2::MAX_CLASS_FILES
+            } else {
+                64
+            }
+            || self.outputs.len() > 16
+        {
             return Err(error("artifacts", ValidationCode::TooManyArtifacts));
         }
         let mut input_paths = BTreeSet::new();
         for input in &self.inputs {
             identifier(&input.artifact_id, "inputs.artifact_id")?;
-            path(&input.path, "inputs.path")?;
+            if self.profile == ExecutionProfile::JavaRun {
+                artifact_path(&input.path, "inputs.path")?;
+            } else {
+                path(&input.path, "inputs.path")?;
+            }
             if input_paths
                 .iter()
                 .any(|other: &&str| overlaps(other, &input.path))
@@ -353,6 +439,14 @@ impl ExecutionSpec {
                 .is_some_and(|relative| input_paths.contains(relative)),
             ExecutionProfile::CompileC => executable == "/usr/bin/gcc",
             ExecutionProfile::CompileCpp => executable == "/usr/bin/g++",
+            ExecutionProfile::PythonCheck
+            | ExecutionProfile::PythonRun
+            | ExecutionProfile::JavaCompile
+            | ExecutionProfile::JavaRun => {
+                crate::profiles::validate(&self)
+                    .map_err(|_| error("profile", ValidationCode::InvalidArgv))?;
+                true
+            }
         };
         if !approved {
             return Err(error("argv[0]", ValidationCode::UnsupportedExecutable));

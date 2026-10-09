@@ -1,9 +1,12 @@
 //! Linux execution boundary: policy, kernel gates, bounded supervision and recovery.
 //! Ordinary operator/Worker entries require trusted authority and active isolation.
 
+#[cfg(target_os = "linux")]
+pub mod image;
 pub mod launcher;
 pub mod outcome;
 pub mod probe;
+pub mod profiles;
 pub mod runtime;
 pub mod spec;
 

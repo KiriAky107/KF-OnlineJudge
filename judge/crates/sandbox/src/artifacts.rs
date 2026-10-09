@@ -5,7 +5,7 @@
 //! Outputs are resolved only through a verified, frozen target's work FD.
 //! Snapshotting is not publication, input mounting, stdio wiring or an exec permit.
 
-use crate::spec::{ValidatedSpec, path};
+use crate::spec::{ValidatedSpec, artifact_path};
 use rustix::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use rustix::fs::{FileType, MemfdFlags, Mode, OFlags, ResolveFlags, SealFlags, Stat};
 use std::fs::File;
@@ -215,6 +215,7 @@ impl ArtifactRoot {
 pub(crate) struct OutputPlan {
     paths: Vec<String>,
     budget: SnapshotBudget,
+    java_classes: bool,
 }
 
 impl OutputPlan {
@@ -222,6 +223,7 @@ impl OutputPlan {
         Self {
             paths: spec.spec().outputs.clone(),
             budget: SnapshotBudget::for_spec(spec),
+            java_classes: spec.spec().profile == crate::spec::ExecutionProfile::JavaCompile,
         }
     }
 
@@ -231,12 +233,43 @@ impl OutputPlan {
         {
             return Err(refused("invalid output directory or count"));
         }
+        let paths = if self.java_classes {
+            let mut paths = Vec::new();
+            let mut count = 0;
+            // The entire group is frozen and drained. Discover only bounded,
+            // flat compiler outputs through the held private work directory.
+            for entry in std::fs::read_dir(format!("/proc/self/fd/{}", work.as_raw_fd()))? {
+                count += 1;
+                if count > kf_contracts::judging_v2::MAX_CLASS_FILES + 1 {
+                    return Err(refused("class export count"));
+                }
+                let name = entry?
+                    .file_name()
+                    .into_string()
+                    .map_err(|_| refused("class export name"))?;
+                if name == "Main.java" {
+                    continue;
+                }
+                if !kf_contracts::judging_v2::class_name(&name) {
+                    return Err(refused("class export path/type"));
+                }
+                paths.push(name);
+            }
+            paths.sort();
+            paths
+        } else {
+            self.paths.clone()
+        };
         let mut budget = self.budget;
-        let mut files = Vec::with_capacity(self.paths.len());
-        for path in &self.paths {
+        let mut files = Vec::with_capacity(paths.len());
+        for path in &paths {
+            let file = snapshot(work, path, &mut budget, None, false)?;
+            if self.java_classes && file.bytes() == 0 {
+                return Err(refused("empty class export"));
+            }
             files.push(OutputSnapshot {
                 path: path.clone(),
-                file: snapshot(work, path, &mut budget, None, false)?,
+                file,
             });
         }
         // Errors drop every partial FD; there is no partially published batch.
@@ -309,7 +342,7 @@ fn snapshot(
     owner: Option<u32>,
     executable: bool,
 ) -> io::Result<SnapshotFile> {
-    path(relative, "artifact").map_err(|_| refused("noncanonical artifact path"))?;
+    artifact_path(relative, "artifact").map_err(|_| refused("noncanonical artifact path"))?;
     // Atomic containment; reject unsupported openat2 or races, no fallback or
     // retry. O_PATH inspects special files without opening their device/pipe.
     let fd = rustix::fs::openat2(

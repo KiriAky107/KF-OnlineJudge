@@ -169,7 +169,7 @@ pub(crate) fn compile(profile: ExecutionProfile) -> io::Result<BpfProgram> {
             thread_required,
         )?],
     ];
-    if profile != ExecutionProfile::Native {
+    if profile.gnu_compiler() {
         clones.push(vec![condition(
             0,
             SeccompCmpOp::Eq,
@@ -252,11 +252,20 @@ pub(crate) fn compile(profile: ExecutionProfile) -> io::Result<BpfProgram> {
         condition(2, SeccompCmpOp::MaskedEq(!flags), 0)?,
     ]);
     allowed.insert(libc::SYS_fcntl, rules(fcntl)?);
-    // Only non-mutating tty/pipe queries; no terminal injection/device control.
+    // Fixed tty/pipe queries. CPython's actual fopen path also needs FIOCLEX:
+    // it only sets close-on-exec on a descriptor already owned by this task.
+    // FIONCLEX, terminal injection and arbitrary device ioctls stay denied.
+    let mut ioctls = vec![libc::TCGETS, libc::FIONREAD];
+    if matches!(
+        profile,
+        ExecutionProfile::PythonCheck | ExecutionProfile::PythonRun
+    ) {
+        ioctls.extend([libc::TCGETS2, libc::FIOCLEX]);
+    }
     allowed.insert(
         libc::SYS_ioctl,
         rules(
-            [libc::TCGETS, libc::FIONREAD]
+            ioctls
                 .into_iter()
                 .map(|op| Ok(vec![condition(1, SeccompCmpOp::Eq, op)?]))
                 .collect::<io::Result<_>>()?,
@@ -403,6 +412,15 @@ pub(crate) fn install(profile: ExecutionProfile) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const PROFILES: [ExecutionProfile; 7] = [
+        ExecutionProfile::Native,
+        ExecutionProfile::CompileC,
+        ExecutionProfile::CompileCpp,
+        ExecutionProfile::PythonCheck,
+        ExecutionProfile::PythonRun,
+        ExecutionProfile::JavaCompile,
+        ExecutionProfile::JavaRun,
+    ];
     // Evaluate generated classic BPF against synthetic seccomp_data; this is
     // an ordinary policy regression, not evidence of kernel installation.
     fn evaluate(p: &[sock_filter], arch: u32, nr: u32, args: [u64; 6]) -> u32 {
@@ -435,11 +453,7 @@ mod tests {
     }
     #[test]
     fn abi_unknown_calls_and_clone_flags_fail_closed() {
-        for profile in [
-            ExecutionProfile::Native,
-            ExecutionProfile::CompileC,
-            ExecutionProfile::CompileCpp,
-        ] {
+        for profile in PROFILES {
             let p = compile(profile).unwrap();
             let deny = libc::SECCOMP_RET_ERRNO | libc::EPERM as u32;
             assert_eq!(
@@ -476,16 +490,12 @@ mod tests {
     #[test]
     fn compile_profile_exception_does_not_widen_native() {
         let flags = (libc::CLONE_VM | libc::CLONE_VFORK | libc::SIGCHLD) as u64;
-        for profile in [
-            ExecutionProfile::Native,
-            ExecutionProfile::CompileC,
-            ExecutionProfile::CompileCpp,
-        ] {
+        for profile in PROFILES {
             let p = compile(profile).unwrap();
-            let expected = if profile == ExecutionProfile::Native {
-                libc::SECCOMP_RET_ERRNO | libc::EPERM as u32
-            } else {
+            let expected = if profile.gnu_compiler() {
                 libc::SECCOMP_RET_ALLOW
+            } else {
+                libc::SECCOMP_RET_ERRNO | libc::EPERM as u32
             };
             assert_eq!(
                 evaluate(
@@ -505,11 +515,7 @@ mod tests {
 
     #[test]
     fn dangerous_calls_and_pointer_or_high_bit_argument_bypasses_are_denied() {
-        for profile in [
-            ExecutionProfile::Native,
-            ExecutionProfile::CompileC,
-            ExecutionProfile::CompileCpp,
-        ] {
+        for profile in PROFILES {
             let p = compile(profile).unwrap();
             let deny = libc::SECCOMP_RET_ERRNO | libc::EPERM as u32;
             for nr in [
@@ -570,6 +576,53 @@ mod tests {
                 assert_eq!(
                     evaluate(&p, AUDIT_X86_64, nr as u32, args),
                     libc::SECCOMP_RET_ALLOW
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn python_descriptor_compatibility_never_grants_other_ioctl_operations() {
+        for profile in PROFILES {
+            let program = compile(profile).unwrap();
+            let denied = libc::SECCOMP_RET_ERRNO | libc::EPERM as u32;
+            let expected = if matches!(
+                profile,
+                ExecutionProfile::PythonCheck | ExecutionProfile::PythonRun
+            ) {
+                libc::SECCOMP_RET_ALLOW
+            } else {
+                denied
+            };
+            for request in [libc::FIOCLEX, libc::TCGETS2] {
+                assert_eq!(
+                    evaluate(
+                        &program,
+                        AUDIT_X86_64,
+                        libc::SYS_ioctl as u32,
+                        [3, request, 0, 0, 0, 0]
+                    ),
+                    expected
+                );
+                assert_eq!(
+                    evaluate(
+                        &program,
+                        AUDIT_X86_64,
+                        libc::SYS_ioctl as u32,
+                        [3, (1 << 32) | request, 0, 0, 0, 0]
+                    ),
+                    denied
+                );
+            }
+            for request in [libc::FIONCLEX, libc::TIOCSTI] {
+                assert_eq!(
+                    evaluate(
+                        &program,
+                        AUDIT_X86_64,
+                        libc::SYS_ioctl as u32,
+                        [3, request, 0, 0, 0, 0]
+                    ),
+                    denied
                 );
             }
         }

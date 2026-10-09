@@ -1,5 +1,5 @@
 //! Fixed pre-exec read-only bindings. No task code exists during this stage.
-use crate::spec::path;
+use crate::spec::artifact_path;
 use rustix::fd::OwnedFd;
 use rustix::fs::{FileType, Mode, OFlags, ResolveFlags, SealFlags, StatVfsMountFlags};
 use rustix::mount::MountFlags;
@@ -37,7 +37,7 @@ pub(crate) fn bind(relative: &str, fd: &OwnedFd, bytes: u64, executable: bool) -
     if rustix::process::getpid().as_raw_pid() != 1 || !rustix::process::geteuid().is_root() {
         return Err(denied("input binding requires privileged namespace init"));
     }
-    path(relative, "input").map_err(|_| denied("input binding path"))?;
+    artifact_path(relative, "input").map_err(|_| denied("input binding path"))?;
     let source = rustix::fs::fstat(fd)?;
     let seals =
         SealFlags::WRITE | SealFlags::GROW | SealFlags::SHRINK | SealFlags::EXEC | SealFlags::SEAL;

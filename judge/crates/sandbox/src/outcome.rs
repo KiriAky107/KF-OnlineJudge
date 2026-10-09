@@ -281,14 +281,28 @@ impl ExecutionReport {
         check_capture(&self.stderr, limits.stderr_bytes)?;
         let mut artifact_paths = std::collections::BTreeSet::new();
         let mut artifact_bytes = 0_u64;
+        let java_classes = spec.spec().profile == crate::spec::ExecutionProfile::JavaCompile;
+        if self.artifacts.len()
+            > if java_classes {
+                kf_contracts::judging_v2::MAX_CLASS_FILES
+            } else {
+                16
+            }
+            || (java_classes && self.artifacts.windows(2).any(|v| v[0].path >= v[1].path))
+        {
+            return Err(ReportError("artifact_count_or_order"));
+        }
         for artifact in &self.artifacts {
             artifact_bytes = artifact_bytes
                 .checked_add(artifact.bytes)
                 .ok_or(ReportError("artifacts"))?;
-            if !spec.spec().outputs.contains(&artifact.path)
+            if !(spec.spec().outputs.contains(&artifact.path)
+                || (spec.spec().profile == crate::spec::ExecutionProfile::JavaCompile
+                    && kf_contracts::judging_v2::class_name(&artifact.path)))
                 || !artifact_paths.insert(artifact.path.as_str())
                 || !artifact_id(&artifact.artifact_id)
                 || artifact.bytes > limits.file_bytes
+                || (java_classes && artifact.bytes == 0)
                 || artifact_bytes > limits.workdir_bytes
             {
                 return Err(ReportError("artifacts"));

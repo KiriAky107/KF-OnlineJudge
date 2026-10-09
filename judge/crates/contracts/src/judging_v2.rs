@@ -311,7 +311,7 @@ impl CompiledProgram {
         Ok(())
     }
 }
-fn class_name(path: &str) -> bool {
+pub fn class_name(path: &str) -> bool {
     let Some(stem) = path.strip_suffix(".class") else {
         return false;
     };
