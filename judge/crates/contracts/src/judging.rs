@@ -291,7 +291,12 @@ impl RunLimits {
         ] {
             bounded(value, min, max)?;
         }
-        if self.stack_bytes > self.memory_bytes || self.file_bytes > self.workdir_bytes {
+        if self.stack_bytes > self.memory_bytes
+            || self.file_bytes > self.workdir_bytes
+            || self.stdout_bytes > self.file_bytes
+            || self.stderr_bytes > self.file_bytes
+            || self.stdout_bytes + self.stderr_bytes > self.workdir_bytes
+        {
             return Err("inconsistent resource limits");
         }
         Ok(())

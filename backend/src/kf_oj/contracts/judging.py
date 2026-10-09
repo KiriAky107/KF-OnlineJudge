@@ -109,7 +109,13 @@ class RunLimits(WireModel):
 
     @model_validator(mode="after")
     def consistent(self) -> Self:
-        if self.stack_bytes > self.memory_bytes or self.file_bytes > self.workdir_bytes:
+        if (
+            self.stack_bytes > self.memory_bytes
+            or self.file_bytes > self.workdir_bytes
+            or self.stdout_bytes > self.file_bytes
+            or self.stderr_bytes > self.file_bytes
+            or self.stdout_bytes + self.stderr_bytes > self.workdir_bytes
+        ):
             raise ValueError("inconsistent resource limits")
         return self
 
