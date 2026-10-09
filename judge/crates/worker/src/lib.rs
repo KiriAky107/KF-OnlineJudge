@@ -114,3 +114,6 @@ pub mod native {
 
 #[cfg(target_os = "linux")]
 pub mod pipeline;
+
+#[cfg(target_os = "linux")]
+pub mod consumer;

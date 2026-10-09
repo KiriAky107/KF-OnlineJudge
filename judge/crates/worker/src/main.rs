@@ -14,6 +14,14 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
+    CheckStopped {
+        #[arg(long)]
+        socket: PathBuf,
+    },
+    Serve {
+        #[arg(long)]
+        config: PathBuf,
+    },
     JudgeSubmission {
         #[arg(long)]
         socket: PathBuf,
@@ -33,7 +41,8 @@ enum Command {
         artifacts: PathBuf,
     },
 }
-fn main() -> ExitCode {
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
+async fn main() -> ExitCode {
     let cli = Cli::parse();
     if cli.check {
         println!(
@@ -43,6 +52,43 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     match cli.command {
+        Some(Command::CheckStopped { socket }) => {
+            match kf_sandbox::factory::FactoryClient::new(socket).stopped() {
+                Ok(clean) => {
+                    println!("{}", serde_json::json!({"cleanup_complete":clean}));
+                    ExitCode::SUCCESS
+                }
+                Err(_) => {
+                    eprintln!("stop proof unavailable");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        Some(Command::Serve { config }) => {
+            let c = match kf_worker::consumer::Config::load(&config) {
+                Ok(c) => c,
+                Err(_) => {
+                    eprintln!("worker configuration refused");
+                    return ExitCode::from(2);
+                }
+            };
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let watch = stop.clone();
+            tokio::spawn(async move {
+                let mut term =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                        .expect("signal registration");
+                tokio::select! {_ = term.recv()=>{},_ = tokio::signal::ctrl_c()=>{}}
+                watch.store(true, std::sync::atomic::Ordering::Release);
+            });
+            match tokio::task::spawn_blocking(move || kf_worker::consumer::run(c, stop)).await {
+                Ok(Ok(())) => ExitCode::SUCCESS,
+                _ => {
+                    eprintln!("worker unavailable");
+                    ExitCode::from(2)
+                }
+            }
+        }
         Some(Command::JudgeSubmission {
             socket,
             job,

@@ -36,9 +36,30 @@ API 存活检查和前端预览不依赖这些容器，可以先独立启动。
 回收后安排新记录周期，不自动删除记录。清理失败保留身份租约并停止新分配；
 重启只根据已记录归属和 inode 回收，未知/外来内容保留并拒绝启动。
 
-`kf-worker judge-submission` 是受控本地适配入口，仍不消费队列。
+`kf-worker judge-submission` 是受控本地适配入口。常驻 `kf-worker serve --config`
+使用有界 AMQP 通知和经过服务身份认证的 Coordinator claim；配置与依赖见
+[判题工程说明](../judge/README.md#单机持久化协调与常驻-worker)。
 它验证不可变清单摘要，C17/C++20 仅映射到固定 GNU 命令，编译一次；
 成功产物经完整清理后封印并计算 SHA-256，每点分别申请 helper、stdin 与工作区。
 期望值逐点读取，留在比较端，不传给工厂/用户文件系统。
 新增锁定 `sha2 0.10.9` 仅供 Worker 验证输入及编译产物摘要；
 Sandbox 同版本仅为独立 VM 测试数据生成的开发依赖，Engine 不依赖加密或 OS 库。
+
+### 单机提交服务的启动与停止
+
+1. Backend Alembic 迁移；创建分别仅继承平台/协调器 NOLOGIN 角色的专用登录账号，
+   平台角色只可插入初始评测，执行状态仅由 Coordinator 写入。
+2. 普通平台服务持有私有工件目录；使用应用服务导入不可变题目和创建测试账号。
+3. 验证固定 GNU 镜像、Root 配置及工厂服务/任务 cgroup 的真实上限，再启动工厂。
+4. 独立启动 API、Coordinator、outbox publisher 和普通 Worker；单机 HTTP/AMQP
+   仅数值 loopback，PostgreSQL loopback/Unix socket。任何入口都不自动创建表。
+5. Coordinator readiness 验证数据库和权限；仍需独立 VM 验证真实执行门控。
+   Root 工厂不可持有平台/MQ/数据库口令，用户运行镜像不含服务文件。
+6. 先向 Worker 发送 SIGTERM，使当前任务取消/清理，再停止 publisher/API/Coordinator，
+   最后停止工厂和本地依赖。强制死亡后的旧 attempt 必须撤销并取得实际停止证明；
+   `cleanup_failed` 不等于普通终态，先核对保留资源再由管理员恢复工厂/Worker。
+
+这些入口和顺序不表示生产部署已完成。隔离/超限与用户程序仅在无 NIC、无宿主共享
+挂载、无业务凭据且整体上限已读回的独立测试 VM 内验收。开发 Compose 仍只提供可信
+数据库和 broker，不在宿主或业务服务器运行用户代码。workflow 如需启用由指定
+GitHub 私有仓库承载，并设置有限并发；Gitea 只保存逐阶段工程提交。

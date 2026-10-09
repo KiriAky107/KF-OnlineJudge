@@ -162,6 +162,7 @@ pub fn compiler_spec(
         limits: limits(budget),
     }
 }
+type StageControl<'a> = Box<dyn FnMut(Stage, Option<u16>) -> Result<(), StageFailure> + 'a>;
 pub struct Attempt<'a, A: ArtifactPort> {
     pub artifacts: A,
     pub stages: Vec<StageEvidence>,
@@ -171,6 +172,7 @@ pub struct Attempt<'a, A: ArtifactPort> {
     started: Instant,
     deadline: Instant,
     program: Option<(ArtifactReference, SnapshotFile)>,
+    control: Option<StageControl<'a>>,
 }
 impl<'a, A: ArtifactPort> Attempt<'a, A> {
     pub fn new(
@@ -197,7 +199,15 @@ impl<'a, A: ArtifactPort> Attempt<'a, A> {
             started,
             deadline,
             program: None,
+            control: None,
         })
+    }
+    pub fn with_control(
+        mut self,
+        control: impl FnMut(Stage, Option<u16>) -> Result<(), StageFailure> + 'a,
+    ) -> Self {
+        self.control = Some(Box::new(control));
+        self
     }
     fn execute(
         &mut self,
@@ -216,8 +226,17 @@ impl<'a, A: ArtifactPort> Attempt<'a, A> {
             Some(self.cancellation),
         );
         let cleanup = publication.cleanup().is_ok();
-        let (result, pid) =
-            result.map_err(|_| stage_error(FailureCode::SandboxUnavailable, false))?;
+        let (result, pid) = result.map_err(|error| {
+            if let Some(rejected) = error.get_ref().and_then(|e| e.downcast_ref::<kf_sandbox::rpc::Rejected>()) {
+                eprintln!("{}", serde_json::json!({"operation":"sandbox_rejected", "failure":rejected.failure, "cleanup_failure":rejected.cleanup_failure}));
+            } else {
+                eprintln!("{}", serde_json::json!({"operation":"sandbox_rpc", "kind":format!("{:?}",error.kind())}));
+            }
+            stage_error(FailureCode::SandboxUnavailable, false)
+        })?;
+        if !cleanup {
+            eprintln!("sandbox stage publication cleanup refused");
+        }
         if !cleanup {
             return Err(stage_error(FailureCode::CleanupFailed, false));
         }
@@ -438,8 +457,12 @@ impl<A: ArtifactPort> ControlPort for Attempt<'_, A> {
     fn cancelled(&self) -> bool {
         self.cancellation.load(Ordering::Acquire)
     }
-    fn stage(&mut self, _: Stage, _: Option<u16>) -> Result<(), StageFailure> {
-        Ok(())
+    fn stage(&mut self, stage: Stage, index: Option<u16>) -> Result<(), StageFailure> {
+        if let Some(control) = self.control.as_mut() {
+            control(stage, index)
+        } else {
+            Ok(())
+        }
     }
 }
 pub fn judge_local(

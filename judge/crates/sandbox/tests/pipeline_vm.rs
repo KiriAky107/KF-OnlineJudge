@@ -404,7 +404,7 @@ fn ordinary_control_probe() {
             assert_eq!(ready["event"], "ready");
             let mut second = UnixStream::connect(&socket).unwrap();
             raw_send(&mut second, &serde_json::json!({"run_id":"capacity-extra"}));
-            assert_eq!(raw_receive(&mut second)["event"], "refused");
+            assert_eq!(raw_receive(&mut second)["event"], "busy");
             drop(first);
             drop(second);
             println!(

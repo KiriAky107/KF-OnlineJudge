@@ -29,12 +29,19 @@ fn denied() -> io::Error {
 #[serde(deny_unknown_fields)]
 struct Acquire {
     run_id: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    check_stopped: bool,
+}
+fn is_false(v: &bool) -> bool {
+    !v
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 enum Allocation {
     Ready { run_id: String, helper_pid: u32 },
     Refused {},
+    Busy {},
+    Stopped { cleanup_complete: bool },
 }
 impl crate::launcher::protocol::sealed::Sealed for Acquire {}
 impl crate::launcher::protocol::sealed::Sealed for Allocation {}
@@ -49,16 +56,42 @@ impl WireMessage for Allocation {
             Self::Ready { run_id, helper_pid } => {
                 *helper_pid > 1 && crate::spec::identifier(run_id, "run_id").is_ok()
             }
-            Self::Refused {} => true,
+            Self::Refused {} | Self::Busy {} | Self::Stopped { .. } => true,
         }
     }
 }
+#[derive(Debug)]
+struct FactoryBusy;
+impl std::fmt::Display for FactoryBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("helper factory busy")
+    }
+}
+impl std::error::Error for FactoryBusy {}
+
 pub struct FactoryClient {
     socket: PathBuf,
 }
 impl FactoryClient {
     pub fn new(socket: PathBuf) -> Self {
         Self { socket }
+    }
+    /// Root-authenticated global drain proof. No task/path/command is selected.
+    /// False/unknown never releases execution authority at Coordinator.
+    pub fn stopped(&self) -> io::Result<bool> {
+        if rustix::process::geteuid().as_raw() < 1000 || rustix::process::getegid().as_raw() < 1000
+        {
+            return Err(denied());
+        }
+        let mut channel = rpc::channel(UnixStream::connect(&self.socket)?, 0, 0)?;
+        channel.send(&Acquire {
+            run_id: "stop-check".into(),
+            check_stopped: true,
+        })?;
+        match channel.receive::<Allocation>()? {
+            Allocation::Stopped { cleanup_complete } => Ok(cleanup_complete),
+            _ => Err(denied()),
+        }
     }
     /// The caller holds only ordinary artifact and Unix socket capabilities.
     pub fn execute(
@@ -69,6 +102,45 @@ impl FactoryClient {
         self.execute_controlled(spec, publication, None, None)
     }
     pub fn execute_controlled(
+        &self,
+        spec: ExecutionSpec,
+        publication: &ArtifactRoot,
+        deadline: Option<Instant>,
+        cancellation: Option<&std::sync::atomic::AtomicBool>,
+    ) -> io::Result<(rpc::Executed, u32)> {
+        // A completed helper may still be awaiting factory reap when the next
+        // point arrives. Busy does not consume the run ID. Retry only this typed
+        // allocation response, never a rejected request or an ambiguous execution.
+        let allocation_deadline = Instant::now() + Duration::from_secs(2);
+        for _ in 0..64 {
+            if deadline.is_some_and(|d| Instant::now() >= d) {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "helper allocation deadline",
+                ));
+            }
+            if cancellation.is_some_and(|c| c.load(std::sync::atomic::Ordering::Acquire)) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "helper allocation cancelled",
+                ));
+            }
+            let result = self.execute_once(spec.clone(), publication, deadline, cancellation);
+            if !result
+                .as_ref()
+                .err()
+                .is_some_and(|e| e.get_ref().is_some_and(|v| v.is::<FactoryBusy>()))
+            {
+                return result;
+            }
+            if Instant::now() >= allocation_deadline {
+                return result;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        Err(io::Error::new(io::ErrorKind::WouldBlock, FactoryBusy))
+    }
+    fn execute_once(
         &self,
         spec: ExecutionSpec,
         publication: &ArtifactRoot,
@@ -105,9 +177,17 @@ impl FactoryClient {
                 let mut channel = rpc::channel(stream, 0, 0)?;
                 channel.send(&Acquire {
                     run_id: spec.run_id.clone(),
+                    check_stopped: false,
                 })?;
                 let pid = match channel.receive::<Allocation>()? {
                     Allocation::Ready { run_id, helper_pid } if run_id == spec.run_id => helper_pid,
+                    Allocation::Busy {} => {
+                        return Err(io::Error::new(io::ErrorKind::WouldBlock, FactoryBusy));
+                    }
+                    Allocation::Refused {} => {
+                        eprintln!("sandbox factory allocation refused");
+                        return Err(denied());
+                    }
                     _ => return Err(denied()),
                 };
                 Ok((
@@ -196,6 +276,31 @@ fn idle_recovery(config: &crate::runtime::ValidatedRuntimeConfig) -> io::Result<
         }
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+fn drained(config: &crate::runtime::ValidatedRuntimeConfig) -> io::Result<bool> {
+    let p = config.config();
+    for root in [
+        PathBuf::from(&p.tasks_root),
+        PathBuf::from(&p.state_root).join("identities"),
+        PathBuf::from(&p.state_root).join("captures"),
+    ] {
+        match std::fs::read_dir(root) {
+            Ok(mut entries) => {
+                if entries.next().transpose()?.is_some() {
+                    return Ok(false);
+                }
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+    for entry in std::fs::read_dir(&p.delegated_cgroup_root)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() || entry.file_type()?.is_symlink() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 /// Fixed executable/config come solely from the trusted service invocation.
 /// Runtime is finite even when the service manager is misconfigured; cgroup
@@ -339,11 +444,31 @@ pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
             let Ok(request) = channel.receive::<Acquire>() else {
                 continue;
             };
-            if active.len() >= policy.max_concurrent_runs as usize
-                || ids.len() >= MAX_IDS
-                || ids.contains(&request.run_id)
-            {
+            if request.check_stopped {
+                if !active.is_empty() {
+                    let _ = channel.send(&Allocation::Stopped {
+                        cleanup_complete: false,
+                    });
+                    continue;
+                }
+                let recovered = idle_recovery(&config);
+                // Unknown unjournaled task directories also prevent a drain proof.
+                let empty = recovered.is_ok() && drained(&config)?;
+                channel.send(&Allocation::Stopped {
+                    cleanup_complete: empty,
+                })?;
+                if !empty {
+                    return Err(denied());
+                }
+                continue;
+            }
+            // Replay/ledger exhaustion is terminal even while all slots are busy.
+            if ids.len() >= MAX_IDS || ids.contains(&request.run_id) {
                 let _ = channel.send(&Allocation::Refused {});
+                continue;
+            }
+            if active.len() >= policy.max_concurrent_runs as usize {
+                let _ = channel.send(&Allocation::Busy {});
                 continue;
             }
             // Persist before allocating; IDs remain consumed across restarts.

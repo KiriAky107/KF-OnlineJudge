@@ -5,9 +5,10 @@
 | `kf-contracts` | 平台与判题服务的通知契约和共享样例 |
 | `kf-engine` | 执行编排端口、输出比较和判题汇总；不进行权限操作 |
 | `kf-sandbox` | Linux namespace、运行根、身份、seccomp、cgroup、监督和清理 |
+| `kf-coordinator` | PostgreSQL 事务、领取/租约/阶段/结果、取消和恢复；不操作账号或题库 |
 | `kf-worker` | 普通用户工件准备与执行适配器注入；不操作评测数据库 |
 
-依赖保持 `worker → engine / sandbox / contracts`、`engine → contracts`、`sandbox → contracts`。原始系统调用和权限操作集中在 sandbox 内。
+依赖保持 `worker → engine / sandbox / contracts`、`coordinator → contracts`、`engine → contracts`、`sandbox → contracts`。原始系统调用和权限操作集中在 sandbox 内。
 
 ## 普通执行入口
 
@@ -56,7 +57,8 @@ helper 不接管 root 或其他身份的输入工件；每任务保留相同的�
 
 Engine 仅在真实、无基础设施错误的 exit 0 后逐字节比较输出。非零退出/信号为 RuntimeError，CPU/墙钟、内存、输出限制分别映射 TLE/MLE/OLE，取消与 SystemError 单独表达；不可用计量保持 null。汇总在 Engine 内按输入顺序确定，基础设施错误或取消停止后续执行；空用例和重复 run ID 在执行前拒绝。`judge-once` 返回结构化 verdict、用例与实际计量。新增 `serde` 直接依赖用于本地作业/领域结果类型，Engine 不引入 sandbox 或 OS 库。
 
-本地已提供 native 单用例及编译一次、多测试点编排；平台队列消费、持久化协调、完整提交投递、交互题、SPJ 和部署仍未实现。`kf-worker --check` 只检查入口，不消费或执行任务。权限 helper 和镜像必须由部署方配置，Worker 不调用 sudo、不修改账号或权限。
+本地已提供 native 单用例、编译一次多测试点与平台消费/持久化协调入口；
+用户成绩展示、交互题、SPJ 和生产部署仍未实现。`kf-worker --check` 只检查入口，不消费或执行任务。权限 helper 和镜像必须由部署方配置，Worker 不调用 sudo、不修改账号或权限。
 
 ## 编译一次、多测试点
 
@@ -101,3 +103,52 @@ make check
 宿主普通检查不执行权限、恶意或超限测试。`vm-acceptance` 仅增加独立 VM 的固定验收入口与故障注入，不是生产执行授权。ignored 的 Linux 测试必须在无宿主共享挂载、无业务凭据、无 NIC 且整体资源上限已实际读回的独立 VM 内执行；`KF_SANDBOX_INDEPENDENT_VM=1` 只是测试防误用标记，不能代替环境证据。未执行或跳过不能计为 Linux 安全验收。
 
 覆盖真实 GNU C/C++ 编译后运行、危险调用、宿主和跨任务文件、权限提升、网络、CPU/内存/pids/输出/文件限制，以及取消、初始化回滚、真实 owner SIGKILL、服务恢复和重复清理。验收记录保存在本地忽略的计划目录；不包含远端开发文档或业务凭据。
+
+## 单机持久化协调与常驻 Worker
+
+先通过 Backend Alembic 迁移，分别创建仅继承 `kf_oj_platform`、`kf_oj_coordinator`
+的普通数据库登录角色。Coordinator 不迁移、不读账号/写题库；Worker 不接收数据库
+连接、不写评测状态、不调用 sudo。令牌是内部服务身份，与浏览器会话及作业短期租约分离。
+
+```sh
+kf-coordinator --config /etc/kf-judge/coordinator.json
+kf-worker serve --config /etc/kf-judge/worker.json
+kf-worker check-stopped --socket /var/lib/kf-judge/factory/control.sock
+```
+
+两个配置都须为 0600、有界、单链接普通文件。Coordinator 配置包含 `listen`、
+`database_url`、`workers`（`id`/64位十六进制 `token`）、不同的 `platform_token`、
+`admission`、`lease_seconds`（5–300）及 `recovery_seconds`（1–60）。
+Worker 配置包含 `worker_id`、`service_token`、`coordinator_url`、`platform_url`、
+`amqp_url`、固定 `socket`、自身 0700 `staging` 与同一 `admission`。
+本轮只允许单机数值 loopback HTTP/AMQP 与 loopback/绝对 Unix socket PostgreSQL；
+未提供跨机器 TLS 模式。Worker 固定并发/prefetch 为1，缺少有效领取权不能执行。
+
+`/health/live` 表示进程存活；配置后 `/health/ready` 连接数据库并核对最小权限。
+内部 HTTP 先认证再解析有界请求，整体10秒，数据库连接槽位4，handler槽位16。
+claim 使用数据库时间、行锁和有限全局容量锁，提交后才返回新 attempt/递增 fence/
+短期令牌与清单摘要。阶段严格递增，续租和结果核对当前绑定与令牌；用例、attempt
+及终态同事务提交后才确认。完整同一报告可重复确认，修改或旧 attempt 被拒绝。
+
+取消与过期撤销执行权，先进入 `cancelling`；不能把租约到期直接当作任务已停止。
+Worker 续租失败在有界期限内取消 helper，通过 Root 工厂的停止查询核对 owned journal、
+任务目录、身份和 cgroup 全部排空，才发送服务身份认证的停止报告。
+未知资源保留并使工厂停止分配；Coordinator 保留 `cleanup_failed`，占用容量，
+由管理员处理明确的外来资源后重启工厂/Worker。停止查询不能选取宿主路径、命令或任务。
+只有确认实际清理的基础设施失败可按 admission 有限重试，普通成绩不重试。
+
+恢复扫描每批最多16项；已投递而30秒后仍待领取的事件重新通知，broker/Worker 断线
+采用最多30秒退避。AMQP 操作各5秒，HTTP 连接1秒/请求2秒；结果最多重试3次相同报告。
+Worker SIGTERM 取消当前执行后退出，SIGKILL 由 Root EOF 清理、租约过期和重启协调收敛。
+消息手工 ack 只表示通知已处理，持久化状态与补偿负责恢复，不把 ack 当成最终成绩。
+
+输出预算必须同时满足每流不超过单文件上限、stdout/stderr 合计不超过捕获存储
+上限；Python/Rust 清单在准入时拒绝不一致限额，实际沙箱仍独立核对。连续测试点
+遇到完成 helper 尚待回收的暂忙槽位时，仅对不消耗 run ID 的 Busy 分配响应做
+最多2秒/64次有界等待，仍受作业截止时间与取消约束；拒绝、重放和执行响应不明
+不会重新执行同一请求。
+
+新增外部依赖职责：Coordinator 的 `tokio-postgres 0.7.15` 只负责专用角色数据库事务；
+Worker 的 `lapin 2.5.5` / `futures-lite 2.6.1` 负责 AMQP 通知，`reqwest 0.12.24`
+负责有界 loopback 请求并禁用代理与重定向；`uuid 1.27.0` 生成身份，`sha2 0.10.9`
+验证清单/工件/报告摘要。Engine 不引入数据库、HTTP、队列或权限依赖。
