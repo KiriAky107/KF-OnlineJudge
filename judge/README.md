@@ -58,7 +58,7 @@ helper 不接管 root 或其他身份的输入工件；每任务保留相同的�
 Engine 仅在真实、无基础设施错误的 exit 0 后逐字节比较输出。非零退出/信号为 RuntimeError，CPU/墙钟、内存、输出限制分别映射 TLE/MLE/OLE，取消与 SystemError 单独表达；不可用计量保持 null。汇总在 Engine 内按输入顺序确定，基础设施错误或取消停止后续执行；空用例和重复 run ID 在执行前拒绝。`judge-once` 返回结构化 verdict、用例与实际计量。新增 `serde` 直接依赖用于本地作业/领域结果类型，Engine 不引入 sandbox 或 OS 库。
 
 本地已提供 native 单用例、编译一次多测试点与平台消费/持久化协调入口；
-用户成绩展示、交互题、SPJ 和生产部署仍未实现。`kf-worker --check` 只检查入口，不消费或执行任务。权限 helper 和镜像必须由部署方配置，Worker 不调用 sudo、不修改账号或权限。
+个人成绩通过平台归属查询展示；交互题、SPJ 和生产部署仍未实现。`kf-worker --check` 只检查入口，不消费或执行任务。权限 helper 和镜像必须由部署方配置，Worker 不调用 sudo、不修改账号或权限。
 
 ## 编译一次、多测试点
 

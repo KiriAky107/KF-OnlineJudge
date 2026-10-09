@@ -59,6 +59,49 @@ Sandbox 同版本仅为独立 VM 测试数据生成的开发依赖，Engine 不�
    最后停止工厂和本地依赖。强制死亡后的旧 attempt 必须撤销并取得实际停止证明；
    `cleanup_failed` 不等于普通终态，先核对保留资源再由管理员恢复工厂/Worker。
 
+平台配置私有 `KF_OJ_ARTIFACT_ROOT`、有界字节/文件容量以及
+`KF_OJ_JUDGE_ADMISSION`（完整可信 JSON）；其工具链、编译/运行上限、总体作业期限、
+并发/prefetch/retry 必须与 Coordinator/Worker 一致。单机使用并发1、prefetch1，
+不能仅提高 Worker 数量绕过节点容量。源码最多256KiB，测试点最多256个；
+stdout/stderr 各不超过 file_bytes，合计不超过 workdir_bytes。
+
+迁移账号与平台账号分开配置，命令均在 `backend/` 运行：
+
+```sh
+uv run --locked alembic upgrade head           # 私有迁移账号，仅执行受控 schema 操作
+uv run --locked kf-accounts create local_user  # 换成平台角色；终端读取密码并二次确认
+uv run --locked kf-problems /srv/private-import
+uv run --locked uvicorn kf_oj.api.app:create_app --factory --host 127.0.0.1 --port 8000 \
+  --no-proxy-headers --limit-concurrency 32 --backlog 64
+uv run --locked python -m kf_oj.infra.messaging.publisher
+```
+
+每个账号操作/导入目录都由管理员准备，不从浏览器接受私有路径。导入格式见
+[题目模块](../backend/src/kf_oj/modules/problems/README.md)，不可变版本以 UUID
+在题库/题面链接和提交请求中传递。更新题目需导入新版本，不覆盖已有提交的题目版本。
+临时验收使用合成数据和测试口令，实际业务数据与服务配置都保存在仓库外的私有目录。
+
+取消另需 API 私有配置 `KF_OJ_COORDINATOR_URL=http://127.0.0.1:8100` 与
+`KF_OJ_COORDINATOR_TOKEN`（Coordinator 的 platform_token）。所有服务令牌私下生成，
+不可互用或放进前端环境。Coordinator/Worker 私有 JSON 为0600、单链接、有界文件；
+Root 镜像/配置/二进制由 root 持有，任务委派子树独立于监督器自身 cgroup。
+运行前实际读回整体节点、服务和任务 memory/swap/pids/CPU/文件/运行期限上限，
+并通过真实隔离门控；配置解析、readiness、存活探测都不能替代执行验收。
+
+前端从 `frontend/` 启动 `pnpm dev`，默认127.0.0.1:5173；平台明确允许相同浏览器
+Origin，`/api` 同源代理。生产需另行配置 HTTPS、安全 cookie、SPA 回退与 `/api`
+反向代理，本仓库不自动部署。用户以受控账号登录，在题面选择支持语言、提交源码，
+随后查看同一 submission UUID 的持久化状态。等待/取消中/系统失败都不等于成功成绩。
+
+broker 暂停时 API 仍能持久化 queued/outbox；恢复后 publisher confirm 与 Coordinator
+补偿重新投递。Worker/Coordinator 重启使用原私有配置、工件、日志与 DB，不删除
+attempt 或强改状态。旧租约不能覆盖新结果，有限基础设施重试最终收敛。
+容量满时返回429或503；先确认待执行/清理状态，恢复服务或由管理员扩充经过核对的
+存储容量，不删除仍被提交/题目引用的工件。`kf-artifacts --limit 100` 仅回收满足年龄
+要求的无引用工件和已标记删除项；它不会通过删除用户源码来腾出容量。
+恢复 Root 必须核对 journal/inode/实际排空；未知资源保留，管理员处理自己确认的
+故障来源后再重启。不要递归清空任务目录，也不要把 cleanup_failed 改成已成功。
+
 这些入口和顺序不表示生产部署已完成。隔离/超限与用户程序仅在无 NIC、无宿主共享
 挂载、无业务凭据且整体上限已读回的独立测试 VM 内验收。开发 Compose 仍只提供可信
 数据库和 broker，不在宿主或业务服务器运行用户代码。workflow 如需启用由指定
