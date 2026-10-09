@@ -152,3 +152,33 @@ Worker SIGTERM 取消当前执行后退出，SIGKILL 由 Root EOF 清理、租�
 Worker 的 `lapin 2.5.5` / `futures-lite 2.6.1` 负责 AMQP 通知，`reqwest 0.12.24`
 负责有界 loopback 请求并禁用代理与重定向；`uuid 1.27.0` 生成身份，`sha2 0.10.9`
 验证清单/工件/报告摘要。Engine 不引入数据库、HTTP、队列或权限依赖。
+
+
+## Python / Java 与明确协议版本
+
+新语言使用 v2 清单、typed 程序工件、阶段和报告。旧 v1 清单/报告/canonical 摘要保持原样，
+不默加新字段。需要同一节点处理两代任务时，管理员显式配置 `AdmissionRegistry` 的
+`legacy` 与 `multi_runtime`；仅配置旧能力的消费者继续拒绝 v2。两代配置必须共享
+并发/prefetch/重试预算，所有镜像共用一个 Root 工厂、UID 池和容量预留。
+
+CPython 固定 3.13.16，仅 main.py/标准库。准备 profile 只分析/编译源码，不执行顶层代码，
+不导入用户 pyc、marshal、pickle 或 ZIP；运行使用已检查的封印源码。
+OpenJDK 固定 Temurin 21.0.12.1+1-LTS，固定 Main.java/default-package Main；javac
+使用固定 UTF-8 与禁用 annotation processing 的参数，允许最多256个有界平铺 class，
+包括辅助/内部/匿名类，class 文件名仅允许受控 ASCII 字符且最长128字节。链接、目录替换、空类集、重复/超量/过长或不支持名称拒绝；
+完整类集封印后逐点使用。同一题的每点都重新建立 helper、UID 与工作根。
+
+每次检查、编译、运行均通过 Root 隔离门控，不在普通 Worker 执行解释器或 javac。
+请求不能指定运行镜像宿主路径、任意 flags、classpath、JAR、agent 或环境变量；
+PYTHONPATH、JAVA_TOOL_OPTIONS、JDK_JAVA_OPTIONS 等不从宿主继承。
+语法/编译/入口错误为 CE，普通运行异常为 RE；真实可信 CPU/墙钟、cgroup OOM 和
+输出超限分别为 TLE/MLE/OLE。用户自抛 MemoryError/OOM、打印文字或 exit code
+不能证明 MLE。JVM Xmx 仅限制堆，元空间、代码缓存、native、每个线程栈均包含在
+完整 cgroup 预算；低于启动/非堆预留的配置提前拒绝。镜像/门控/通信/清理故障为
+SystemError，未知计量不补零。
+
+镜像制作使用 `scripts/build_judging_images.py`，固定来源/摘要与闭合动态库列表，
+不复制平台 venv、site-packages、服务配置或凭据。产物经 root 所有权、不可写目录、
+逐文件摘要及 catalog 摘要核对后发布；路径只由可信 Root 配置决定。
+生产标准预算不使用 VM 模拟器验收时明确设置的较慢启动预算。
+新版节点配置与排空步骤见 [部署说明](../deploy/README.md#四语言节点的受控升级)。

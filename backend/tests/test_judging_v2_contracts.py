@@ -235,3 +235,35 @@ def test_generic_admission_revalidates_constructed_values_in_both_generations():
             with pytest.raises(ValueError):
                 v2.admit_manifest(registry, wrong, 1)
     v2.admit_manifest(registry, legacy, 1)
+
+
+def test_operator_registry_example_preserves_old_protocol_and_binds_managed_runtime():
+    policy = v2.AdmissionRegistry.model_validate_json(
+        (ROOT / "deploy/judge.admission.example.json").read_bytes()
+    )
+    old = v1.decode_wire(
+        v1.JobManifest, (ROOT / "tests/fixtures/contracts/judge-manifest.valid.json").read_bytes()
+    )
+    policy.admit(old, 1)
+    assert policy.multi_runtime is not None
+    root = json.loads((ROOT / "deploy/sandbox.managed.runtime.example.json").read_text())
+    for cap in policy.multi_runtime.capabilities:
+        selected = next(
+            item
+            for item in root["runtime_images"]
+            if item["runtime_identity"] == cap.toolchain.model_dump(mode="json")
+        )
+        ceiling = v1.RunLimits.model_validate(selected["per_task_ceiling"])
+        assert cap.compile_ceiling.fits(ceiling) and cap.run_ceiling.fits(ceiling)
+        manifest = fixture(f"judge-manifest.valid-{cap.language}", v2.JobManifest).model_copy(
+            update={"compile_limits": cap.compile_ceiling, "run_limits": cap.run_ceiling}
+        )
+        policy.admit(manifest, 1)
+        changed = manifest.model_copy(
+            update={"toolchain": manifest.toolchain.model_copy(update={"image_digest": "f" * 64})}
+        )
+        with pytest.raises(ValueError):
+            policy.admit(changed, 1)
+    legacy_only = v2.AdmissionRegistry(schema_version=2, legacy=policy.legacy, multi_runtime=None)
+    with pytest.raises(ValueError):
+        legacy_only.admit(fixture("judge-manifest.valid-java21", v2.JobManifest), 1)

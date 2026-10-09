@@ -106,3 +106,37 @@ attempt 或强改状态。旧租约不能覆盖新结果，有限基础设施重
 挂载、无业务凭据且整体上限已读回的独立测试 VM 内验收。开发 Compose 仍只提供可信
 数据库和 broker，不在宿主或业务服务器运行用户代码。workflow 如需启用由指定
 GitHub 私有仓库承载，并设置有限并发；Gitea 只保存逐阶段工程提交。
+
+
+## 四语言节点的受控升级
+
+新增公开示例 `judge.admission.example.json` 为显式 v1/v2 注册表，
+`sandbox.managed.runtime.example.json` 为一槽位的共享 Root 配置；原 v1 示例保持原语义。
+所有 `aaaaaaaa…` 镜像摘要均是无权限占位值，不能当作已验镜像。管理员制作固定镜像后，
+对 manifest.json 的实际字节计算 SHA-256，逐文件验证版本/字节/权限，并将相同完整身份
+写入准入注册表与 Root runtime_images。Root 镜像路径仅在私有可信配置中保存。
+配置解析通过或 check-runtime 可见仍不允许跳过实际隔离门控。
+
+1. 停止创建新提交/消费投递，向所有普通 Worker 发 SIGTERM；保留 DB、清单、工件和 journal。
+2. 取得工厂实际 stopped/cleanup_complete 证明，读回空任务 cgroup 和 owned 资源；
+   未排空或存在未知资源时停止升级，保留证据，不递归清空任务目录。
+3. 使用独立迁移账号执行 Backend Alembic upgrade；新语言数据存在时旧迁移降级会拒绝，
+   不删除数据以实现回退。平台与 Coordinator 继续使用各自最小权限角色，Worker 无 DB 账号。
+4. 安装固定版本的 Backend/Coordinator/Worker/Sandbox；同时更新三个普通服务的同一
+   `judge_admission`/`admission` 注册表，Root 配置单独由管理员持有。旧消费者不混用新协议。
+5. 为整体节点、控制面各服务、工厂和任务设置有限 CPU/memory/swap/pids/文件/期限，
+   读回内核值。节点至少预留一份512MiB编译任务以及独立控制面；Java运行示例总预算384MiB，
+   Xmx不能代替整体预算。并发1/prefetch1，共享UID池，不因第二Worker存在而扩大节点槽位。
+6. 在独立无NIC、无宿主共享挂载、无业务凭据 VM 用合成题目验证四语言、故障与实际排空，
+   再恢复工厂/Coordinator/API/publisher/Worker。生产启用需单独安排，仓库不自动部署。
+
+请求不在线安装 Python/Java 依赖，不运行 pip/uvx，不接收自定义解释器参数/JAR/agents。
+Python main.py 仅标准库；Java Main.java 使用默认包 Main，最多256个有界编译class。
+题目语言与预算以公开版本配置为准，旧题目和草稿保留，Rust继续明确不支持。
+新版检查阶段CE/运行RE/真实限额与SystemError的区别见 [判题说明](../judge/README.md#python--java-与明确协议版本)。
+
+停止/故障恢复沿原单机流程：停止Worker使任务全树排空，旧租约/report拒绝后恢复；
+publisher/broker中断保留outbox，有限重试而非清空记录。恢复旧软件前应先排空v2任务，
+保留不可变v2版本和报告供兼容消费者读取；不能把旧配置静默转换为宽松新能力。
+这些公开配置不含业务令牌。数据库/AMQP/服务令牌分别在仓库外私下生成，Root不持有它们。
+需要CI时只在GitHub私有仓库 `KiriAky107/KF-OnlineJudge` 运行并设置有限并发，Gitea保存源码。

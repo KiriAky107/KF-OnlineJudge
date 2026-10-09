@@ -336,3 +336,29 @@ fn task_and_image_roots_cannot_overlap_private_capture_storage() {
         }
     }
 }
+
+#[test]
+fn managed_operator_example_shares_one_pool_and_rejects_unreserved_capacity() {
+    let config: RuntimeConfig = serde_json::from_str(include_str!(
+        "../../../../deploy/sandbox.managed.runtime.example.json"
+    ))
+    .unwrap();
+    let validated = config.clone().validate().unwrap();
+    assert_eq!(validated.task_identity(0), Some((100000, 100000)));
+    assert_eq!(validated.task_identity(1), None);
+    assert_eq!(config.runtime_images.len(), 3);
+    // Adding languages never creates independent identity or resource pools.
+    let mut unreserved = config.clone();
+    unreserved.max_concurrent_runs = 2;
+    unreserved.identities.count = 2;
+    assert!(unreserved.validate().is_err());
+    let mut unknown = config.clone();
+    unknown.runtime_images[1].runtime_identity.runtime_version =
+        "3.14.7".to_string().try_into().unwrap();
+    assert!(unknown.validate().is_err());
+    let mut duplicate = config.clone();
+    duplicate
+        .runtime_images
+        .push(config.runtime_images[0].clone());
+    assert!(duplicate.validate().is_err());
+}
