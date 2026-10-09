@@ -1,28 +1,42 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { findProblem, discussions, submissions } from '../data/preview'
+import { api } from '../api/client'
+import { csrfHeaders, errorText, unwrap } from '../api/transport'
+import { submissionIntent, type SubmissionInput } from '../api/submissionIntent'
+import type { components } from '../api/generated/schema'
+import { useSession } from '../composables/useSession'
 import { useCodeDraft, codeTemplates, languageLabels } from '../composables/useCodeDraft'
 import CodeEditor from '../components/CodeEditor.vue'
-import DifficultyTag from '../components/DifficultyTag.vue'
-import VerdictTag from '../components/VerdictTag.vue'
 import EmptyState from '../components/EmptyState.vue'
 import UiIcon from '../components/UiIcon.vue'
 const route = useRoute()
+const router = useRouter()
 const id = String(route.params.id)
-const problem = computed(() => findProblem(id))
+const problem = ref<components['schemas']['ProblemDetail'] | null>(null)
 const { language, code, state, save } = useCodeDraft(id)
+const session = useSession()
 const theme = ref('vs')
 const fontSize = ref(14)
-const tab = ref('description')
-const testTab = ref('input')
-const testInput = ref(problem.value?.sampleInput ?? '')
+const plain = ref(false)
+const error = ref('')
+const submitError = ref('')
+const busy = ref(false)
+const loading = ref(true)
+const testInput = ref('')
 const settingsOpen = ref(false)
 const split = ref(50)
 const workspace = ref<HTMLDivElement>()
-const codeRelated = computed(() => submissions.filter((s) => s.problemId === id))
-const relatedDiscussion = computed(() => discussions.filter((d) => d.problemId === id))
+const request = new AbortController()
+let alive = true
+const intents = new Map<string, ReturnType<typeof submissionIntent>>()
+const wireLanguage = computed(() =>
+  language.value === 'c' ? 'c17' : language.value === 'cpp' ? 'cpp20' : null,
+)
+const supported = computed(
+  () => wireLanguage.value !== null && !!problem.value?.languages.includes(wireLanguage.value),
+)
 const draftText = computed(
   () =>
     ({
@@ -50,36 +64,107 @@ function beginDrag(event: PointerEvent) {
   window.addEventListener('pointerup', stop, { once: true })
   stopDrag = stop
 }
-onBeforeUnmount(() => stopDrag?.())
+async function load() {
+  loading.value = true
+  error.value = ''
+  try {
+    const data = unwrap(
+      await api.GET('/api/v1/problems/versions/{version_id}', {
+        params: { path: { version_id: id } },
+        signal: request.signal,
+      }),
+    )
+    if (alive) problem.value = data
+  } catch (cause) {
+    if (alive) error.value = errorText(cause)
+  } finally {
+    if (alive) loading.value = false
+  }
+}
 async function resetCode() {
   try {
     await ElMessageBox.confirm('将当前语言的草稿恢复为初始模板？', '重置代码', {
       confirmButtonText: '重置',
       cancelButtonText: '保留草稿',
-      type: 'info',
     })
     code.value = codeTemplates[language.value]
   } catch {
-    /* User kept their draft. */
+    /* kept */
   }
 }
 function downloadCode() {
-  const extensions = { cpp: 'cpp', python: 'py', rust: 'rs' }
   const url = URL.createObjectURL(new Blob([code.value], { type: 'text/plain;charset=utf-8' }))
   const link = document.createElement('a')
   link.href = url
-  link.download = 'solution-' + id + '.' + extensions[language.value]
+  link.download =
+    'solution-' + id + '.' + { c: 'c', cpp: 'cpp', python: 'py', rust: 'rs' }[language.value]
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
-async function copySample(value: string) {
+function sample(value: string) {
+  const bytes = Uint8Array.from(atob(value), (c) => c.charCodeAt(0))
   try {
-    await navigator.clipboard.writeText(value)
-    ElMessage.success('已复制样例')
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   } catch {
-    ElMessage.info('浏览器暂不支持复制，请选中样例文本复制')
+    return (
+      '字节（十六进制）：' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join(' ')
+    )
   }
 }
+async function copySample(value: string) {
+  try {
+    await navigator.clipboard.writeText(sample(value))
+    ElMessage.success('已复制样例')
+  } catch {
+    ElMessage.info('请选中样例文本复制')
+  }
+}
+async function submit() {
+  if (busy.value || !problem.value || !supported.value || !wireLanguage.value) return
+  save()
+  busy.value = true
+  submitError.value = ''
+  try {
+    if (!(await session.refresh())) {
+      await router.push({ path: '/login', query: { next: route.fullPath } })
+      return
+    }
+    const owner = session.user.value!.id
+    const input: SubmissionInput = {
+      problem_version_id: problem.value.version_id,
+      language: wireLanguage.value,
+      source: code.value,
+    }
+    save()
+    let intent = intents.get(owner)
+    if (!intent) {
+      intent = submissionIntent(localStorage, owner)
+      intents.set(owner, intent)
+    }
+    const submissionId = await intent.submit(
+      input,
+      async (key) =>
+        unwrap(
+          await api.POST('/api/v1/submissions', {
+            body: { ...input, idempotency_key: key },
+            headers: csrfHeaders(),
+            signal: request.signal,
+          }),
+        ).submission_id,
+    )
+    if (alive && session.user.value?.id === owner) await router.push('/submissions/' + submissionId)
+  } catch (cause) {
+    if (alive) submitError.value = errorText(cause)
+  } finally {
+    if (alive) busy.value = false
+  }
+}
+onMounted(load)
+onBeforeUnmount(() => {
+  alive = false
+  request.abort()
+  stopDrag?.()
+})
 </script>
 <template>
   <div
@@ -89,112 +174,46 @@ async function copySample(value: string) {
     :style="{ '--problem-split': split + '%' }"
   >
     <section class="panel statement-panel">
-      <el-tabs v-model="tab" class="statement-tabs"
-        ><el-tab-pane label="题目描述" name="description" /><el-tab-pane
-          label="提交记录"
-          name="submissions" /><el-tab-pane label="题解与讨论" name="discussions" /><el-tab-pane
-          label="AI 答疑"
-          name="ai"
-      /></el-tabs>
       <div class="statement-content">
-        <template v-if="tab === 'description'"
-          ><div class="problem-title-row">
-            <div>
-              <p class="small muted mono">题号 {{ problem.id }}</p>
-              <h1>{{ problem.title }}</h1>
-            </div>
-            <DifficultyTag :value="problem.difficulty" />
+        <div class="problem-title-row">
+          <div>
+            <p class="small muted mono">{{ problem.slug }} · 版本 {{ problem.revision }}</p>
+            <h1>{{ problem.title }}</h1>
           </div>
-          <div class="tag-list">
-            <span v-for="tag in problem.tags" :key="tag" class="tag">{{ tag }}</span
-            ><span class="tag">示例题面</span>
-          </div>
-          <div class="problem-limits">
-            <span>时间限制：1000 ms</span><span>内存限制：256 MiB</span
-            ><span>标准输入 / 标准输出</span>
-          </div>
-          <div class="detail-prose">
-            <h2>题目描述</h2>
-            <p>{{ problem.description }}</p>
-            <h2>输入格式</h2>
-            <p>{{ problem.input }}</p>
-            <h2>输出格式</h2>
-            <p>{{ problem.output }}</p>
-            <template v-if="problem.sampleInput"
-              ><div class="sample-grid">
-                <div>
-                  <h2>
-                    样例输入
-                    <el-button link size="small" @click="copySample(problem.sampleInput)"
-                      >复制</el-button
-                    >
-                  </h2>
-                  <pre class="sample-block">{{ problem.sampleInput }}</pre>
-                </div>
-                <div>
-                  <h2>
-                    样例输出
-                    <el-button link size="small" @click="copySample(problem.sampleOutput)"
-                      >复制</el-button
-                    >
-                  </h2>
-                  <pre class="sample-block">{{ problem.sampleOutput }}</pre>
-                </div>
-              </div></template
-            >
-            <h2>数据范围与提示</h2>
-            <p>{{ problem.constraint }}</p>
-            <h2>提交说明</h2>
-            <p>
-              使用标准输入读取数据，只输出题目要求的结果。你可以在右侧编写代码，并在下方准备自测输入。
-            </p>
-          </div>
-        </template>
-        <template v-else-if="tab === 'submissions'"
-          ><p class="notice-strip">以下为本题的示例评测记录。</p>
-          <el-table :data="codeRelated" empty-text="暂无本题的示例记录"
-            ><el-table-column label="提交编号" prop="id" width="100" /><el-table-column
-              label="用户"
-              prop="username"
-              min-width="110"
-            /><el-table-column label="结果" width="100"
-              ><template #default="{ row }"
-                ><VerdictTag :value="row.verdict" /></template></el-table-column
-            ><el-table-column label="详情" width="80"
-              ><template #default="{ row }"
-                ><RouterLink :to="'/submissions/' + row.id" class="text-link"
-                  >查看</RouterLink
-                ></template
-              ></el-table-column
-            ></el-table
-          ></template
-        >
-        <template v-else-if="tab === 'discussions'"
-          ><article
-            v-for="discussion in relatedDiscussion"
-            :key="discussion.id"
-            class="discussion-item"
-          >
+        </div>
+        <div class="problem-limits">
+          <span>CPU 限制：{{ problem.run_limits.cpu_time_us / 1000 }} ms</span
+          ><span>墙钟限制：{{ problem.run_limits.wall_time_us / 1000 }} ms</span
+          ><span>内存限制：{{ problem.run_limits.memory_bytes / 1048576 }} MiB</span
+          ><span>精确字节比较</span>
+        </div>
+        <div class="detail-prose">
+          <h2>题目描述</h2>
+          <pre style="white-space: pre-wrap">{{ problem.statement }}</pre>
+          <div v-for="(item, index) in problem.samples" :key="index" class="sample-grid">
             <div>
               <h2>
-                <RouterLink :to="'/discussions/' + discussion.id">{{
-                  discussion.title
-                }}</RouterLink>
+                样例输入 {{ index + 1 }}
+                <el-button link @click="copySample(item.input)">复制</el-button>
               </h2>
-              <p>{{ discussion.author }} · {{ discussion.date }} · 示例文章</p>
+              <pre class="sample-block">{{ sample(item.input) }}</pre>
             </div>
-          </article>
-          <EmptyState v-if="!relatedDiscussion.length" title="暂无本题讨论" /><RouterLink
-            to="/discussions"
-            class="text-link"
-            >进入讨论社区 →</RouterLink
-          ></template
-        >
-        <EmptyState
-          v-else
-          title="AI 答疑待接入"
-          description="后续结合题目、代码和提交记录，提供逐步提示与针对性分析。"
-        />
+            <div>
+              <h2>
+                样例输出 {{ index + 1 }}
+                <el-button link @click="copySample(item.output)">复制</el-button>
+              </h2>
+              <pre class="sample-block">{{ sample(item.output) }}</pre>
+            </div>
+          </div>
+          <h2>提交说明</h2>
+          <p>
+            使用标准输入 / 标准输出。支持语言：{{
+              problem.languages.join(' / ')
+            }}。隐藏测试数据不会公开。
+          </p>
+          <RouterLink to="/submissions" class="text-link">查看个人提交记录</RouterLink>
+        </div>
       </div>
     </section>
     <button
@@ -218,13 +237,16 @@ async function copySample(value: string) {
             :key="value"
             :label="label"
             :value="value" /></el-select
-        ><el-tooltip content="重置模板"
-          ><el-button size="small" aria-label="重置代码模板" @click="resetCode"
-            ><UiIcon name="refresh" /></el-button></el-tooltip
+        ><el-button size="small" aria-label="重置代码模板" @click="resetCode"
+          ><UiIcon name="refresh" /></el-button
         ><span class="draft-label" aria-live="polite">{{ draftText }}</span
         ><el-button size="small" aria-label="下载代码" @click="downloadCode"
-          ><UiIcon name="document" /></el-button
-        ><el-popover v-model:visible="settingsOpen" trigger="click" width="240"
+          ><UiIcon name="document"
+        /></el-button>
+        <el-button size="small" @click="plain = !plain">{{
+          plain ? '代码编辑器' : '纯文本编辑'
+        }}</el-button>
+        <el-popover v-model:visible="settingsOpen" trigger="click" width="240"
           ><template #reference
             ><el-button size="small" aria-label="编辑器设置"><UiIcon name="settings" /></el-button
           ></template>
@@ -238,42 +260,66 @@ async function copySample(value: string) {
         ></el-popover>
       </header>
       <div class="editor-area">
-        <CodeEditor v-model="code" :language="language" :theme="theme" :font-size="fontSize" />
+        <textarea
+          v-if="plain"
+          v-model="code"
+          aria-label="源码"
+          style="
+            width: 100%;
+            height: 100%;
+            min-height: 320px;
+            padding: 18px;
+            font-family: monospace;
+            resize: none;
+          "
+          spellcheck="false"
+        /><CodeEditor
+          v-else
+          v-model="code"
+          :language="language"
+          :theme="theme"
+          :font-size="fontSize"
+        />
       </div>
       <div class="editor-testing">
-        <el-tabs v-model="testTab"
-          ><el-tab-pane label="自测输入" name="input"
-            ><el-input
-              v-model="testInput"
-              type="textarea"
-              :rows="3"
-              resize="none"
-              placeholder="输入自测数据"
-              aria-label="自测输入"
-            /><el-button
-              v-if="problem.sampleInput"
-              link
-              type="primary"
-              size="small"
-              @click="testInput = problem.sampleInput"
-              >填入题目样例</el-button
-            ></el-tab-pane
-          ><el-tab-pane label="运行结果" name="result"
-            ><p class="test-result-placeholder">
-              尚未运行。判题服务接入后展示标准输出、错误信息与资源使用情况。
-            </p></el-tab-pane
-          ></el-tabs
-        >
+        <p v-if="!supported" class="notice-strip">
+          当前语言暂不支持提交，草稿仍会保存。可切换到题目支持的 C17 / C++20。
+        </p>
+        <p v-if="submitError" role="alert">
+          {{ submitError }}
+          <RouterLink
+            v-if="!session.user.value"
+            :to="{ path: '/login', query: { next: route.fullPath } }"
+            >重新登录</RouterLink
+          >
+        </p>
+        <el-input
+          v-model="testInput"
+          type="textarea"
+          :rows="3"
+          aria-label="自测输入"
+          placeholder="自测能力暂未开放，输入不会随提交发送"
+        />
       </div>
       <footer class="editor-buttons">
-        <span class="small muted">评测服务待接入</span
+        <span class="small muted">{{
+          session.user.value ? '提交后评测隐藏测试' : '登录后可提交'
+        }}</span
         ><el-button size="small" @click="save">保存草稿</el-button
         ><el-button size="small" type="success" plain disabled>自测运行</el-button
-        ><el-button size="small" type="primary" disabled>提交代码</el-button>
+        ><el-button
+          size="small"
+          type="primary"
+          :loading="busy"
+          :disabled="!supported"
+          @click="submit"
+          >提交代码</el-button
+        >
       </footer>
     </section>
   </div>
-  <EmptyState v-else title="题目不存在"
+  <EmptyState v-else :title="loading ? '正在加载题目…' : '题目暂时无法读取'" :description="error"
+    ><el-button v-if="!loading" @click="load">重试</el-button
     ><RouterLink to="/problems"><el-button>返回题库</el-button></RouterLink></EmptyState
   >
 </template>

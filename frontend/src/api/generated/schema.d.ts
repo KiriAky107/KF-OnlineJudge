@@ -150,10 +150,62 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** History */
+        get: operations["history_api_v1_submissions_get"];
         put?: never;
         /** Create */
         post: operations["create_api_v1_submissions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_submissions__submission_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel */
+        post: operations["cancel_api_v1_submissions__submission_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Source */
+        get: operations["source_api_v1_submissions__submission_id__source_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -171,6 +223,30 @@ export interface components {
             /** Digest */
             digest: string;
         };
+        /** CancellationAccepted */
+        CancellationAccepted: {
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /**
+             * Evaluation Id
+             * Format: uuid
+             */
+            evaluation_id: string;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
+        /**
+         * CompilationStatus
+         * @enum {string}
+         */
+        CompilationStatus: "succeeded" | "compilation_error" | "compilation_limit" | "cancelled" | "system_error";
         /** CreateSubmission */
         CreateSubmission: {
             /**
@@ -197,6 +273,11 @@ export interface components {
             /** Username */
             username: string;
         };
+        /**
+         * FailureCode
+         * @enum {string}
+         */
+        FailureCode: "artifact_unavailable" | "sandbox_unavailable" | "cleanup_failed" | "lease_lost" | "job_deadline";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -339,6 +420,32 @@ export interface components {
              */
             version_id: string;
         };
+        /** PublicCaseResult */
+        PublicCaseResult: {
+            /** Cpu Time Us */
+            cpu_time_us: number | null;
+            /** Memory Peak Bytes */
+            memory_peak_bytes: number | null;
+            /** Position */
+            position: number;
+            verdict: components["schemas"]["Verdict"];
+        };
+        /** PublicJudgement */
+        PublicJudgement: {
+            /** Cases */
+            cases: components["schemas"]["PublicCaseResult"][];
+            /** Cleanup Complete */
+            cleanup_complete: boolean;
+            compilation_status: components["schemas"]["CompilationStatus"];
+            /** Cpu Time Us */
+            cpu_time_us: number | null;
+            /** Diagnostics */
+            diagnostics: string;
+            /** Diagnostics Truncated */
+            diagnostics_truncated: boolean;
+            /** Memory Peak Bytes */
+            memory_peak_bytes: number | null;
+        };
         /** PublicSample */
         PublicSample: {
             /**
@@ -404,6 +511,101 @@ export interface components {
              */
             submission_id: string;
         };
+        /** SubmissionDetail */
+        SubmissionDetail: {
+            /** Attempts */
+            attempts: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Evaluation Id
+             * Format: uuid
+             */
+            evaluation_id: string;
+            failure_code: components["schemas"]["FailureCode"] | null;
+            language: components["schemas"]["Language"];
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            result: components["schemas"]["PublicJudgement"] | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "claimed" | "compiling" | "running" | "cancelling" | "finished" | "cancelled" | "failed";
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            verdict: components["schemas"]["Verdict"] | null;
+        };
+        /** SubmissionPage */
+        SubmissionPage: {
+            /** Items */
+            items: components["schemas"]["SubmissionSummary"][];
+            /** Next After */
+            next_after: string | null;
+        };
+        /** SubmissionSource */
+        SubmissionSource: {
+            language: components["schemas"]["Language"];
+            /** Source */
+            source: string;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
+        /** SubmissionSummary */
+        SubmissionSummary: {
+            /** Attempts */
+            attempts: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Evaluation Id
+             * Format: uuid
+             */
+            evaluation_id: string;
+            failure_code: components["schemas"]["FailureCode"] | null;
+            language: components["schemas"]["Language"];
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "claimed" | "compiling" | "running" | "cancelling" | "finished" | "cancelled" | "failed";
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            verdict: components["schemas"]["Verdict"] | null;
+        };
         /** TestCase */
         TestCase: {
             /**
@@ -439,6 +641,11 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /**
+         * Verdict
+         * @enum {string}
+         */
+        Verdict: "accepted" | "wrong_answer" | "compilation_error" | "runtime_error" | "time_limit_exceeded" | "memory_limit_exceeded" | "output_limit_exceeded" | "cancelled" | "system_error";
     };
     responses: never;
     parameters: never;
@@ -673,6 +880,38 @@ export interface operations {
             };
         };
     };
+    history_api_v1_submissions_get: {
+        parameters: {
+            query?: {
+                after?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_api_v1_submissions_post: {
         parameters: {
             query?: never;
@@ -693,6 +932,99 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SubmissionCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detail_api_v1_submissions__submission_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_api_v1_submissions__submission_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancellationAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    source_api_v1_submissions__submission_id__source_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionSource"];
                 };
             };
             /** @description Validation Error */

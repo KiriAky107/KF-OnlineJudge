@@ -138,7 +138,12 @@ test('pagehide preserves the selected language and keeps problem drafts separate
   assert.deepEqual(env.read('1001'), {
     version: 1,
     language: 'python',
-    drafts: { cpp: '// C++ draft', python: '# Python draft', rust: codeTemplates.rust },
+    drafts: {
+      c: codeTemplates.c,
+      cpp: '// C++ draft',
+      python: '# Python draft',
+      rust: codeTemplates.rust,
+    },
   })
   assert.equal(env.read('1002')?.drafts.cpp, '// another problem')
   first.scope.stop()
@@ -161,4 +166,27 @@ test('a failed lifecycle save reports unavailable storage without throwing', (t)
   env.page.dispatchEvent(new Event('pagehide'))
   assert.equal(draft.state.value, 'saved')
   assert.equal(env.read()?.drafts.cpp, '// storage recovered')
+})
+
+test('old Python/Rust drafts survive adding C17; C and C++ retain separate contents', (t) => {
+  const env = browser(t)
+  env.storage.items.set(
+    'kf-oj:code-draft:1001',
+    JSON.stringify({
+      version: 1,
+      language: 'rust',
+      drafts: { cpp: '// original C++', python: '# original Python', rust: '// original Rust' },
+    }),
+  )
+  const draft = env.open()
+  assert.equal(draft.language.value, 'rust')
+  assert.equal(draft.code.value, '// original Rust')
+  draft.language.value = 'c'
+  draft.code.value = '// new C17'
+  draft.language.value = 'cpp'
+  assert.equal(draft.code.value, '// original C++')
+  draft.save()
+  assert.equal(env.read()?.drafts.c, '// new C17')
+  assert.equal(env.read()?.drafts.python, '# original Python')
+  assert.equal(env.read()?.drafts.rust, '// original Rust')
 })

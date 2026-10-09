@@ -1,3 +1,15 @@
+from typing import Protocol
+from uuid import UUID
+
+
+class CancelUnavailable(ValueError):
+    pass
+
+
+class CancellationPort(Protocol):
+    async def cancel(self, evaluation_id: UUID) -> bool: ...
+
+
 class SubmissionUnavailable(ValueError):
     pass
 

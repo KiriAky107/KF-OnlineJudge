@@ -25,6 +25,44 @@
         "title": "ArtifactReference",
         "type": "object"
       },
+      "CancellationAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "const": true,
+            "default": true,
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "evaluation_id": {
+            "format": "uuid",
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "evaluation_id"
+        ],
+        "title": "CancellationAccepted",
+        "type": "object"
+      },
+      "CompilationStatus": {
+        "enum": [
+          "succeeded",
+          "compilation_error",
+          "compilation_limit",
+          "cancelled",
+          "system_error"
+        ],
+        "title": "CompilationStatus",
+        "type": "string"
+      },
       "CreateSubmission": {
         "additionalProperties": false,
         "properties": {
@@ -76,6 +114,17 @@
         ],
         "title": "CurrentUser",
         "type": "object"
+      },
+      "FailureCode": {
+        "enum": [
+          "artifact_unavailable",
+          "sandbox_unavailable",
+          "cleanup_failed",
+          "lease_lost",
+          "job_deadline"
+        ],
+        "title": "FailureCode",
+        "type": "string"
       },
       "HTTPValidationError": {
         "properties": {
@@ -394,6 +443,117 @@
         "title": "ProblemSummary",
         "type": "object"
       },
+      "PublicCaseResult": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu_time_us": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Time Us"
+          },
+          "memory_peak_bytes": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Peak Bytes"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/Verdict"
+          }
+        },
+        "required": [
+          "position",
+          "verdict",
+          "cpu_time_us",
+          "memory_peak_bytes"
+        ],
+        "title": "PublicCaseResult",
+        "type": "object"
+      },
+      "PublicJudgement": {
+        "additionalProperties": false,
+        "properties": {
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/PublicCaseResult"
+            },
+            "title": "Cases",
+            "type": "array"
+          },
+          "cleanup_complete": {
+            "title": "Cleanup Complete",
+            "type": "boolean"
+          },
+          "compilation_status": {
+            "$ref": "#/components/schemas/CompilationStatus"
+          },
+          "cpu_time_us": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Time Us"
+          },
+          "diagnostics": {
+            "maxLength": 65536,
+            "title": "Diagnostics",
+            "type": "string"
+          },
+          "diagnostics_truncated": {
+            "title": "Diagnostics Truncated",
+            "type": "boolean"
+          },
+          "memory_peak_bytes": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Peak Bytes"
+          }
+        },
+        "required": [
+          "compilation_status",
+          "diagnostics",
+          "diagnostics_truncated",
+          "cpu_time_us",
+          "memory_peak_bytes",
+          "cleanup_complete",
+          "cases"
+        ],
+        "title": "PublicJudgement",
+        "type": "object"
+      },
       "PublicSample": {
         "additionalProperties": false,
         "properties": {
@@ -552,6 +712,241 @@
         "title": "SubmissionCreated",
         "type": "object"
       },
+      "SubmissionDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "evaluation_id": {
+            "format": "uuid",
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicJudgement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "claimed",
+              "compiling",
+              "running",
+              "cancelling",
+              "finished",
+              "cancelled",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Verdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "submission_id",
+          "evaluation_id",
+          "problem_version_id",
+          "language",
+          "state",
+          "created_at",
+          "updated_at",
+          "attempts",
+          "verdict",
+          "failure_code",
+          "result"
+        ],
+        "title": "SubmissionDetail",
+        "type": "object"
+      },
+      "SubmissionPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After"
+          }
+        },
+        "required": [
+          "items",
+          "next_after"
+        ],
+        "title": "SubmissionPage",
+        "type": "object"
+      },
+      "SubmissionSource": {
+        "additionalProperties": false,
+        "properties": {
+          "language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "source": {
+            "maxLength": 262144,
+            "title": "Source",
+            "type": "string"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "language",
+          "source"
+        ],
+        "title": "SubmissionSource",
+        "type": "object"
+      },
+      "SubmissionSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "evaluation_id": {
+            "format": "uuid",
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "claimed",
+              "compiling",
+              "running",
+              "cancelling",
+              "finished",
+              "cancelled",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Verdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "submission_id",
+          "evaluation_id",
+          "problem_version_id",
+          "language",
+          "state",
+          "created_at",
+          "updated_at",
+          "attempts",
+          "verdict",
+          "failure_code"
+        ],
+        "title": "SubmissionSummary",
+        "type": "object"
+      },
       "TestCase": {
         "additionalProperties": false,
         "properties": {
@@ -642,6 +1037,21 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "Verdict": {
+        "enum": [
+          "accepted",
+          "wrong_answer",
+          "compilation_error",
+          "runtime_error",
+          "time_limit_exceeded",
+          "memory_limit_exceeded",
+          "output_limit_exceeded",
+          "cancelled",
+          "system_error"
+        ],
+        "title": "Verdict",
+        "type": "string"
       }
     },
     "securitySchemes": {
@@ -1028,6 +1438,66 @@
       }
     },
     "/api/v1/submissions": {
+      "get": {
+        "operationId": "history_api_v1_submissions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "History",
+        "tags": [
+          "submissions"
+        ]
+      },
       "post": {
         "operationId": "create_api_v1_submissions_post",
         "requestBody": {
@@ -1063,6 +1533,135 @@
           }
         },
         "summary": "Create",
+        "tags": [
+          "submissions"
+        ]
+      }
+    },
+    "/api/v1/submissions/{submission_id}": {
+      "get": {
+        "operationId": "detail_api_v1_submissions__submission_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Submission Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Detail",
+        "tags": [
+          "submissions"
+        ]
+      }
+    },
+    "/api/v1/submissions/{submission_id}/cancel": {
+      "post": {
+        "operationId": "cancel_api_v1_submissions__submission_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Submission Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancellationAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel",
+        "tags": [
+          "submissions"
+        ]
+      }
+    },
+    "/api/v1/submissions/{submission_id}/source": {
+      "get": {
+        "operationId": "source_api_v1_submissions__submission_id__source_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Submission Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionSource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Source",
         "tags": [
           "submissions"
         ]

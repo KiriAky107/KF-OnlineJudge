@@ -16,9 +16,11 @@ from kf_oj.core.logging import configure_logging
 from kf_oj.core.settings import Settings
 from kf_oj.infra.artifacts.repository import ArtifactRepository
 from kf_oj.infra.artifacts.store import ArtifactStore
+from kf_oj.infra.coordinator import CoordinatorControl
 from kf_oj.infra.db.session import build_engine, build_session_factory
 from kf_oj.modules.identity.service import IdentityService
 from kf_oj.modules.problems.service import ProblemService
+from kf_oj.modules.submissions.queries import SubmissionQueries
 from kf_oj.modules.submissions.service import SubmissionService
 from kf_oj.modules.submissions.worker_access import WorkerAccess
 
@@ -58,12 +60,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     app.state.worker_access = WorkerAccess(
                         app.state.sessions, app.state.problems, artifacts
                     )
+                    cancellation = (
+                        CoordinatorControl(
+                            settings.coordinator_url, settings.coordinator_token.get_secret_value()
+                        )
+                        if settings.coordinator_url and settings.coordinator_token
+                        else None
+                    )
+                    app.state.submission_queries = SubmissionQueries(
+                        app.state.sessions, artifacts, cancellation
+                    )
             yield
         finally:
             app.state.identity = None
             app.state.problems = None
             app.state.worker_access = None
             app.state.submissions = None
+            app.state.submission_queries = None
             if engine is not None:
                 await engine.dispose()
             if store is not None:
@@ -81,6 +94,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.add_middleware(BodyLimitMiddleware)
+
+    @app.middleware("http")
+    async def private_responses(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith(("/api/v1/auth", "/api/v1/submissions", "/api/v1/internal")):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_, __):

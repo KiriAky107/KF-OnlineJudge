@@ -1,6 +1,13 @@
 import createClient from 'openapi-fetch'
 import type { paths } from './generated/schema'
+import { boundedFetch } from './transport'
+
+let expired: () => void = () => {}
+export function onUnauthorized(handler: () => void) {
+  expired = handler
+}
 
 export const api = createClient<paths>({
   baseUrl: import.meta.env.VITE_API_BASE_URL || '',
+  fetch: boundedFetch(globalThis.fetch.bind(globalThis), () => expired()),
 })
