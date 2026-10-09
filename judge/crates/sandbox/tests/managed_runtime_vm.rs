@@ -704,3 +704,175 @@ fn java_live_threads_peer_cancellation_is_drained() {
     let run = f.java_program(br#"public class Main { public static void main(String[] args) throws Exception { for(int i=0;i<3;i++)new Thread(()->{while(true)try{Thread.sleep(10000);}catch(InterruptedException e){}}).start(); System.out.println("java-live"); while(true)Thread.sleep(10000); } }"#, "java-cancel-compile");
     f.cancel_through_ordinary_peer(&run);
 }
+
+#[test]
+#[ignore = "file exhaustion and live wall deadline only in an independent capped VM"]
+fn python_files_scratch_and_wall_deadline_are_bounded() {
+    let f = Fixture::new("python313", ImageKind::LinuxCPython313X86_64V1);
+    f.input(
+        "source",
+        br#"import errno, os, resource
+assert resource.getrlimit(resource.RLIMIT_NOFILE) == (32,32)
+assert resource.getrlimit(resource.RLIMIT_FSIZE) == (1048576,1048576)
+fds=[]
+try:
+    for i in range(128): fds.append(os.open('/dev/null',os.O_RDONLY))
+    raise AssertionError('unbounded descriptors')
+except OSError as e:
+    assert e.errno == errno.EMFILE, e
+finally:
+    for fd in fds: os.close(fd)
+print('fd-emfile',len(fds),flush=True)
+fd=os.open('/work/large',os.O_CREAT|os.O_WRONLY,0o600)
+try:
+    for i in range(32): os.write(fd,b'x'*65536)
+    raise AssertionError('unbounded file')
+except OSError as e:
+    assert e.errno == errno.EFBIG, e
+finally:
+    os.close(fd)
+assert os.stat('/work/large').st_size == 1048576
+os.unlink('/work/large')
+print('file-efbig-1048576',flush=True)
+for path,cap in [('/tmp',2097152),('/work',6291456)]:
+    s=os.statvfs(path)
+    assert s.f_blocks*s.f_frsize == cap, (path,s)
+    total=0
+    try:
+        for i in range(256):
+            fd=os.open(path+'/quota-'+str(i),os.O_CREAT|os.O_WRONLY,0o600)
+            try: total+=os.write(fd,b'x'*65536)
+            finally: os.close(fd)
+        raise AssertionError('unbounded scratch')
+    except OSError as e:
+        assert e.errno == errno.ENOSPC, e
+    assert 0 < total <= cap, (path,total)
+    print('scratch-enospc',path,total,cap,flush=True)
+"#,
+    );
+    let mut spec = f.request("py-files-scratch", ExecutionProfile::PythonRun);
+    spec.limits.open_files = 32;
+    spec.limits.file_bytes = 1 << 20;
+    spec.limits.workdir_bytes = 8 << 20;
+    let result = f.execute(&spec);
+    assert_eq!(
+        result["outcome"],
+        serde_json::json!({"kind":"exited","code":0})
+    );
+    assert_eq!(result["report"]["limits"], serde_json::json!([]));
+    let stdout = String::from_utf8(f.stdout(&spec.run_id)).unwrap();
+    for marker in [
+        "fd-emfile",
+        "file-efbig-1048576",
+        "scratch-enospc /tmp",
+        "scratch-enospc /work",
+    ] {
+        assert!(stdout.contains(marker), "{stdout}");
+    }
+    f.input("source", b"import os\nassert not os.path.exists('/work/large')\nassert not any(p.startswith('quota-') for d in ['/work','/tmp'] for p in os.listdir(d))\nprint('fresh-root')\n");
+    spec.run_id = "py-files-fresh".into();
+    assert_eq!(f.execute(&spec)["outcome"]["code"], 0);
+    assert_eq!(f.stdout(&spec.run_id), b"fresh-root\n");
+    f.input(
+        "source",
+        b"import os,time\nprint('wall-live',flush=True)\nos.fork()\nwhile True: time.sleep(10)\n",
+    );
+    spec.run_id = "py-wall-tree".into();
+    spec.limits.wall_time_us = 3_000_000;
+    let result = f.execute(&spec);
+    assert_eq!(
+        result["outcome"],
+        serde_json::json!({"kind":"limit_exceeded","primary":"wall_time"})
+    );
+    assert!(f.stdout(&spec.run_id).starts_with(b"wall-live\n"));
+    println!("KF_MANAGED_FILE_WALL_STATUS=0 python313");
+}
+
+#[test]
+#[ignore = "JVM file exhaustion and live wall deadline only in an independent capped VM"]
+fn java_files_scratch_and_wall_deadline_are_bounded() {
+    let f = Fixture::new("java21", ImageKind::LinuxOpenJdk21X86_64V1);
+    let program = f.java_program(br#"import java.io.*; import java.nio.file.*; import java.util.*; import sun.misc.Signal; import sun.misc.SignalHandler;
+public class Main {
+ public static void main(String[] args) throws Exception {
+  String mode=new BufferedReader(new InputStreamReader(System.in)).readLine();
+  if(mode.equals("files")) {
+   String limits=Files.readString(Path.of("/proc/self/limits"));
+   if(!limits.matches("(?s).*Max open files +64 +64 +files.*") || !limits.matches("(?s).*Max file size +1048576 +1048576 +bytes.*"))throw new AssertionError(limits);
+   ArrayList<FileInputStream> fds=new ArrayList<>();
+   try { for(int i=0;i<128;i++)fds.add(new FileInputStream("/dev/null")); throw new AssertionError("unbounded fds"); }
+   catch(IOException e) { if(!e.getMessage().contains("Too many open files"))throw e; }
+   finally { for(FileInputStream fd:fds)fd.close(); }
+   System.out.println("fd-emfile "+fds.size());
+   Signal.handle(new Signal("XFSZ"),SignalHandler.SIG_IGN);
+   byte[] block=new byte[65536];
+   try(FileOutputStream out=new FileOutputStream("/work/large")) {
+    try { for(int i=0;i<32;i++)out.write(block); throw new AssertionError("unbounded file"); }
+    catch(IOException e) { if(!e.getMessage().contains("File too large"))throw e; }
+   }
+   if(Files.size(Path.of("/work/large"))!=1048576)throw new AssertionError("file size");
+   Files.delete(Path.of("/work/large"));
+   System.out.println("file-efbig-1048576");
+   for(String path:new String[]{"/tmp","/work"}) {
+    long cap=path.equals("/tmp")?2097152:6291456;
+    if(new File(path).getTotalSpace()!=cap)throw new AssertionError("scratch cap");
+    int total=0;
+    try { for(int i=0;i<256;i++)try(FileOutputStream out=new FileOutputStream(path+"/quota-"+i)){out.write(block);total+=block.length;} throw new AssertionError("unbounded scratch"); }
+    catch(IOException e) { if(!e.getMessage().contains("No space left on device"))throw e; }
+    if(total<=0 || total>cap)throw new AssertionError("scratch bytes");
+    System.out.println("scratch-enospc "+path+" "+total+" "+cap);
+   }
+  } else if(mode.equals("fresh")) {
+   for(String path:new String[]{"/work","/tmp"})for(String name:new File(path).list())if(name.equals("large") || name.startsWith("quota-"))throw new AssertionError("stale files");
+   System.out.println("fresh-root");
+  } else if(mode.equals("wall")) {
+   for(int i=0;i<3;i++)new Thread(()->{while(true)try{Thread.sleep(10000);}catch(InterruptedException e){}}).start();
+   System.out.println("wall-live");while(true)Thread.sleep(10000);
+  } else throw new AssertionError("mode");
+ }
+}"#, "java-files-compile");
+    for (id, mode) in [
+        ("java-files-scratch", "files"),
+        ("java-files-fresh", "fresh"),
+        ("java-wall-tree", "wall"),
+    ] {
+        f.input("stdin", format!("{mode}\n").as_bytes());
+        let mut spec = program.clone();
+        spec.run_id = id.into();
+        spec.stdin_artifact = Some("stdin".into());
+        spec.limits.open_files = 64;
+        spec.limits.file_bytes = 1 << 20;
+        spec.limits.workdir_bytes = 8 << 20;
+        if mode == "wall" {
+            spec.limits.wall_time_us = 8_000_000;
+        }
+        let result = f.execute(&spec);
+        let stdout = String::from_utf8(f.stdout(id)).unwrap();
+        if mode == "wall" {
+            assert_eq!(
+                result["outcome"],
+                serde_json::json!({"kind":"limit_exceeded","primary":"wall_time"})
+            );
+            assert!(stdout.starts_with("wall-live\n"));
+        } else {
+            assert_eq!(
+                result["outcome"],
+                serde_json::json!({"kind":"exited","code":0})
+            );
+            assert_eq!(result["report"]["limits"], serde_json::json!([]));
+            if mode == "fresh" {
+                assert_eq!(stdout, "fresh-root\n");
+            } else {
+                for marker in [
+                    "fd-emfile",
+                    "file-efbig-1048576",
+                    "scratch-enospc /tmp",
+                    "scratch-enospc /work",
+                ] {
+                    assert!(stdout.contains(marker), "{stdout}");
+                }
+            }
+        }
+    }
+    println!("KF_MANAGED_FILE_WALL_STATUS=0 java21");
+}
