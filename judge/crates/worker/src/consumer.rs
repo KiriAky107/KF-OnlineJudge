@@ -89,8 +89,19 @@ pub struct Config {
     pub socket: PathBuf,
     pub staging: PathBuf,
     pub admission: NodeAdmission,
+    #[serde(default = "default_control_timeout_ms")]
+    pub control_timeout_ms: u64,
+}
+fn default_control_timeout_ms() -> u64 {
+    2000
 }
 impl Config {
+    fn control_timeout(&self) -> io::Result<Duration> {
+        (1000..=5000)
+            .contains(&self.control_timeout_ms)
+            .then(|| Duration::from_millis(self.control_timeout_ms))
+            .ok_or_else(error)
+    }
     pub fn load(path: &Path) -> io::Result<Self> {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let m = fs::symlink_metadata(path)?;
@@ -130,6 +141,7 @@ impl Config {
             return Err(error());
         }
         c.admission.validate().map_err(|_| error())?;
+        c.control_timeout()?;
         amqp_uri(&c.amqp_url)?;
         Ok(c)
     }
@@ -156,19 +168,32 @@ fn amqp_uri(raw: &str) -> io::Result<lapin::uri::AMQPUri> {
 #[derive(Clone)]
 struct Remote {
     client: Client,
+    artifact_client: Client,
     base: String,
     service: String,
 }
 impl Remote {
     fn new(c: &Config) -> io::Result<Self> {
-        Ok(Self {
-            client: Client::builder()
+        let timeout = c.control_timeout()?;
+        let build = |timeout| {
+            Client::builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(Duration::from_secs(1))
-                .timeout(Duration::from_secs(2))
+                .timeout(timeout)
                 .build()
-                .map_err(|_| error())?,
+                .map_err(|_| error())
+        };
+        let client = build(timeout)?;
+        // Operator control-plane allowance never extends artifact fetches or execution budgets.
+        let artifact_client = if timeout == Duration::from_secs(2) {
+            client.clone()
+        } else {
+            build(Duration::from_secs(2))?
+        };
+        Ok(Self {
+            client,
+            artifact_client,
             base: c.coordinator_url.trim_end_matches('/').into(),
             service: c.service_token.expose_secret().into(),
         })
@@ -348,7 +373,7 @@ fn execute(c: &Config, r: &Remote, g: Grant, stop: &AtomicBool) -> io::Result<()
         return Err(error());
     }
     let artifacts = RemoteArtifacts {
-        client: r.client.clone(),
+        client: r.artifact_client.clone(),
         base: c.platform_url.trim_end_matches('/').into(),
         grant: g.clone(),
     };
@@ -668,6 +693,120 @@ pub fn run(c: Config, stop: Arc<AtomicBool>) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn config_value() -> serde_json::Value {
+        serde_json::json!({
+            "worker_id": "11111111-1111-4111-8111-111111111111",
+            "service_token": "a".repeat(64),
+            "coordinator_url": "http://127.0.0.1/",
+            "platform_url": "http://127.0.0.1/",
+            "amqp_url": "amqp://fixture:temporary@127.0.0.1/",
+            "socket": "/private/control.sock",
+            "staging": "/private/staging",
+            "admission": serde_json::from_slice::<serde_json::Value>(include_bytes!(
+                "../../../../tests/fixtures/contracts/judge-admission.valid.json"
+            )).unwrap()
+        })
+    }
+    #[test]
+    fn trusted_control_allowance_defaults_and_refuses_unbounded_values() {
+        let value = config_value();
+        let c: Config = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(c.control_timeout().unwrap(), Duration::from_secs(2));
+        for ms in [1000, 5000] {
+            let mut v = value.clone();
+            v["control_timeout_ms"] = ms.into();
+            let c: Config = serde_json::from_value(v).unwrap();
+            assert_eq!(c.control_timeout().unwrap(), Duration::from_millis(ms));
+        }
+        for ms in [0, 999, 5001, u64::MAX] {
+            let mut v = value.clone();
+            v["control_timeout_ms"] = ms.into();
+            let c: Config = serde_json::from_value(v).unwrap();
+            assert!(Remote::new(&c).is_err());
+        }
+        for invalid in [serde_json::Value::Null, "5000".into(), (-1).into()] {
+            let mut v = value.clone();
+            v["control_timeout_ms"] = invalid;
+            assert!(serde_json::from_value::<Config>(v).is_err());
+        }
+    }
+    #[test]
+    fn private_config_loader_enforces_control_allowance_before_startup() {
+        use std::io::{Seek, Write};
+        use std::os::unix::fs::OpenOptionsExt;
+        let path = std::env::temp_dir().join(format!("kf-worker-config-{}", uuid::Uuid::new_v4()));
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        for ms in [None, Some(5000), Some(0), Some(5001)] {
+            let mut value = config_value();
+            if let Some(ms) = ms {
+                value["control_timeout_ms"] = ms.into();
+            }
+            file.set_len(0).unwrap();
+            file.rewind().unwrap();
+            file.write_all(&serde_json::to_vec(&value).unwrap())
+                .unwrap();
+            file.flush().unwrap();
+            let loaded = Config::load(&path);
+            assert_eq!(loaded.is_ok(), matches!(ms, None | Some(5000)));
+        }
+        drop(file);
+        fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn real_delayed_control_response_does_not_extend_artifact_transport() {
+        use std::io::Write;
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for _ in 0..3 {
+                let end = Instant::now() + Duration::from_secs(12);
+                let mut connection = loop {
+                    match listener.accept() {
+                        Ok((connection, _)) => break connection,
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < end);
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(e) => panic!("test listener: {e}"),
+                    }
+                };
+                connection
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                let mut request = [0u8; 4096];
+                assert!(connection.read(&mut request).unwrap() > 0);
+                std::thread::sleep(Duration::from_secs(3));
+                let _ = connection.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                );
+            }
+        });
+        let mut value = config_value();
+        value["coordinator_url"] = url.clone().into();
+        let c: Config = serde_json::from_value(value.clone()).unwrap();
+        let default = Remote::new(&c).unwrap();
+        assert!(
+            default
+                .post("/internal/claim", &serde_json::json!({}), None)
+                .is_err()
+        );
+        value["control_timeout_ms"] = 5000.into();
+        let c: Config = serde_json::from_value(value).unwrap();
+        let configured = Remote::new(&c).unwrap();
+        let response = configured
+            .post("/internal/claim", &serde_json::json!({}), None)
+            .unwrap();
+        assert_eq!(Remote::bytes(response, 2).unwrap(), b"{}");
+        assert!(configured.artifact_client.get(url).send().is_err());
+        server.join().unwrap();
+    }
     #[test]
     fn versioned_manifest_is_bound_to_lease_generation_digest_and_identity() {
         for (raw, version) in [

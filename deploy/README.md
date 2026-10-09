@@ -131,6 +131,9 @@ GitHub 私有仓库承载，并设置有限并发；Gitea 只保存逐阶段工�
    再恢复工厂/Coordinator/API/publisher/Worker。生产启用需单独安排，仓库不自动部署。
 
 请求不在线安装 Python/Java 依赖，不运行 pip/uvx，不接收自定义解释器参数/JAR/agents。
+Worker 私有配置可设置 `control_timeout_ms`（1000–5000，缺省2000）作为 Coordinator
+单次控制请求的期限。资源受限节点应依据实际领取/续租/停止耗时选择，并核对租约和
+停止恢复；这不改变学生阶段/作业期限、重试次数或工件下载的固定2秒期限，连接仍限1秒。
 Python main.py 仅标准库；Java Main.java 使用默认包 Main，最多256个有界编译class。
 题目语言与预算以公开版本配置为准，旧题目和草稿保留，Rust继续明确不支持。
 新版检查阶段CE/运行RE/真实限额与SystemError的区别见 [判题说明](../judge/README.md#python--java-与明确协议版本)。
