@@ -105,6 +105,7 @@ impl Fixture {
         limits.wall_time_us = 60_000_000;
         ExecutionSpec {
             schema_version: kf_contracts::SchemaVersion,
+            runtime_identity: self.root.config.runtime_identity.clone(),
             run_id: id.into(),
             profile,
             argv: profiles::argv(profile, &limits).unwrap(),
@@ -261,7 +262,124 @@ impl Fixture {
     fn stdout(&self, id: &str) -> Vec<u8> {
         fs::read(self.dir.join("outputs").join(id).join("stdout")).unwrap()
     }
+    fn java_program(&self, source: &[u8], id: &str) -> ExecutionSpec {
+        self.input("source", source);
+        let compile = self.request(id, ExecutionProfile::JavaCompile);
+        let result = self.execute(&compile);
+        assert_eq!(
+            result["outcome"],
+            serde_json::json!({"kind":"exited","code":0})
+        );
+        let mut run = self.request("java-bound-run", ExecutionProfile::JavaRun);
+        run.inputs.clear();
+        for (index, artifact) in result["report"]["artifacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+        {
+            let id = format!("class-{index}");
+            self.input(
+                &id,
+                &fs::read(
+                    self.dir
+                        .join("outputs")
+                        .join(&compile.run_id)
+                        .join(format!("artifact-{index}")),
+                )
+                .unwrap(),
+            );
+            run.inputs.push(InputArtifact {
+                artifact_id: id,
+                path: artifact["path"].as_str().unwrap().into(),
+            });
+        }
+        run
+    }
+    fn cancel_through_ordinary_peer(&self, spec: &ExecutionSpec) {
+        // The independent fixture controller is a bounded ordinary UID client.
+        // Only the default Root helper performs privileged task operations.
+        fs::set_permissions(&self.dir, fs::Permissions::from_mode(0o711)).unwrap();
+        let inputs = self.dir.join("inputs");
+        std::os::unix::fs::chown(&inputs, Some(1000), Some(1000)).unwrap();
+        fs::set_permissions(&inputs, fs::Permissions::from_mode(0o700)).unwrap();
+        for entry in fs::read_dir(&inputs).unwrap() {
+            let path = entry.unwrap().path();
+            std::os::unix::fs::chown(&path, Some(1000), Some(1000)).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let wire = self.dir.join("wire.json");
+        fs::write(
+            &wire,
+            serde_json::to_vec(&serde_json::json!({"spec":spec})).unwrap(),
+        )
+        .unwrap();
+        std::os::unix::fs::chown(&wire, Some(1000), Some(1000)).unwrap();
+        fs::set_permissions(&wire, fs::Permissions::from_mode(0o600)).unwrap();
+        let socket = self.dir.join("socket");
+        let mut helper = Command::new(std::env::var_os("KF_SANDBOX_PRODUCTION_BIN").unwrap())
+            .env_clear()
+            .args(["serve-one", "--config"])
+            .arg(&self.config)
+            .arg("--socket")
+            .arg(&socket)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        while !fs::metadata(&socket).is_ok_and(|m| m.mode() & 0o777 == 0o660) {
+            assert!(
+                helper.try_wait().unwrap().is_none(),
+                "helper failed before peer publication"
+            );
+            assert!(
+                std::time::Instant::now() < deadline,
+                "bounded helper publication"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let client = Command::new("/kf/bin/managed-disconnect")
+            .env_clear()
+            .arg(&socket)
+            .arg(&inputs)
+            .arg(&wire)
+            .output()
+            .unwrap();
+        assert!(client.status.success(), "ordinary controller failed");
+        let output = helper.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(result["report"]["cleanup"], "complete");
+        assert_eq!(result["report"]["errors"], serde_json::json!([]));
+        assert_eq!(result["report"]["limits"], serde_json::json!([]));
+        assert!(
+            result["report"]["cancelled_at_wall_time_us"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+        // Marker comes from actual user main after runtime bootstrap, so a
+        // cancelled preparation alone cannot pass this execution test.
+        assert!(
+            result["report"]["stdout"]["retained_bytes"]
+                .as_u64()
+                .unwrap()
+                >= 5
+        );
+        assert!(!socket.exists());
+        self.empty();
+        println!(
+            "KF_MANAGED_PEER_CANCEL_PROOF {}",
+            serde_json::json!({"ordinary_uid":1000,"profile":spec.profile,"identity":spec.runtime_identity,"spec":spec,"result":result,"owned_resources_zero":true})
+        );
+    }
     fn image_refusals(&mut self, spec: &ExecutionSpec, binary: &str) {
+        self.identity_refusals(spec);
         let image = PathBuf::from(&self.root.config.image_root);
         let executable = image.join(binary);
         let backup = self.dir.join("trusted-runtime-backup");
@@ -306,6 +424,19 @@ impl Fixture {
             "KF_MANAGED_IMAGE_REFUSALS_STATUS=0 {}",
             self.root.config.image_root
         );
+    }
+    fn identity_refusals(&self, spec: &ExecutionSpec) {
+        let mut wrong = spec.clone();
+        wrong.runtime_identity = None;
+        self.reject(&wrong, "invalid_execution_spec");
+        let mut wrong = spec.clone();
+        wrong.runtime_identity.as_mut().unwrap().image_digest = "d".repeat(64).try_into().unwrap();
+        self.reject(&wrong, "invalid_execution_spec");
+        let mut wrong = spec.clone();
+        wrong.runtime_identity.as_mut().unwrap().runtime_version =
+            "1.0.0".to_owned().try_into().unwrap();
+        self.reject(&wrong, "invalid_execution_spec");
+        println!("KF_MANAGED_REQUEST_IDENTITY_STATUS=0");
     }
     fn empty(&self) {
         for name in ["tasks", "captures", "identities"] {
@@ -412,4 +543,164 @@ fn java_profile_compiles_class_set_and_runs_same_set() {
     wrong.run_id = "java-env-refused".into();
     f.reject(&wrong, "invalid_execution_spec");
     f.image_refusals(&wrong, "usr/lib/jvm/bin/java");
+}
+
+#[test]
+#[ignore = "malicious and overlimit code only in an independent no-NIC/no-share capped VM"]
+fn python_isolation_and_kernel_limits_have_actual_evidence() {
+    let f = Fixture::new("python313", ImageKind::LinuxCPython313X86_64V1);
+    f.input("source", br#"import ctypes, errno, os, socket
+libc = ctypes.CDLL(None, use_errno=True)
+assert os.geteuid() != 0
+for number, args in [(41,(2,1,0)),(101,(0,0,0,0)),(165,(0,0,0,0,0)),(308,(-1,0)),(272,(0x10000000,)),(321,(0,0,0)),(126,(0,0)),(62,(os.getpid(),0))]:
+    ctypes.set_errno(0)
+    assert libc.syscall(number,*args) == -1, number
+    assert ctypes.get_errno() == errno.EPERM, (number,ctypes.get_errno())
+try:
+    socket.socket()
+    raise AssertionError('network allowed')
+except PermissionError:
+    pass
+for path in ['/kf/INDEPENDENT_VM','/var/lib/kf-judge','/root/.ssh','/home/kronecker','/proc/1/root/kf/INDEPENDENT_VM']:
+    assert not os.path.exists(path), path
+try:
+    open('/usr/lib/python3.13/os.py','wb')
+    raise AssertionError('image writable')
+except OSError:
+    pass
+print('python-isolation-ok')
+"#);
+    let result = f.execute(&f.request("py-isolation", ExecutionProfile::PythonRun));
+    assert_eq!(
+        result["outcome"],
+        serde_json::json!({"kind":"exited","code":0})
+    );
+    assert_eq!(f.stdout("py-isolation"), b"python-isolation-ok\n");
+    for (id, source, primary) in [
+        ("py-cpu", b"print('cpu-ready',flush=True)\nwhile True: pass\n".as_slice(), "cpu_time"),
+        ("py-memory", b"print('memory-ready',flush=True)\na=[]\nwhile True: a.append(bytearray(8*1024*1024))\n".as_slice(), "memory"),
+        ("py-output", b"import os\nwhile True: os.write(1,b'x'*65536)\n".as_slice(), "stdout"),
+    ] {
+        f.input("source", source);
+        let mut spec = f.request(id, ExecutionProfile::PythonRun);
+        if primary == "cpu_time" {
+            spec.limits.cpu_time_us = 2_000_000;
+            spec.limits.wall_time_us = 10_000_000;
+        }
+        spec.limits.stdout_bytes = 4096;
+        let result = f.execute(&spec);
+        assert_eq!(result["outcome"], serde_json::json!({"kind":"limit_exceeded","primary":primary}));
+        assert!(result["report"]["usage"]["cpu_time_us"]["value"].as_u64().is_some());
+        assert!(result["report"]["usage"]["memory_peak_bytes"]["value"].as_u64().is_some());
+        if primary == "memory" {
+            assert!(result["report"]["usage"]["memory_events"]["value"]["oom_kill"].as_u64().unwrap() > 0);
+        }
+    }
+    f.input(
+        "source",
+        b"raise MemoryError('OutOfMemoryError: user text')\n",
+    );
+    let result = f.execute(&f.request("py-user-oom", ExecutionProfile::PythonRun));
+    assert_eq!(result["outcome"]["code"], 1);
+    assert_eq!(result["report"]["limits"], serde_json::json!([]));
+    assert_eq!(
+        result["report"]["usage"]["memory_events"]["value"]["oom_kill"],
+        0
+    );
+}
+
+#[test]
+#[ignore = "JVM security, threads and real cgroup OOM only in an independent capped VM"]
+fn java_isolation_and_whole_jvm_limits_have_actual_evidence() {
+    let f = Fixture::new("java21", ImageKind::LinuxOpenJdk21X86_64V1);
+    let program = f.java_program(br#"import java.io.*; import java.net.*; import java.nio.file.*; import java.lang.reflect.*; import sun.misc.Unsafe;
+public class Main {
+ public static void main(String[] args) throws Exception {
+  String mode = new BufferedReader(new InputStreamReader(System.in)).readLine();
+  if (mode.equals("normal")) {
+   if (Runtime.getRuntime().availableProcessors()!=1) throw new AssertionError("cpu ergonomics");
+   if (Runtime.getRuntime().maxMemory()>224L*1024*1024) throw new AssertionError("heap ergonomics");
+   try { new ServerSocket(0); throw new AssertionError("network allowed"); } catch(IOException | ExceptionInInitializerError expected) { Throwable cause=expected; while(cause.getCause()!=null) cause=cause.getCause(); if(!(cause instanceof IOException) || !cause.getMessage().contains("Operation not permitted")) throw expected; }
+   for(String p:new String[]{"/kf/INDEPENDENT_VM","/var/lib/kf-judge","/root/.ssh","/home/kronecker"}) if(Files.exists(Path.of(p))) throw new AssertionError("host visible");
+   try { Files.write(Path.of("/usr/lib/jvm/release"),new byte[]{1}); throw new AssertionError("image writable"); } catch(IOException expected) {}
+   System.out.println("java-isolation-ok");
+  } else if(mode.equals("fake-oom")) { throw new OutOfMemoryError("user controlled");
+  } else if(mode.equals("cpu")) { System.out.println("cpu-ready"); long x=0; while(true) x=Math.multiplyExact(x,1)+1;
+  } else if(mode.equals("memory")) {
+   System.out.println("memory-ready"); Field field=Unsafe.class.getDeclaredField("theUnsafe"); field.setAccessible(true); Unsafe unsafe=(Unsafe)field.get(null);
+   while(true) { long p=unsafe.allocateMemory(16L*1024*1024); unsafe.setMemory(p,16L*1024*1024,(byte)1); }
+  } else if(mode.equals("output")) { byte[] bytes=new byte[65536]; while(true) System.out.write(bytes);
+  } else if(mode.equals("threads")) { while(true) new Thread(()->{try{Thread.sleep(60000);}catch(InterruptedException e){}}).start();
+  } else { throw new AssertionError("mode"); }
+ }
+}"#, "java-security-compile");
+    for (id, mode, primary) in [
+        ("java-isolation", "normal", None),
+        ("java-user-oom", "fake-oom", None),
+        ("java-cpu", "cpu", Some("cpu_time")),
+        ("java-memory", "memory", Some("memory")),
+        ("java-output", "output", Some("stdout")),
+        ("java-threads", "threads", Some("processes")),
+    ] {
+        f.input("stdin", format!("{mode}\n").as_bytes());
+        let mut spec = program.clone();
+        spec.run_id = id.into();
+        spec.stdin_artifact = Some("stdin".into());
+        if mode == "cpu" {
+            spec.limits.cpu_time_us = 5_000_000;
+            spec.limits.wall_time_us = 15_000_000;
+        }
+        spec.limits.stdout_bytes = 4096;
+        if mode == "threads" {
+            spec.limits.processes = 16;
+        }
+        spec.argv = profiles::argv(spec.profile, &spec.limits).unwrap();
+        let result = f.execute(&spec);
+        if let Some(primary) = primary {
+            assert_eq!(
+                result["outcome"],
+                serde_json::json!({"kind":"limit_exceeded","primary":primary})
+            );
+        } else {
+            assert_eq!(
+                result["outcome"]["code"],
+                if mode == "normal" { 0 } else { 1 }
+            );
+            assert_eq!(result["report"]["limits"], serde_json::json!([]));
+            assert_eq!(
+                result["report"]["usage"]["memory_events"]["value"]["oom_kill"],
+                0
+            );
+        }
+        if mode == "normal" {
+            assert_eq!(f.stdout(id), b"java-isolation-ok\n");
+        }
+        if mode == "memory" {
+            assert!(
+                result["report"]["usage"]["memory_events"]["value"]["oom_kill"]
+                    .as_u64()
+                    .unwrap()
+                    > 0
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "live Python fork tree cancellation only in independent no-NIC/no-share capped VM"]
+fn python_live_fork_tree_peer_cancellation_is_drained() {
+    let f = Fixture::new("python313", ImageKind::LinuxCPython313X86_64V1);
+    f.input(
+        "source",
+        b"import os,time\nprint('py-live',flush=True)\nos.fork()\nwhile True: time.sleep(10)\n",
+    );
+    f.cancel_through_ordinary_peer(&f.request("py-peer-cancel", ExecutionProfile::PythonRun));
+}
+
+#[test]
+#[ignore = "live Java thread tree cancellation only in independent no-NIC/no-share capped VM"]
+fn java_live_threads_peer_cancellation_is_drained() {
+    let f = Fixture::new("java21", ImageKind::LinuxOpenJdk21X86_64V1);
+    let run = f.java_program(br#"public class Main { public static void main(String[] args) throws Exception { for(int i=0;i<3;i++)new Thread(()->{while(true)try{Thread.sleep(10000);}catch(InterruptedException e){}}).start(); System.out.println("java-live"); while(true)Thread.sleep(10000); } }"#, "java-cancel-compile");
+    f.cancel_through_ordinary_peer(&run);
 }

@@ -267,7 +267,9 @@ def finish(args, pin, root, records):
         raise ValueError("image exceeds catalog capacity")
     catalog = {
         "format_version": 2,
-        "architecture": "x86_64",
+        # The signed support-library closure requires the x86-64-v3 ISA.
+        # Publish that minimum explicitly; Root checks it before executing ELF.
+        "architecture": "x86_64_v3",
         "image_kind": pin["kind"],
         "image_revision": 1,
         "toolchain_id": pin["toolchain_id"],

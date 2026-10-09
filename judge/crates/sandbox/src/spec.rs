@@ -152,6 +152,10 @@ pub struct InputArtifact {
 #[serde(deny_unknown_fields)]
 pub struct ExecutionSpec {
     pub schema_version: SchemaVersion,
+    /// Bind a managed request to the operator's exact immutable image. Omission
+    /// preserves the original GNU v1 wire bytes, never managed authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_identity: Option<kf_contracts::judging_v2::RuntimeIdentity>,
     pub run_id: String,
     pub profile: ExecutionProfile,
     pub argv: Vec<String>,
@@ -172,6 +176,7 @@ pub struct ExecutionSpec {
 pub struct SpecPolicy {
     limits_ceiling: ResourceLimits,
     image_kind: Option<crate::runtime::ImageKind>,
+    runtime_identity: Option<kf_contracts::judging_v2::RuntimeIdentity>,
 }
 
 impl Default for SpecPolicy {
@@ -179,6 +184,7 @@ impl Default for SpecPolicy {
         Self {
             limits_ceiling: ResourceLimits::ceilings(),
             image_kind: None,
+            runtime_identity: None,
         }
     }
 }
@@ -189,11 +195,17 @@ impl SpecPolicy {
         Ok(Self {
             limits_ceiling: limits,
             image_kind: None,
+            runtime_identity: None,
         })
     }
 
-    pub(crate) fn for_image(mut self, kind: crate::runtime::ImageKind) -> Self {
+    pub(crate) fn for_image(
+        mut self,
+        kind: crate::runtime::ImageKind,
+        identity: Option<kf_contracts::judging_v2::RuntimeIdentity>,
+    ) -> Self {
         self.image_kind = Some(kind);
+        self.runtime_identity = identity;
         self
     }
 }
@@ -235,6 +247,7 @@ impl ValidatedSpec {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ValidationCode {
+    InvalidRuntimeIdentity,
     InvalidIdentifier,
     InvalidArgv,
     UnsupportedExecutable,
@@ -354,6 +367,30 @@ fn validate_limits(limits: &ResourceLimits, cap: &ResourceLimits) -> Result<(), 
 impl ExecutionSpec {
     pub fn validate(self, policy: &SpecPolicy) -> Result<ValidatedSpec, SpecError> {
         identifier(&self.run_id, "run_id")?;
+        let language = match self.profile {
+            ExecutionProfile::Native | ExecutionProfile::CompileC => {
+                kf_contracts::judging_v2::Language::C17
+            }
+            ExecutionProfile::CompileCpp => kf_contracts::judging_v2::Language::Cpp20,
+            ExecutionProfile::PythonCheck | ExecutionProfile::PythonRun => {
+                kf_contracts::judging_v2::Language::Python313
+            }
+            ExecutionProfile::JavaCompile | ExecutionProfile::JavaRun => {
+                kf_contracts::judging_v2::Language::Java21
+            }
+        };
+        if self.profile.managed_runtime() && self.runtime_identity.is_none()
+            || self
+                .runtime_identity
+                .as_ref()
+                .is_some_and(|identity| identity.validate_for_language(language).is_err())
+            || policy.image_kind.is_some() && self.runtime_identity != policy.runtime_identity
+        {
+            return Err(error(
+                "runtime_identity",
+                ValidationCode::InvalidRuntimeIdentity,
+            ));
+        }
         if self.argv.is_empty()
             || self.argv.len() > 128
             || self

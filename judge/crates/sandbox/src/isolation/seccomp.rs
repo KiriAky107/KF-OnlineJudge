@@ -267,7 +267,11 @@ pub(crate) fn compile(profile: ExecutionProfile) -> io::Result<BpfProgram> {
         rules(
             ioctls
                 .into_iter()
-                .map(|op| Ok(vec![condition(1, SeccompCmpOp::Eq, op)?]))
+                // Linux request numbers occupy 32 bits. musl exposes them as
+                // signed int (including TCGETS2's high bit), glibc as u64.
+                // Reinterpret that fixed bit pattern, never sign-extend it into
+                // an allowed high-word ioctl bypass.
+                .map(|op| Ok(vec![condition(1, SeccompCmpOp::Eq, u64::from(op as u32))?]))
                 .collect::<io::Result<_>>()?,
         )?,
     );

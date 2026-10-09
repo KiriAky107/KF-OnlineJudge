@@ -125,7 +125,7 @@ impl ValidatedRuntimeConfig {
     pub fn spec_policy(&self) -> SpecPolicy {
         SpecPolicy::with_limits_ceiling(self.0.per_task_ceiling.clone())
             .expect("validated immutable limits ceiling")
-            .for_image(self.0.image_kind)
+            .for_image(self.0.image_kind, self.0.runtime_identity.clone())
     }
 
     /// Slot mapping only; the supervisor must lease slots until the old task

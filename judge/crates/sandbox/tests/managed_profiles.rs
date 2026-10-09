@@ -6,10 +6,39 @@ use kf_sandbox::{
     spec::*,
 };
 
+fn identity(profile: ExecutionProfile) -> RuntimeIdentity {
+    let python = matches!(
+        profile,
+        ExecutionProfile::PythonCheck | ExecutionProfile::PythonRun
+    );
+    RuntimeIdentity {
+        toolchain_id: (if python {
+            "cpython313-v1"
+        } else {
+            "openjdk21-v1"
+        })
+        .to_owned()
+        .try_into()
+        .unwrap(),
+        image_kind: if python {
+            ContractKind::CPython313
+        } else {
+            ContractKind::OpenJdk21
+        },
+        image_revision: 1,
+        image_digest: "a".repeat(64).try_into().unwrap(),
+        runtime_version: (if python { "3.13.16" } else { "21.0.12.1+1-LTS" })
+            .to_owned()
+            .try_into()
+            .unwrap(),
+    }
+}
+
 fn request(profile: ExecutionProfile) -> ExecutionSpec {
     let limits = ResourceLimits::for_profile(profile);
     ExecutionSpec {
         schema_version: kf_contracts::SchemaVersion,
+        runtime_identity: Some(identity(profile)),
         run_id: "managed-policy".into(),
         profile,
         argv: profiles::argv(profile, &limits).unwrap(),
@@ -44,6 +73,68 @@ fn request(profile: ExecutionProfile) -> ExecutionSpec {
         outputs: vec![],
         limits,
     }
+}
+
+#[test]
+fn managed_requests_bind_the_exact_operator_identity() {
+    let legacy: RuntimeConfig = serde_json::from_str(include_str!(
+        "../../../../deploy/sandbox.runtime.example.json"
+    ))
+    .unwrap();
+    for (profile, kind) in [
+        (
+            ExecutionProfile::PythonRun,
+            ImageKind::LinuxCPython313X86_64V1,
+        ),
+        (ExecutionProfile::JavaRun, ImageKind::LinuxOpenJdk21X86_64V1),
+    ] {
+        let mut config = legacy.clone();
+        config.image_kind = kind;
+        config.runtime_identity = Some(identity(profile));
+        let policy = config.validate().unwrap().spec_policy();
+        let original = request(profile);
+        assert!(original.clone().validate(&policy).is_ok());
+        let mut missing = original.clone();
+        missing.runtime_identity = None;
+        assert_eq!(
+            missing.validate(&policy).unwrap_err().code,
+            ValidationCode::InvalidRuntimeIdentity
+        );
+        for field in ["digest", "revision", "version", "kind", "toolchain"] {
+            let mut wrong = original.clone();
+            let id = wrong.runtime_identity.as_mut().unwrap();
+            match field {
+                "digest" => id.image_digest = "b".repeat(64).try_into().unwrap(),
+                "revision" => id.image_revision += 1,
+                "version" => id.runtime_version = "21.0.99+1-LTS".to_owned().try_into().unwrap(),
+                "kind" => id.image_kind = ContractKind::GnuCxx,
+                "toolchain" => id.toolchain_id = "gnu-cxx-v1".to_owned().try_into().unwrap(),
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                wrong.validate(&policy).unwrap_err().code,
+                ValidationCode::InvalidRuntimeIdentity,
+                "{field}"
+            );
+        }
+    }
+    let request: ExecutionSpec =
+        serde_json::from_str(include_str!("fixtures/spec.valid.json")).unwrap();
+    assert!(request.runtime_identity.is_none());
+    assert!(
+        !serde_json::to_string(&request)
+            .unwrap()
+            .contains("runtime_identity")
+    );
+    assert!(
+        request
+            .clone()
+            .validate(&legacy.validate().unwrap().spec_policy())
+            .is_ok()
+    );
+    let mut wrong = request;
+    wrong.runtime_identity = Some(identity(ExecutionProfile::PythonRun));
+    assert!(wrong.validate(&SpecPolicy::default()).is_err());
 }
 
 #[test]

@@ -27,6 +27,7 @@ pub mod native {
         fn execute(&mut self, request: &CaseRequest) -> Result<Observation, PortError> {
             let spec = ExecutionSpec {
                 schema_version: kf_contracts::SchemaVersion,
+                runtime_identity: None,
                 run_id: request.run_id.clone(),
                 profile: ExecutionProfile::Native,
                 argv: vec!["/work/main".into()],

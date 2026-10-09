@@ -62,7 +62,7 @@ impl ImageCatalog {
             .validate_for_language(language)
             .map_err(|_| refused())?;
         if self.format_version != 2
-            || self.architecture != "x86_64"
+            || self.architecture != "x86_64_v3"
             || self.image_kind != identity.image_kind
             || self.image_revision != identity.image_revision
             || self.toolchain_id != identity.toolchain_id
@@ -143,6 +143,9 @@ pub(crate) fn verify(image: &OwnedFd, identity: &RuntimeIdentity, bytes: &[u8]) 
     }
     let catalog: ImageCatalog = serde_json::from_slice(bytes).map_err(|_| refused())?;
     catalog.validate(identity)?;
+    if !compatible_cpu() {
+        return Err(refused());
+    }
     let mut files: BTreeMap<_, _> = catalog.files.iter().map(|f| (f.path.as_str(), f)).collect();
     let mut dirs: std::collections::BTreeSet<_> =
         catalog.directories.iter().map(String::as_str).collect();
@@ -155,6 +158,29 @@ pub(crate) fn verify(image: &OwnedFd, identity: &RuntimeIdentity, bytes: &[u8]) 
         return Err(refused());
     }
     Ok(())
+}
+
+/// Fixed images include an x86-64-v3 support-library closure. Detect the actual
+/// processor/OS AVX support in Root, before the first image binary is executed.
+#[cfg(target_arch = "x86_64")]
+fn compatible_cpu() -> bool {
+    std::is_x86_feature_detected!("sse3")
+        && std::is_x86_feature_detected!("ssse3")
+        && std::is_x86_feature_detected!("sse4.1")
+        && std::is_x86_feature_detected!("sse4.2")
+        && std::is_x86_feature_detected!("popcnt")
+        && std::is_x86_feature_detected!("avx")
+        && std::is_x86_feature_detected!("avx2")
+        && std::is_x86_feature_detected!("bmi1")
+        && std::is_x86_feature_detected!("bmi2")
+        && std::is_x86_feature_detected!("fma")
+        && std::is_x86_feature_detected!("f16c")
+        && std::is_x86_feature_detected!("lzcnt")
+        && std::is_x86_feature_detected!("cmpxchg16b")
+}
+#[cfg(not(target_arch = "x86_64"))]
+fn compatible_cpu() -> bool {
+    false
 }
 fn walk<'a>(
     directory: &OwnedFd,

@@ -140,6 +140,7 @@ pub fn compiler_spec(
     };
     ExecutionSpec {
         schema_version: kf_contracts::SchemaVersion,
+        runtime_identity: None,
         run_id,
         profile,
         argv: vec![
@@ -394,6 +395,7 @@ impl<A: ArtifactPort> RunPort for Attempt<'_, A> {
         drop(input);
         let spec = ExecutionSpec {
             schema_version: kf_contracts::SchemaVersion,
+            runtime_identity: None,
             run_id: run_id.into(),
             profile: ExecutionProfile::Native,
             argv: vec!["/work/main".into()],

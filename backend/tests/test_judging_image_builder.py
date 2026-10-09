@@ -32,6 +32,7 @@ def test_catalog_uses_wire_path_order_including_dot_and_directory_boundaries(tmp
         {"usr/lib/ld-linux-x86-64.so.2": {"kind": "file", "sha256": builder.sha(library)}},
     )
     manifest = json.loads((image / "manifest.json").read_bytes())
+    assert manifest["architecture"] == "x86_64_v3"
     paths = [item["path"] for item in manifest["files"]]
     assert paths == sorted(paths)
     assert paths.index("usr/lib/module.py") < paths.index("usr/lib/module/a.py")
