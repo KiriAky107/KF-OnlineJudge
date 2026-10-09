@@ -328,6 +328,23 @@ fn startup_heap_and_budget_parameters_cannot_be_supplied_by_request() {
                 .any(|a| a.contains("DisableAttachMechanism"))
         );
         assert!(original.argv.iter().any(|a| a.contains("UseSerialGC")));
+        for property in ["stdout.encoding", "stderr.encoding"] {
+            let expected = format!(
+                "{}-D{property}=UTF-8",
+                if profile == ExecutionProfile::JavaCompile {
+                    "-J"
+                } else {
+                    ""
+                }
+            );
+            assert!(original.argv.contains(&expected));
+            let mut changed = original.clone();
+            let index = changed.argv.iter().position(|a| a == &expected).unwrap();
+            changed.argv[index] = expected.replace("UTF-8", "US-ASCII");
+            assert!(changed.clone().validate(&SpecPolicy::default()).is_err());
+            changed.argv.remove(index);
+            assert!(changed.validate(&SpecPolicy::default()).is_err());
+        }
         let mut changed = original.clone();
         changed.limits.memory_bytes += 1024 * 1024;
         assert!(changed.validate(&SpecPolicy::default()).is_err());

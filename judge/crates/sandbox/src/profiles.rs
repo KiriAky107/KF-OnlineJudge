@@ -37,6 +37,10 @@ fn jvm_options(limits: &ResourceLimits) -> Result<Vec<String>, &'static str> {
         format!("-Xmx{heap}m"),
         "-Djava.io.tmpdir=/tmp".into(),
         "-Dfile.encoding=UTF-8".into(),
+        // JDK 21's standard streams have their own encoding properties. A
+        // cleared POSIX environment otherwise selects ASCII for piped output.
+        "-Dstdout.encoding=UTF-8".into(),
+        "-Dstderr.encoding=UTF-8".into(),
         "-Duser.language=en".into(),
         "-Duser.country=US".into(),
         "-Duser.timezone=UTC".into(),

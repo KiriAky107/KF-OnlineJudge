@@ -49,6 +49,18 @@ fn failure(code: v1::FailureCode, cleanup_complete: bool) -> old::StageFailure {
 fn artifact_error(_: io::Error) -> old::StageFailure {
     failure(v1::FailureCode::ArtifactUnavailable, true)
 }
+fn with_publication<T>(
+    mut publication: StagePublication,
+    operation: impl FnOnce(&mut StagePublication) -> Result<T, old::StageFailure>,
+) -> Result<T, old::StageFailure> {
+    let result = operation(&mut publication);
+    // Early errors also need a positive staging cleanup proof. Drop remains a
+    // fallback, never evidence that permits cleanup_complete=true in a report.
+    if publication.cleanup().is_err() {
+        return Err(failure(v1::FailureCode::CleanupFailed, false));
+    }
+    result
+}
 fn snapshot_reference(file: &SnapshotFile) -> Result<v1::ArtifactReference, old::StageFailure> {
     let mut h = Sha256::new();
     let mut reader = file.reader().map_err(artifact_error)?;
@@ -141,127 +153,129 @@ impl<A: ArtifactPort> engine::PreparationPort for RuntimeAttempt<'_, A> {
         }
         let source = self.io.artifacts.read(&m.source).map_err(artifact_error)?;
         verify(&m.source, &source).map_err(artifact_error)?;
-        let mut publication =
-            StagePublication::create(self.io.staging_path(), run_id).map_err(artifact_error)?;
-        publication
-            .put("source", &mut source.as_slice(), m.source.bytes)
+        let publication = StagePublication::create(self.io.staging_path(), run_id)
             .map_err(|_| failure(v1::FailureCode::ArtifactUnavailable, false))?;
-        let checked_source = if m.language == v2::Language::Python313 {
-            let file = publication
-                .root()
-                .snapshot_artifact("source", m.source.bytes)
+        with_publication(publication, |publication| {
+            publication
+                .put("source", &mut source.as_slice(), m.source.bytes)
                 .map_err(artifact_error)?;
-            if snapshot_reference(&file)? != m.source {
-                return Err(failure(v1::FailureCode::ArtifactUnavailable, true));
-            }
-            Some(file)
-        } else {
-            None
-        };
-        drop(source);
-        let spec = self
-            .authorized
-            .preparation_spec(run_id.into())
-            .map_err(|_| failure(v1::FailureCode::SandboxUnavailable, true))?;
-        let validated = spec
-            .clone()
-            .validate(&kf_sandbox::spec::SpecPolicy::default())
-            .map_err(|_| failure(v1::FailureCode::SandboxUnavailable, true))?;
-        let result = self.io.execute(spec, &mut publication)?;
-        let mut status = match result
-            .report
-            .classify(&validated)
-            .map_err(|_| failure(v1::FailureCode::SandboxUnavailable, false))?
-        {
-            ExecutionOutcome::Exited { code: 0 } => v1::CompilationStatus::Succeeded,
-            ExecutionOutcome::Exited { .. } | ExecutionOutcome::Signaled { .. } => {
-                v1::CompilationStatus::CompilationError
-            }
-            ExecutionOutcome::LimitExceeded { .. } => v1::CompilationStatus::CompilationLimit,
-            ExecutionOutcome::Cancelled => v1::CompilationStatus::Cancelled,
-            _ => v1::CompilationStatus::SystemError,
-        };
-        let (mut text, truncated) = diagnostics(&result)?;
-        let cpu_time_us = metric(&result.report.usage.cpu_time_us);
-        let memory_peak_bytes = metric(&result.report.usage.memory_peak_bytes);
-        let mut files = Vec::new();
-        let mut sealed = Vec::new();
-        if status == v1::CompilationStatus::Succeeded {
-            if let Some(source) = checked_source {
-                if !result.outputs.is_empty() {
+            let checked_source = if m.language == v2::Language::Python313 {
+                let file = publication
+                    .root()
+                    .snapshot_artifact("source", m.source.bytes)
+                    .map_err(artifact_error)?;
+                if snapshot_reference(&file)? != m.source {
                     return Err(failure(v1::FailureCode::ArtifactUnavailable, true));
                 }
-                files.push(v2::ProgramFile {
-                    path: "main.py".into(),
-                    artifact: m.source.clone(),
-                });
-                sealed.push(source);
+                Some(file)
             } else {
-                for output in result.outputs {
-                    files.push(v2::ProgramFile {
-                        path: output.path,
-                        artifact: snapshot_reference(&output.file)?,
-                    });
-                    sealed.push(output.file);
-                }
-            }
-            if m.language == v2::Language::Java21 {
-                // No reflective loading or initialization outside the JVM. A
-                // successfully compiled unsupported entry is a user CE.
-                let mut metadata = Vec::with_capacity(files.len());
-                for (info, file) in files.iter().zip(&sealed) {
-                    let mut bytes = Vec::new();
-                    file.reader()
-                        .map_err(artifact_error)?
-                        .take(info.artifact.bytes + 1)
-                        .read_to_end(&mut bytes)
-                        .map_err(artifact_error)?;
-                    verify(&info.artifact, &bytes).map_err(artifact_error)?;
-                    metadata.push((info.path.clone(), bytes));
-                }
-                let has_main = if metadata.is_empty() {
-                    false
-                } else {
-                    crate::java_entry::has_main(&metadata)
-                        .map_err(|_| failure(v1::FailureCode::ArtifactUnavailable, true))?
-                };
-                if !has_main {
-                    status = v1::CompilationStatus::CompilationError;
-                    text="Java submission requires default-package Main with public static void main(String[]).".into();
-                }
-            }
-        }
-        let program = if status == v1::CompilationStatus::Succeeded {
-            let metadata = v2::CompiledProgram {
-                kind: m.language.contract().program_kind,
-                binding: binding.clone(),
-                source: m.source.clone(),
-                toolchain: m.toolchain.clone(),
-                files,
+                None
             };
-            self.authorized
-                .validate_program(&metadata)
-                .map_err(|_| failure(v1::FailureCode::ArtifactUnavailable, true))?;
-            self.program = Some(SealedProgram {
-                metadata: metadata.clone(),
-                files: sealed,
-            });
-            Some(metadata)
-        } else {
-            None
-        };
-        Ok(engine::Compiled {
-            report: v2::CompilationReport {
-                status,
-                program,
-                diagnostics: text.try_into().expect("bounded diagnostics"),
-                diagnostics_truncated: truncated,
-                cpu_time_us,
-                memory_peak_bytes,
-            },
-            cleanup_complete: true,
-            failure: (status == v1::CompilationStatus::SystemError)
-                .then_some(v1::FailureCode::SandboxUnavailable),
+            drop(source);
+            let spec = self
+                .authorized
+                .preparation_spec(run_id.into())
+                .map_err(|_| failure(v1::FailureCode::SandboxUnavailable, true))?;
+            let validated = spec
+                .clone()
+                .validate(&kf_sandbox::spec::SpecPolicy::default())
+                .map_err(|_| failure(v1::FailureCode::SandboxUnavailable, true))?;
+            let result = self.io.execute(spec, publication)?;
+            let mut status = match result
+                .report
+                .classify(&validated)
+                .map_err(|_| failure(v1::FailureCode::SandboxUnavailable, false))?
+            {
+                ExecutionOutcome::Exited { code: 0 } => v1::CompilationStatus::Succeeded,
+                ExecutionOutcome::Exited { .. } | ExecutionOutcome::Signaled { .. } => {
+                    v1::CompilationStatus::CompilationError
+                }
+                ExecutionOutcome::LimitExceeded { .. } => v1::CompilationStatus::CompilationLimit,
+                ExecutionOutcome::Cancelled => v1::CompilationStatus::Cancelled,
+                _ => v1::CompilationStatus::SystemError,
+            };
+            let (mut text, truncated) = diagnostics(&result)?;
+            let cpu_time_us = metric(&result.report.usage.cpu_time_us);
+            let memory_peak_bytes = metric(&result.report.usage.memory_peak_bytes);
+            let mut files = Vec::new();
+            let mut sealed = Vec::new();
+            if status == v1::CompilationStatus::Succeeded {
+                if let Some(source) = checked_source {
+                    if !result.outputs.is_empty() {
+                        return Err(failure(v1::FailureCode::ArtifactUnavailable, true));
+                    }
+                    files.push(v2::ProgramFile {
+                        path: "main.py".into(),
+                        artifact: m.source.clone(),
+                    });
+                    sealed.push(source);
+                } else {
+                    for output in result.outputs {
+                        files.push(v2::ProgramFile {
+                            path: output.path,
+                            artifact: snapshot_reference(&output.file)?,
+                        });
+                        sealed.push(output.file);
+                    }
+                }
+                if m.language == v2::Language::Java21 {
+                    // No reflective loading or initialization outside the JVM. A
+                    // successfully compiled unsupported entry is a user CE.
+                    let mut metadata = Vec::with_capacity(files.len());
+                    for (info, file) in files.iter().zip(&sealed) {
+                        let mut bytes = Vec::new();
+                        file.reader()
+                            .map_err(artifact_error)?
+                            .take(info.artifact.bytes + 1)
+                            .read_to_end(&mut bytes)
+                            .map_err(artifact_error)?;
+                        verify(&info.artifact, &bytes).map_err(artifact_error)?;
+                        metadata.push((info.path.clone(), bytes));
+                    }
+                    let has_main = if metadata.is_empty() {
+                        false
+                    } else {
+                        crate::java_entry::has_main(&metadata)
+                            .map_err(|_| failure(v1::FailureCode::ArtifactUnavailable, true))?
+                    };
+                    if !has_main {
+                        status = v1::CompilationStatus::CompilationError;
+                        text="Java submission requires default-package Main with public static void main(String[]) and at most 256 flat ASCII class files with paths up to 128 bytes.".into();
+                    }
+                }
+            }
+            let program = if status == v1::CompilationStatus::Succeeded {
+                let metadata = v2::CompiledProgram {
+                    kind: m.language.contract().program_kind,
+                    binding: binding.clone(),
+                    source: m.source.clone(),
+                    toolchain: m.toolchain.clone(),
+                    files,
+                };
+                self.authorized
+                    .validate_program(&metadata)
+                    .map_err(|_| failure(v1::FailureCode::ArtifactUnavailable, true))?;
+                self.program = Some(SealedProgram {
+                    metadata: metadata.clone(),
+                    files: sealed,
+                });
+                Some(metadata)
+            } else {
+                None
+            };
+            Ok(engine::Compiled {
+                report: v2::CompilationReport {
+                    status,
+                    program,
+                    diagnostics: text.try_into().expect("bounded diagnostics"),
+                    diagnostics_truncated: truncated,
+                    cpu_time_us,
+                    memory_peak_bytes,
+                },
+                cleanup_complete: true,
+                failure: (status == v1::CompilationStatus::SystemError)
+                    .then_some(v1::FailureCode::SandboxUnavailable),
+            })
         })
     }
 }
@@ -301,49 +315,53 @@ impl<A: ArtifactPort> engine::RunPort for RuntimeAttempt<'_, A> {
             .read(&case.input)
             .map_err(artifact_error)?;
         verify(&case.input, &input).map_err(artifact_error)?;
-        let mut publication =
-            StagePublication::create(self.io.staging_path(), run_id).map_err(artifact_error)?;
-        for ((info, file), artifact) in program.files.iter().zip(&stored.files).zip(&spec.inputs) {
-            if snapshot_reference(file)? != info.artifact {
-                return Err(failure(v1::FailureCode::ArtifactUnavailable, true));
+        let publication = StagePublication::create(self.io.staging_path(), run_id)
+            .map_err(|_| failure(v1::FailureCode::ArtifactUnavailable, false))?;
+        with_publication(publication, |publication| {
+            for ((info, file), artifact) in
+                program.files.iter().zip(&stored.files).zip(&spec.inputs)
+            {
+                if snapshot_reference(file)? != info.artifact {
+                    return Err(failure(v1::FailureCode::ArtifactUnavailable, true));
+                }
+                publication
+                    .put(
+                        &artifact.artifact_id,
+                        &mut file.reader().map_err(artifact_error)?,
+                        info.artifact.bytes,
+                    )
+                    .map_err(artifact_error)?;
             }
             publication
-                .put(
-                    &artifact.artifact_id,
-                    &mut file.reader().map_err(artifact_error)?,
-                    info.artifact.bytes,
-                )
-                .map_err(|_| failure(v1::FailureCode::ArtifactUnavailable, false))?;
-        }
-        publication
-            .put("stdin", &mut input.as_slice(), case.input.bytes)
-            .map_err(|_| failure(v1::FailureCode::ArtifactUnavailable, false))?;
-        drop(input);
-        let validated = spec
-            .clone()
-            .validate(&kf_sandbox::spec::SpecPolicy::default())
-            .map_err(|_| failure(v1::FailureCode::SandboxUnavailable, true))?;
-        let result = self.io.execute(spec, &mut publication)?;
-        let outcome = result
-            .report
-            .classify(&validated)
-            .map_err(|_| failure(v1::FailureCode::SandboxUnavailable, false))?;
-        let mut stdout = Vec::new();
-        result
-            .stdout
-            .reader()
-            .map_err(artifact_error)?
-            .take(budget.stdout_bytes + 1)
-            .read_to_end(&mut stdout)
-            .map_err(artifact_error)?;
-        if stdout.len() as u64 > budget.stdout_bytes {
-            return Err(failure(v1::FailureCode::ArtifactUnavailable, true));
-        }
-        Ok(Observation {
-            kind: kind(outcome),
-            stdout,
-            cpu_time_us: metric(&result.report.usage.cpu_time_us),
-            memory_peak_bytes: metric(&result.report.usage.memory_peak_bytes),
+                .put("stdin", &mut input.as_slice(), case.input.bytes)
+                .map_err(artifact_error)?;
+            drop(input);
+            let validated = spec
+                .clone()
+                .validate(&kf_sandbox::spec::SpecPolicy::default())
+                .map_err(|_| failure(v1::FailureCode::SandboxUnavailable, true))?;
+            let result = self.io.execute(spec, publication)?;
+            let outcome = result
+                .report
+                .classify(&validated)
+                .map_err(|_| failure(v1::FailureCode::SandboxUnavailable, false))?;
+            let mut stdout = Vec::new();
+            result
+                .stdout
+                .reader()
+                .map_err(artifact_error)?
+                .take(budget.stdout_bytes + 1)
+                .read_to_end(&mut stdout)
+                .map_err(artifact_error)?;
+            if stdout.len() as u64 > budget.stdout_bytes {
+                return Err(failure(v1::FailureCode::ArtifactUnavailable, true));
+            }
+            Ok(Observation {
+                kind: kind(outcome),
+                stdout,
+                cpu_time_us: metric(&result.report.usage.cpu_time_us),
+                memory_peak_bytes: metric(&result.report.usage.memory_peak_bytes),
+            })
         })
     }
 }
@@ -411,4 +429,60 @@ pub fn judge_local(
         result,
         stages: attempt.into_stages(),
     })
+}
+
+#[cfg(test)]
+mod publication_tests {
+    use super::*;
+    use std::{
+        fs,
+        os::unix::fs::{MetadataExt, PermissionsExt},
+    };
+
+    #[test]
+    fn early_failure_requires_positive_cleanup_and_preserves_foreign_entries() {
+        // Only synthetic artifact bytes; this test does not execute source,
+        // acquire privileged authority, or claim Linux isolation acceptance.
+        let parent =
+            std::env::temp_dir().join(format!("kf-worker-publication-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(fs::metadata(&parent).unwrap().uid() >= 1000);
+        let publication = StagePublication::create(&parent, "short-read").unwrap();
+        let result: Result<(), old::StageFailure> = with_publication(publication, |p| {
+            p.put("source", &mut b"ab".as_slice(), 4)
+                .map_err(artifact_error)
+        });
+        let error = result.unwrap_err();
+        assert_eq!(error.code, v1::FailureCode::ArtifactUnavailable);
+        assert!(error.cleanup_complete);
+        assert!(!parent.join("short-read").exists());
+        let publication = StagePublication::create(&parent, "unconfirmed-root").unwrap();
+        let result: Result<(), old::StageFailure> = with_publication(publication, |_| {
+            Err(failure(v1::FailureCode::SandboxUnavailable, false))
+        });
+        assert!(
+            !result.unwrap_err().cleanup_complete,
+            "staging success cannot upgrade an unconfirmed Root cleanup"
+        );
+        assert!(!parent.join("unconfirmed-root").exists());
+        let publication = StagePublication::create(&parent, "foreign").unwrap();
+        let foreign = parent.join("foreign/canary");
+        let result: Result<(), old::StageFailure> = with_publication(publication, |_| {
+            fs::write(&foreign, b"test-owned foreign inode").unwrap();
+            Err(failure(v1::FailureCode::ArtifactUnavailable, true))
+        });
+        let error = result.unwrap_err();
+        assert_eq!(error.code, v1::FailureCode::CleanupFailed);
+        assert!(!error.cleanup_complete);
+        let inode = fs::metadata(&foreign).unwrap().ino();
+        assert_eq!(fs::read(&foreign).unwrap(), b"test-owned foreign inode");
+        assert_eq!(fs::metadata(&foreign).unwrap().ino(), inode);
+        // The fixture owns these exact entries; remove them only after proving
+        // automatic cleanup retained the unknown inode and reported failure.
+        fs::remove_file(foreign).unwrap();
+        fs::remove_file(parent.join("foreign/.owner")).unwrap();
+        fs::remove_dir(parent.join("foreign")).unwrap();
+        fs::remove_dir(parent).unwrap();
+    }
 }

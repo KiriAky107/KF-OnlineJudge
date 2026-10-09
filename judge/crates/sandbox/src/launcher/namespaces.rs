@@ -249,6 +249,7 @@ pub struct NamespacedTarget {
     root_ready: bool,
     proc_dev_ready: bool,
     inputs_ready: bool,
+    expected_inputs: usize,
     rlimits_ready: bool,
     identity_ready: bool,
     seccomp_ready: bool,
@@ -345,6 +346,7 @@ impl NamespacedTarget {
                 root_ready: false,
                 proc_dev_ready: false,
                 inputs_ready: false,
+                expected_inputs: spec.spec().inputs.len(),
                 rlimits_ready: false,
                 identity_ready: false,
                 seccomp_ready: false,
@@ -387,7 +389,10 @@ impl NamespacedTarget {
         &mut self,
         inputs: &[crate::artifacts::PreparedInput],
     ) -> io::Result<()> {
-        if !self.proc_dev_ready || self.inputs_ready || inputs.len() > 64 {
+        // The immutable validated request already applies the profile-specific
+        // count bound (legacy64, Java256). Keep this handshake bound to that
+        // exact request instead of a second, incompatible hard-coded ceiling.
+        if !self.proc_dev_ready || self.inputs_ready || inputs.len() != self.expected_inputs {
             return Err(denied("input initialization order"));
         }
         let bytes = inputs

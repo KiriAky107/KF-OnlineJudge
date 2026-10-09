@@ -242,7 +242,10 @@ impl OutputPlan {
             for entry in std::fs::read_dir(format!("/proc/self/fd/{}", work.as_raw_fd()))? {
                 count += 1;
                 if count > kf_contracts::judging_v2::MAX_CLASS_FILES + 1 {
-                    return Err(refused("class export count"));
+                    // This compiled source exceeds the supported class set.
+                    // Stop discovery immediately and export no partial files;
+                    // Worker treats the unsupported result as user CE.
+                    return Ok(Vec::new());
                 }
                 let name = entry?
                     .file_name()
@@ -251,7 +254,7 @@ impl OutputPlan {
                 if name == "Main.java" {
                     continue;
                 }
-                if !kf_contracts::judging_v2::class_name(&name) {
+                if name.len() > 128 || !kf_contracts::judging_v2::class_name(&name) {
                     // javac accepts packages and Unicode class names outside
                     // this protocol's flat ASCII class set. Suppress the whole
                     // batch so Worker reports unsupported entry as user CE.
