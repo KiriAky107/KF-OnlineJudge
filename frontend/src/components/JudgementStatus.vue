@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { components } from '../api/generated/schema'
+import { preparingStatus, type WireLanguage } from '../composables/judgingLanguage'
 const props = defineProps<{
   state: components['schemas']['SubmissionSummary']['state']
   verdict: components['schemas']['SubmissionSummary']['verdict']
+  language?: WireLanguage
 }>()
 const grades: Record<string, string> = {
   accepted: 'AC',
@@ -27,7 +29,11 @@ const states: Record<string, string> = {
   finished: '评测完成',
 }
 const label = computed(() =>
-  props.verdict ? (grades[props.verdict] ?? props.verdict) : states[props.state],
+  props.verdict
+    ? (grades[props.verdict] ?? props.verdict)
+    : props.state === 'compiling'
+      ? preparingStatus(props.language)
+      : states[props.state],
 )
 </script>
 <template>

@@ -9,6 +9,7 @@ import type { components } from '../api/generated/schema'
 import PageHeading from '../components/PageHeading.vue'
 import PanelCard from '../components/PanelCard.vue'
 import JudgementStatus from '../components/JudgementStatus.vue'
+import { preparationName } from '../composables/judgingLanguage'
 const route = useRoute()
 const id = String(route.params.id)
 const submission = ref<components['schemas']['SubmissionDetail'] | null>(null)
@@ -120,7 +121,11 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <PageHeading :title="'提交 ' + id" description="个人提交的持久化评测状态"
-    ><JudgementStatus v-if="submission" :state="submission.state" :verdict="submission.verdict"
+    ><JudgementStatus
+      v-if="submission"
+      :state="submission.state"
+      :verdict="submission.verdict"
+      :language="submission.language"
   /></PageHeading>
   <p v-if="error" role="alert">
     {{ error }}
@@ -169,13 +174,17 @@ onBeforeUnmount(() => {
     <PanelCard title="评测详情" icon="submissions">
       <p v-if="submission.failure_code" role="alert">系统原因：{{ submission.failure_code }}</p>
       <template v-if="submission.result">
-        <p>编译状态：{{ submission.result.compilation_status }}</p>
+        <p>
+          {{ preparationName(submission.language) }}状态：{{ submission.result.compilation_status }}
+        </p>
         <pre
           v-if="submission.result.diagnostics"
           class="sample-block"
           data-testid="compiler-diagnostics"
           >{{ submission.result.diagnostics }}</pre>
-        <p v-if="submission.result.diagnostics_truncated">编译诊断已截断。</p>
+        <p v-if="submission.result.diagnostics_truncated">
+          {{ preparationName(submission.language) }}诊断已截断。
+        </p>
         <p v-if="!submission.result.cleanup_complete" role="alert">
           资源清理未确认，服务保留该任务并隔离容量。
         </p>

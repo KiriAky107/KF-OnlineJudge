@@ -8,6 +8,7 @@ import { submissionIntent, type SubmissionInput } from '../api/submissionIntent'
 import type { components } from '../api/generated/schema'
 import { useSession } from '../composables/useSession'
 import { useCodeDraft, codeTemplates, languageLabels } from '../composables/useCodeDraft'
+import { languageCapability, preparationName } from '../composables/judgingLanguage'
 import CodeEditor from '../components/CodeEditor.vue'
 import EmptyState from '../components/EmptyState.vue'
 import UiIcon from '../components/UiIcon.vue'
@@ -31,17 +32,10 @@ const workspace = ref<HTMLDivElement>()
 const request = new AbortController()
 let alive = true
 const intents = new Map<string, ReturnType<typeof submissionIntent>>()
-const wireLanguage = computed(() =>
-  language.value === 'c' ? 'c17' : language.value === 'cpp' ? 'cpp20' : null,
-)
-const supported = computed(
-  () => wireLanguage.value !== null && !!problem.value?.languages.includes(wireLanguage.value),
-)
-const runLimits = computed(
-  () =>
-    problem.value?.language_configurations?.find((c) => c.language === wireLanguage.value)
-      ?.run_limits ?? problem.value?.run_limits,
-)
+const capability = computed(() => languageCapability(problem.value, language.value))
+const wireLanguage = computed(() => capability.value?.wire ?? null)
+const supported = computed(() => capability.value !== null)
+const runLimits = computed(() => capability.value?.runLimits)
 const draftText = computed(
   () =>
     ({
@@ -102,7 +96,11 @@ function downloadCode() {
   const link = document.createElement('a')
   link.href = url
   link.download =
-    'solution-' + id + '.' + { c: 'c', cpp: 'cpp', python: 'py', rust: 'rs' }[language.value]
+    language.value === 'java'
+      ? 'Main.java'
+      : language.value === 'python'
+        ? 'main.py'
+        : 'solution-' + id + '.' + { c: 'c', cpp: 'cpp', rust: 'rs' }[language.value]
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
@@ -289,7 +287,21 @@ onBeforeUnmount(() => {
       </div>
       <div class="editor-testing">
         <p v-if="!supported" class="notice-strip">
-          当前语言暂不支持提交，草稿仍会保存。可切换到题目支持的 C17 / C++20。
+          当前题目版本不支持此语言，草稿仍会保存。请选择题目公布的可用语言。
+        </p>
+        <p
+          v-else-if="capability?.configuration"
+          class="notice-strip"
+          data-testid="language-capability"
+        >
+          {{ languageLabels[language] }} · {{ capability.configuration.runtime_version }} ·
+          {{ preparationName(capability.wire) }}后逐点运行。
+          <template v-if="capability.wire === 'java21'">
+            默认包 Main.java，入口为 public static void main(String[])。
+          </template>
+          <template v-else-if="capability.wire === 'python313'">
+            单文件 main.py，仅标准库。
+          </template>
         </p>
         <p v-if="submitError" role="alert">
           {{ submitError }}

@@ -1,7 +1,8 @@
 // No source is stored here. Fingerprints bind an immutable request and owner to a UUID.
+import type { components } from './generated/schema'
 export type SubmissionInput = {
   problem_version_id: string
-  language: 'c17' | 'cpp20'
+  language: components['schemas']['kf_oj__contracts__judging_v2__Language']
   source: string
 }
 type Intent = { fingerprint: string; key: string; submissionId?: string }

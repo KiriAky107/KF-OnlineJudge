@@ -91,7 +91,10 @@ onBeforeUnmount(() => {
         label="状态"
         min-width="130"
         ><template #default="{ row }"
-          ><JudgementStatus :state="row.state" :verdict="row.verdict" /></template></el-table-column
+          ><JudgementStatus
+            :state="row.state"
+            :verdict="row.verdict"
+            :language="row.language" /></template></el-table-column
       ><el-table-column prop="created_at" label="提交时间" min-width="180" />
     </el-table>
     <div class="pagination-row">

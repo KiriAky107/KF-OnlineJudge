@@ -142,6 +142,7 @@ test('pagehide preserves the selected language and keeps problem drafts separate
       c: codeTemplates.c,
       cpp: '// C++ draft',
       python: '# Python draft',
+      java: codeTemplates.java,
       rust: codeTemplates.rust,
     },
   })
@@ -189,4 +190,45 @@ test('old Python/Rust drafts survive adding C17; C and C++ retain separate conte
   assert.equal(env.read()?.drafts.c, '// new C17')
   assert.equal(env.read()?.drafts.python, '# original Python')
   assert.equal(env.read()?.drafts.rust, '// original Rust')
+})
+
+test('old drafts acquire Java without replacing their contents; four languages survive reload and version changes', (t) => {
+  const env = browser(t)
+  env.storage.items.set(
+    'kf-oj:code-draft:version-a',
+    JSON.stringify({
+      version: 1,
+      language: 'python',
+      drafts: { python: '# old Python', cpp: '// old C++', rust: '// old Rust' },
+    }),
+  )
+  const draft = env.open('version-a')
+  assert.equal(draft.code.value, '# old Python')
+  draft.language.value = 'java'
+  assert.equal(draft.code.value, codeTemplates.java)
+  draft.code.value = '// Java draft'
+  draft.language.value = 'c'
+  draft.code.value = '// C draft'
+  draft.language.value = 'java'
+  env.page.dispatchEvent(new Event('pagehide'))
+  draft.scope.stop()
+  const restored = env.open('version-a')
+  assert.equal(restored.language.value, 'java')
+  assert.equal(restored.code.value, '// Java draft')
+  for (const [language, contents] of [
+    ['c', '// C draft'],
+    ['cpp', '// old C++'],
+    ['python', '# old Python'],
+    ['rust', '// old Rust'],
+  ] as const) {
+    restored.language.value = language
+    assert.equal(restored.code.value, contents)
+  }
+  const other = env.open('version-b')
+  other.language.value = 'java'
+  assert.equal(other.code.value, codeTemplates.java)
+  other.code.value = '// other version Java'
+  other.save()
+  assert.equal(env.read('version-a')?.drafts.java, '// Java draft')
+  assert.equal(env.read('version-b')?.drafts.java, '// other version Java')
 })

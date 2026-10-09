@@ -10,6 +10,7 @@ import 'monaco-editor/features/linesOperations/register'
 import 'monaco-editor/features/wordOperations/register'
 import 'monaco-editor/languages/definitions/cpp/register'
 import 'monaco-editor/languages/definitions/python/register'
+import 'monaco-editor/languages/definitions/java/register'
 import 'monaco-editor/languages/definitions/rust/register'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 const props = defineProps<{

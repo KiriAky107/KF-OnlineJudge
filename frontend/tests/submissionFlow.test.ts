@@ -22,13 +22,45 @@ const flush = async () => {
   await new Promise<void>((resolve) => setImmediate(resolve))
 }
 
+test('Python and Java retries preserve UUID and language/content changes create a new intent', async () => {
+  const storage = memory()
+  const keys: string[] = []
+  for (const language of ['python313', 'java21'] as const) {
+    const managed = { ...input, language }
+    await assert.rejects(
+      submissionIntent(storage, 'owner').submit(managed, async (key) => {
+        keys.push(key)
+        throw new Error('uncertain delivery')
+      }),
+    )
+    const failedKey = keys.at(-1)
+    await submissionIntent(storage, 'owner').submit(managed, async (key) => {
+      assert.equal(key, failedKey)
+      return 'saved-' + language
+    })
+  }
+  assert.notEqual(keys[0], keys[1])
+  await submissionIntent(storage, 'owner').submit(
+    { ...input, language: 'java21', source: 'changed Java' },
+    async (key) => {
+      assert.notEqual(key, keys[1])
+      return 'changed-id'
+    },
+  )
+})
+
 test('timeout and reload reuse persisted key; double click has one flight; content and owner change key', async () => {
   const storage = memory()
   const keys: string[] = []
   const intent = submissionIntent(storage, 'owner-a')
   let respond: (id: string) => void = () => {}
+  let sent: () => void = () => {}
+  const sending = new Promise<void>((resolve) => {
+    sent = resolve
+  })
   const send = async (key: string) => {
     keys.push(key)
+    sent()
     return new Promise<string>((resolve) => {
       respond = resolve
     })
@@ -36,7 +68,7 @@ test('timeout and reload reuse persisted key; double click has one flight; conte
   const a = intent.submit(input, send)
   const b = intent.submit(input, send)
   assert.equal(a, b)
-  await flush()
+  await sending
   assert.equal(keys.length, 1)
   respond('real-id')
   assert.equal(await a, 'real-id')
