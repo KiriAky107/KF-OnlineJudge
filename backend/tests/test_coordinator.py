@@ -439,6 +439,7 @@ def test_actual_expiry_stopping_quarantine_retry_and_old_attempt(
                     break
                 await asyncio.sleep(0.05)
             assert pending[0]["binding"] == g["binding"]
+            assert pending == [dict(binding=g["binding"], case_count=2)]
             stopped = dict(
                 schema_version=1, kind="judge.stopped", binding=g["binding"], cleanup_complete=False
             )

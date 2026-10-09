@@ -209,6 +209,13 @@ def test_actual_v2_cancel_requires_matching_stop_protocol_and_fence(
                     headers={"Authorization": "Bearer " + platform},
                 )
             ).status_code == 204
+            pending = await client.get(
+                "/internal/pending-stops", headers=worker_headers(workers[0])
+            )
+            assert pending.status_code == 200
+            assert pending.json() == [
+                dict(schema_version=2, binding=grant["binding"], case_count=2)
+            ]
             stopped = dict(
                 schema_version=2,
                 kind="judge.stopped",

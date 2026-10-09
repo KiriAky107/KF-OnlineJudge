@@ -1,9 +1,16 @@
 //! Ordinary transport adapter. AMQP is a bounded wake-up; claim is sole authority.
 use crate::pipeline::{ArtifactPort, Attempt};
+use crate::{pipeline_v2::RuntimeAttempt, runtime_specs::AuthorizedJob};
 use futures_lite::{StreamExt, future::block_on};
-use kf_contracts::judging_versions::{JobManifest as VersionedManifest, NodeAdmission};
+use kf_contracts::judging_v2 as v2;
+use kf_contracts::judging_versions::{
+    self as versions, JobManifest as VersionedManifest, NodeAdmission,
+};
 use kf_contracts::{JudgeTaskNotification, SchemaVersion, judging::*};
-use kf_engine::submission::{StageFailure, judge_submission};
+use kf_engine::{
+    submission::{StageFailure, judge_submission},
+    submission_v2,
+};
 use kf_sandbox::{artifacts::StagePublication, factory::FactoryClient};
 use lapin::{Connection, ConnectionProperties, options::*, types::FieldTable};
 use reqwest::blocking::Client;
@@ -20,6 +27,37 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 const QUEUE: &str = "kf.judge.evaluations.v1";
+/// Transport projection after strict versioned wire decoding. It never changes
+/// the authorized manifest or its canonical bytes.
+#[derive(Clone)]
+struct Grant {
+    version: u16,
+    binding: LeaseBinding,
+    lease_token: LeaseToken,
+    attempt_number: u32,
+    expires_at_unix_ms: u64,
+    manifest_digest: Digest,
+}
+impl From<versions::LeaseGrant> for Grant {
+    fn from(wire: versions::LeaseGrant) -> Self {
+        macro_rules! fields {
+            ($g:ident, $version:literal) => {
+                Self {
+                    version: $version,
+                    binding: $g.binding,
+                    lease_token: $g.lease_token,
+                    attempt_number: $g.attempt_number,
+                    expires_at_unix_ms: $g.expires_at_unix_ms,
+                    manifest_digest: $g.manifest_digest,
+                }
+            };
+        }
+        match wire {
+            versions::LeaseGrant::V1(g) => fields!(g, 1),
+            versions::LeaseGrant::V2(g) => fields!(g, 2),
+        }
+    }
+}
 #[derive(Debug)]
 struct TransportError {
     operation: &'static str,
@@ -139,7 +177,7 @@ impl Remote {
         &self,
         route: &str,
         body: &T,
-        grant: Option<&LeaseGrant>,
+        grant: Option<&Grant>,
     ) -> io::Result<reqwest::blocking::Response> {
         let mut r = self
             .client
@@ -173,8 +211,9 @@ impl Remote {
         let v: Vec<Pending> = serde_json::from_slice(&b)
             .map_err(|_| transport_error("coordinator_pending", "decode"))?;
         if v.len() > 16
-            || v.iter()
-                .any(|p| p.case_count == 0 || p.case_count > MAX_CASES)
+            || v.iter().any(|p| {
+                p.case_count == 0 || p.case_count > MAX_CASES || !matches!(p.schema_version, 1 | 2)
+            })
         {
             return Err(error());
         }
@@ -193,12 +232,7 @@ impl Remote {
             if p.binding.worker_id != c.worker_id {
                 return Err(error());
             }
-            let r = StoppedReport {
-                schema_version: SchemaVersion,
-                kind: StoppedKind::Value,
-                binding: p.binding,
-                cleanup_complete: clean,
-            };
+            let r = p.stopped(clean)?;
             if self.post("/internal/stopped", &r, None)?.status().as_u16() != 204 {
                 return Err(error());
             }
@@ -209,13 +243,37 @@ impl Remote {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Pending {
+    #[serde(default = "legacy_version")]
+    schema_version: u16,
     binding: LeaseBinding,
     case_count: usize,
+}
+fn legacy_version() -> u16 {
+    1
+}
+impl Pending {
+    fn stopped(self, clean: bool) -> io::Result<versions::StoppedReport> {
+        match self.schema_version {
+            1 => Ok(versions::StoppedReport::V1(StoppedReport {
+                schema_version: SchemaVersion,
+                kind: StoppedKind::Value,
+                binding: self.binding,
+                cleanup_complete: clean,
+            })),
+            2 => Ok(versions::StoppedReport::V2(v2::StoppedReport {
+                schema_version: v2::SchemaVersion,
+                kind: StoppedKind::Value,
+                binding: self.binding,
+                cleanup_complete: clean,
+            })),
+            _ => Err(error()),
+        }
+    }
 }
 struct RemoteArtifacts {
     client: Client,
     base: String,
-    grant: LeaseGrant,
+    grant: Grant,
 }
 impl RemoteArtifacts {
     fn headers(&self, r: reqwest::blocking::RequestBuilder) -> reqwest::blocking::RequestBuilder {
@@ -234,24 +292,27 @@ impl RemoteArtifacts {
             self.grant.binding.attempt_id.as_uuid()
         )
     }
-    fn manifest(&self) -> io::Result<JobManifest> {
+    fn manifest(&self) -> io::Result<VersionedManifest> {
         let response = self
             .headers(self.client.get(self.url("/manifest")))
             .send()
             .map_err(|_| error())?;
-        let m: JobManifest =
-            decode_wire(&Remote::bytes(response, MAX_WIRE_BYTES)?).map_err(|_| error())?;
-        let digest = format!(
-            "{:x}",
-            Sha256::digest(manifest_bytes(&m).map_err(|_| error())?)
-        );
-        if digest != self.grant.manifest_digest.as_str()
-            || m.evaluation_id != self.grant.binding.evaluation_id
-        {
-            return Err(error());
-        }
-        Ok(m)
+        authorized_manifest(&Remote::bytes(response, MAX_WIRE_BYTES)?, &self.grant)
     }
+}
+fn authorized_manifest(raw: &[u8], grant: &Grant) -> io::Result<VersionedManifest> {
+    let m: VersionedManifest = decode_wire(raw).map_err(|_| error())?;
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(m.canonical_bytes().map_err(|_| error())?)
+    );
+    if digest != grant.manifest_digest.as_str()
+        || m.evaluation_id() != grant.binding.evaluation_id
+        || m.version() != grant.version
+    {
+        return Err(error());
+    }
+    Ok(m)
 }
 impl ArtifactPort for RemoteArtifacts {
     fn read(&mut self, reference: &ArtifactReference) -> io::Result<Vec<u8>> {
@@ -282,7 +343,7 @@ fn lease_deadline(ms: u64) -> io::Result<Instant> {
         .ok_or_else(error)?;
     Ok(Instant::now() + Duration::from_millis(remaining))
 }
-fn execute(c: &Config, r: &Remote, g: LeaseGrant, stop: &AtomicBool) -> io::Result<()> {
+fn execute(c: &Config, r: &Remote, g: Grant, stop: &AtomicBool) -> io::Result<()> {
     if g.binding.worker_id != c.worker_id {
         return Err(error());
     }
@@ -293,7 +354,7 @@ fn execute(c: &Config, r: &Remote, g: LeaseGrant, stop: &AtomicBool) -> io::Resu
     };
     let m = artifacts.manifest()?;
     c.admission
-        .admit(&VersionedManifest::V1(m.clone()), g.attempt_number)
+        .admit(&m, g.attempt_number)
         .map_err(|_| error())?;
     let cancel = AtomicBool::new(false);
     let done = AtomicBool::new(false);
@@ -329,23 +390,9 @@ fn execute(c: &Config, r: &Remote, g: LeaseGrant, stop: &AtomicBool) -> io::Resu
         });
         let result = (|| {
             let mut sequence = 0u64;
-            let mut adapter = Attempt::new(
-                artifacts,
-                c.socket.clone(),
-                c.staging.clone(),
-                m.job_wall_time_us,
-                &cancel,
-            )?
-            .with_control(|stage, index| {
+            let mut control = |stage, index| {
                 sequence += 1;
-                let report = StageReport {
-                    schema_version: SchemaVersion,
-                    kind: StageKind::Value,
-                    binding: g.binding.clone(),
-                    sequence,
-                    stage,
-                    case_index: index,
-                };
+                let report = stage_report(&m, g.binding.clone(), sequence, stage, index);
                 for _ in 0..2 {
                     match r.post("/internal/stage", &report, Some(&g)) {
                         Ok(response) if response.status().as_u16() == 204 => return Ok(()),
@@ -359,22 +406,64 @@ fn execute(c: &Config, r: &Remote, g: LeaseGrant, stop: &AtomicBool) -> io::Resu
                     code: FailureCode::LeaseLost,
                     cleanup_complete: true,
                 })
-            });
-            let mut result = judge_submission(
-                &mut adapter,
-                &m,
-                g.binding.clone(),
-                g.manifest_digest.clone(),
-            )
-            .map_err(|_| error())?;
-            transport_cancellation(&mut result.report);
-            result
-                .report
+            };
+            let mut report = match &m {
+                VersionedManifest::V1(manifest) => {
+                    let mut adapter = Attempt::new(
+                        artifacts,
+                        c.socket.clone(),
+                        c.staging.clone(),
+                        manifest.job_wall_time_us,
+                        &cancel,
+                    )?
+                    .with_control(&mut control);
+                    versions::JudgementReport::V1(
+                        judge_submission(
+                            &mut adapter,
+                            manifest,
+                            g.binding.clone(),
+                            g.manifest_digest.clone(),
+                        )
+                        .map_err(|_| error())?
+                        .report,
+                    )
+                }
+                VersionedManifest::V2(manifest) => {
+                    let authorized = AuthorizedJob::admit(
+                        manifest.clone(),
+                        g.binding.clone(),
+                        g.manifest_digest.clone(),
+                        g.attempt_number,
+                        &c.admission,
+                    )
+                    .map_err(|_| error())?;
+                    let mut adapter = RuntimeAttempt::new(
+                        authorized,
+                        artifacts,
+                        c.socket.clone(),
+                        c.staging.clone(),
+                        &cancel,
+                    )?
+                    .with_control(&mut control);
+                    versions::JudgementReport::V2(
+                        submission_v2::judge_submission(
+                            &mut adapter,
+                            manifest,
+                            g.binding.clone(),
+                            g.manifest_digest.clone(),
+                        )
+                        .map_err(|_| error())?
+                        .report,
+                    )
+                }
+            };
+            transport_cancellation_versioned(&mut report);
+            report
                 .validate_for_manifest(&m, &g.manifest_digest)
                 .map_err(|_| error())?;
             // Same immutable report only; a transport ambiguity never becomes success.
             for _ in 0..3 {
-                match r.post("/internal/report", &result.report, Some(&g)) {
+                match r.post("/internal/report", &report, Some(&g)) {
                     Ok(response) if response.status().as_u16() == 204 => return Ok(()),
                     Ok(response) if response.status().as_u16() == 409 => break,
                     _ => {}
@@ -387,6 +476,47 @@ fn execute(c: &Config, r: &Remote, g: LeaseGrant, stop: &AtomicBool) -> io::Resu
         renew.join().map_err(|_| error())?;
         result
     })
+}
+fn stage_report(
+    m: &VersionedManifest,
+    binding: LeaseBinding,
+    sequence: u64,
+    stage: Stage,
+    case_index: Option<u16>,
+) -> versions::StageReport {
+    match m {
+        VersionedManifest::V1(_) => versions::StageReport::V1(StageReport {
+            schema_version: SchemaVersion,
+            kind: StageKind::Value,
+            binding,
+            sequence,
+            stage,
+            case_index,
+        }),
+        VersionedManifest::V2(manifest) => versions::StageReport::V2(v2::StageReport {
+            schema_version: v2::SchemaVersion,
+            kind: StageKind::Value,
+            binding,
+            sequence,
+            stage,
+            case_index,
+            preparation_kind: manifest.language.contract().preparation_kind,
+        }),
+    }
+}
+fn transport_cancellation_versioned(report: &mut versions::JudgementReport) {
+    match report {
+        versions::JudgementReport::V1(r) => transport_cancellation(r),
+        versions::JudgementReport::V2(r) => {
+            if r.verdict == Verdict::Cancelled {
+                r.verdict = Verdict::SystemError;
+                r.failure_code = Some(FailureCode::LeaseLost);
+                if r.compilation.status == CompilationStatus::Cancelled {
+                    r.compilation.status = CompilationStatus::SystemError;
+                }
+            }
+        }
+    }
 }
 // A task stopped by service shutdown/transport loss is an infrastructure failure.
 // User cancellation is authoritative in Coordinator and completes via actual stop proof.
@@ -486,9 +616,9 @@ async fn consume(c: &Config, r: &Remote, stop: &AtomicBool) -> io::Result<()> {
         let grant = r.post("/internal/claim", &notice, None)?;
         match grant.status().as_u16() {
             200 => {
-                let g: LeaseGrant =
+                let g: versions::LeaseGrant =
                     decode_wire(&Remote::bytes(grant, MAX_WIRE_BYTES)?).map_err(|_| error())?;
-                let result = execute(c, r, g, stop);
+                let result = execute(c, r, g.into(), stop);
                 if result.is_err() && !r.reconcile(c)? {
                     return Err(error());
                 }
@@ -538,6 +668,86 @@ pub fn run(c: Config, stop: Arc<AtomicBool>) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn versioned_manifest_is_bound_to_lease_generation_digest_and_identity() {
+        for (raw, version) in [
+            (
+                &include_bytes!("../../../../tests/fixtures/contracts/judge-manifest.valid.json")[..],
+                1,
+            ),
+            (
+                &include_bytes!(
+                    "../../../../tests/fixtures/contracts-v2/judge-manifest.valid-python313.json"
+                )[..],
+                2,
+            ),
+        ] {
+            let m: VersionedManifest = decode_wire(raw).unwrap();
+            let base: versions::LeaseGrant = decode_wire(include_bytes!(
+                "../../../../tests/fixtures/contracts-v2/judge-lease.valid.json"
+            ))
+            .unwrap();
+            let mut g: Grant = base.into();
+            g.version = version;
+            g.binding.evaluation_id = m.evaluation_id();
+            g.manifest_digest = format!("{:x}", Sha256::digest(m.canonical_bytes().unwrap()))
+                .try_into()
+                .unwrap();
+            assert_eq!(authorized_manifest(raw, &g).unwrap(), m);
+            g.version = 3 - version;
+            assert!(authorized_manifest(raw, &g).is_err());
+            g.version = version;
+            g.manifest_digest = "f".repeat(64).try_into().unwrap();
+            assert!(authorized_manifest(raw, &g).is_err());
+        }
+    }
+    #[test]
+    fn preparation_stage_and_pending_stop_retain_exact_protocol_generation() {
+        let raw = include_bytes!(
+            "../../../../tests/fixtures/contracts-v2/judge-manifest.valid-python313.json"
+        );
+        let m: VersionedManifest = decode_wire(raw).unwrap();
+        let g: versions::LeaseGrant = decode_wire(include_bytes!(
+            "../../../../tests/fixtures/contracts-v2/judge-lease.valid.json"
+        ))
+        .unwrap();
+        let mut g: Grant = g.into();
+        g.binding.evaluation_id = m.evaluation_id();
+        let report = stage_report(&m, g.binding.clone(), 1, Stage::Compiling, None);
+        report.validate_for_manifest(&m).unwrap();
+        let value = serde_json::to_value(report).unwrap();
+        assert_eq!(value["schema_version"], 2);
+        assert_eq!(value["preparation_kind"], "syntax_check");
+        for version in [1, 2, 3] {
+            let mut pending = serde_json::json!({"binding":g.binding,"case_count":2});
+            if version != 1 {
+                pending["schema_version"] = serde_json::json!(version);
+            }
+            let p: Pending = serde_json::from_value(pending).unwrap();
+            if version == 3 {
+                assert!(p.stopped(true).is_err());
+                continue;
+            }
+            let stopped = serde_json::to_value(p.stopped(true).unwrap()).unwrap();
+            assert_eq!(stopped["schema_version"], version);
+            assert_eq!(
+                stopped,
+                serde_json::json!({"schema_version":version,"kind":"judge.stopped","binding":g.binding,"cleanup_complete":true})
+            );
+        }
+        let mut legacy: VersionedManifest = decode_wire(include_bytes!(
+            "../../../../tests/fixtures/contracts/judge-manifest.valid.json"
+        ))
+        .unwrap();
+        if let VersionedManifest::V1(m) = &mut legacy {
+            m.evaluation_id = g.binding.evaluation_id;
+        }
+        let report = stage_report(&legacy, g.binding, 1, Stage::Compiling, None);
+        let value = serde_json::to_value(&report).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert!(value.get("preparation_kind").is_none());
+        report.validate_for_manifest(&legacy).unwrap();
+    }
     #[test]
     fn amqp_numeric_authority_and_default_vhost_are_preserved() {
         for (raw, host, vhost) in [

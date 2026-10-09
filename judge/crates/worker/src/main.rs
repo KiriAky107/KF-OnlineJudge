@@ -32,6 +32,18 @@ enum Command {
         #[arg(long)]
         staging: PathBuf,
     },
+    JudgeSubmissionV2 {
+        #[arg(long)]
+        socket: PathBuf,
+        #[arg(long)]
+        job: PathBuf,
+        #[arg(long)]
+        artifacts: PathBuf,
+        #[arg(long)]
+        staging: PathBuf,
+        #[arg(long)]
+        admission: PathBuf,
+    },
     JudgeOnce {
         #[arg(long)]
         socket: PathBuf,
@@ -112,6 +124,36 @@ async fn main() -> ExitCode {
             {
                 let _ = (socket, job, artifacts, staging);
                 ExitCode::from(2)
+            }
+        }
+        Some(Command::JudgeSubmissionV2 {
+            socket,
+            job,
+            artifacts,
+            staging,
+            admission,
+        }) => {
+            let result = (|| {
+                use std::os::unix::fs::{MetadataExt, PermissionsExt};
+                let m = std::fs::symlink_metadata(&admission)?;
+                if !m.is_file() || m.nlink() != 1 || m.permissions().mode() & 0o7777 != 0o600 {
+                    return Err(std::io::Error::other("operator admission file refused"));
+                }
+                let policy = kf_contracts::judging::decode_wire(
+                    &kf_sandbox::execution::read_bounded_file(&admission, 32768)?,
+                )
+                .map_err(std::io::Error::other)?;
+                kf_worker::pipeline_v2::judge_local(&socket, &job, &artifacts, &staging, &policy)
+            })();
+            match result {
+                Ok(result) => {
+                    println!("{}", serde_json::json!(result));
+                    ExitCode::SUCCESS
+                }
+                Err(_) => {
+                    eprintln!("submission_failed");
+                    ExitCode::from(2)
+                }
             }
         }
         Some(Command::JudgeOnce {

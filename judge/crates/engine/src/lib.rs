@@ -229,3 +229,4 @@ mod tests {
 }
 
 pub mod submission;
+pub mod submission_v2;

@@ -460,8 +460,18 @@ impl Repository {
     }
     pub async fn pending_stops(&self, worker: Identifier) -> Result<Value> {
         let s = self.database.session().await?;
-        let rows=s.client.query("SELECT e.id,a.id attempt_id,a.fencing_version,jsonb_array_length(a.manifest->'cases') case_count FROM evaluations e JOIN judge_attempts a ON a.id=e.current_attempt_id WHERE e.state='cancelling' AND a.worker_id=$1 ORDER BY e.updated_at,e.id LIMIT 16",&[&worker.as_uuid()]).await?;
-        Ok(Value::Array(rows.iter().map(|r|json!({"binding":LeaseBinding{evaluation_id:identifier(r.get("id")),attempt_id:identifier(r.get("attempt_id")),worker_id:worker,fencing_version:r.get::<_,i64>("fencing_version")as u64},"case_count":r.get::<_,i32>("case_count")})).collect()))
+        let rows=s.client.query("SELECT e.id,a.id attempt_id,a.fencing_version,jsonb_array_length(a.manifest->'cases') case_count,(a.manifest->>'schema_version')::int schema_version FROM evaluations e JOIN judge_attempts a ON a.id=e.current_attempt_id WHERE e.state='cancelling' AND a.worker_id=$1 ORDER BY e.updated_at,e.id LIMIT 16",&[&worker.as_uuid()]).await?;
+        let entries = rows.iter().map(|r| {
+            let mut entry=json!({"binding":LeaseBinding{evaluation_id:identifier(r.get("id")),attempt_id:identifier(r.get("attempt_id")),worker_id:worker,fencing_version:r.get::<_,i64>("fencing_version")as u64},"case_count":r.get::<_,i32>("case_count")});
+            match r.get::<_,i32>("schema_version") {
+                // Preserve the old pending-stop response and all v1 report bytes.
+                1 => {},
+                2 => entry["schema_version"] = json!(2),
+                _ => return Err(Error::Invalid),
+            }
+            Ok(entry)
+        }).collect::<Result<Vec<_>>>()?;
+        Ok(Value::Array(entries))
     }
     pub async fn recover(&self) -> Result<u64> {
         let mut s = self.database.session().await?;

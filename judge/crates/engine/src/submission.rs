@@ -62,7 +62,7 @@ fn empty_compile(status: CompilationStatus) -> CompilationReport {
         memory_peak_bytes: None,
     }
 }
-fn classify(o: &Observation, expected: &[u8]) -> Verdict {
+pub(crate) fn classify(o: &Observation, expected: &[u8]) -> Verdict {
     match o.kind {
         ExecutionKind::Exited { code: 0 } => {
             if o.stdout == expected {

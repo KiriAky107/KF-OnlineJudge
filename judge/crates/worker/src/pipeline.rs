@@ -61,12 +61,12 @@ impl ArtifactPort for LocalArtifacts {
         Ok(data)
     }
 }
-fn digest(data: &[u8]) -> Digest {
+pub(crate) fn digest(data: &[u8]) -> Digest {
     format!("{:x}", Sha256::digest(data))
         .try_into()
         .expect("SHA256 representation")
 }
-fn verify(r: &ArtifactReference, data: &[u8]) -> io::Result<()> {
+pub(crate) fn verify(r: &ArtifactReference, data: &[u8]) -> io::Result<()> {
     if data.len() as u64 != r.bytes || digest(data) != r.digest {
         return Err(io::Error::other("artifact digest mismatch"));
     }
@@ -78,7 +78,7 @@ fn stage_error(code: FailureCode, cleanup_complete: bool) -> StageFailure {
         cleanup_complete,
     }
 }
-fn limits(r: &RunLimits) -> ResourceLimits {
+pub(crate) fn limits(r: &RunLimits) -> ResourceLimits {
     ResourceLimits {
         cpu_time_us: r.cpu_time_us,
         wall_time_us: r.wall_time_us,
@@ -92,13 +92,13 @@ fn limits(r: &RunLimits) -> ResourceLimits {
         workdir_bytes: r.workdir_bytes,
     }
 }
-fn metric(m: &Measurement<u64>) -> Option<u64> {
+pub(crate) fn metric(m: &Measurement<u64>) -> Option<u64> {
     match m {
         Measurement::Measured { value } => Some(*value),
         Measurement::Unavailable { .. } => None,
     }
 }
-fn kind(o: ExecutionOutcome) -> ExecutionKind {
+pub(crate) fn kind(o: ExecutionOutcome) -> ExecutionKind {
     match o {
         ExecutionOutcome::Exited { code } => ExecutionKind::Exited { code },
         ExecutionOutcome::Signaled { .. } => ExecutionKind::Signaled,
@@ -210,7 +210,10 @@ impl<'a, A: ArtifactPort> Attempt<'a, A> {
         self.control = Some(Box::new(control));
         self
     }
-    fn execute(
+    pub(crate) fn staging_path(&self) -> &Path {
+        &self.staging
+    }
+    pub(crate) fn execute(
         &mut self,
         spec: ExecutionSpec,
         publication: &mut StagePublication,

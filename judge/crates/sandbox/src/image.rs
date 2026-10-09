@@ -46,6 +46,23 @@ fn refused() -> io::Error {
         "image catalog/integrity refused",
     )
 }
+fn catalog_path(kind: ImageKind, name: &str) -> bool {
+    if kind != ImageKind::GnuCxx {
+        return crate::spec::path(name, "image").is_ok();
+    }
+    // GNU's immutable standard-library directories include c++ and libstdc++.
+    // This operator catalog rule never changes caller artifact path validation.
+    !name.is_empty()
+        && name.len() <= 4096
+        && name.split('/').all(|p| {
+            !p.is_empty()
+                && p != "."
+                && p != ".."
+                && p.len() <= 255
+                && p.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_.-+".contains(&b))
+        })
+}
 pub fn catalog_digest(data: &[u8]) -> Digest {
     format!("{:x}", Sha256::digest(data))
         .try_into()
@@ -81,7 +98,9 @@ impl ImageCatalog {
             .iter()
             .chain(self.files.iter().map(|v| &v.path))
         {
-            crate::spec::path(name, "image").map_err(|_| refused())?;
+            if !catalog_path(self.image_kind, name) {
+                return Err(refused());
+            }
             if name == "manifest.json"
                 || name
                     .split('/')
@@ -289,4 +308,26 @@ fn walk<'a>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+    #[test]
+    fn trusted_gnu_library_paths_do_not_widen_request_or_managed_image_paths() {
+        for p in ["usr/include/c++/16.2.1/vector", "usr/lib/libstdc++.so.6"] {
+            assert!(catalog_path(ImageKind::GnuCxx, p));
+            assert!(!catalog_path(ImageKind::CPython313, p));
+            assert!(crate::spec::path(p, "artifact").is_err());
+        }
+        for p in [
+            "/usr/lib",
+            "usr/../lib",
+            "usr//lib",
+            "usr/./lib",
+            "usr/lib\0",
+        ] {
+            assert!(!catalog_path(ImageKind::GnuCxx, p));
+        }
+    }
 }

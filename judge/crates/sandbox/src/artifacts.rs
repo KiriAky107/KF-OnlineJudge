@@ -236,6 +236,7 @@ impl OutputPlan {
         let paths = if self.java_classes {
             let mut paths = Vec::new();
             let mut count = 0;
+            let mut unsupported = false;
             // The entire group is frozen and drained. Discover only bounded,
             // flat compiler outputs through the held private work directory.
             for entry in std::fs::read_dir(format!("/proc/self/fd/{}", work.as_raw_fd()))? {
@@ -251,9 +252,35 @@ impl OutputPlan {
                     continue;
                 }
                 if !kf_contracts::judging_v2::class_name(&name) {
-                    return Err(refused("class export path/type"));
+                    // javac accepts packages and Unicode class names outside
+                    // this protocol's flat ASCII class set. Suppress the whole
+                    // batch so Worker reports unsupported entry as user CE.
+                    // Links/special files remain infrastructure refusals and
+                    // no unrecognized output is ever opened for reading.
+                    let fd = rustix::fs::openat(
+                        work,
+                        name.as_str(),
+                        OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                        Mode::empty(),
+                    )?;
+                    let st = rustix::fs::fstat(&fd)?;
+                    if st.st_dev != rustix::fs::fstat(work)?.st_dev
+                        || !matches!(
+                            FileType::from_raw_mode(st.st_mode),
+                            FileType::RegularFile | FileType::Directory
+                        )
+                        || (FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
+                            && st.st_nlink != 1)
+                    {
+                        return Err(refused("class export path/type"));
+                    }
+                    unsupported = true;
+                    continue;
                 }
                 paths.push(name);
+            }
+            if unsupported {
+                return Ok(Vec::new());
             }
             paths.sort();
             paths
@@ -406,7 +433,32 @@ pub struct StagePublication {
     dev: u64,
     ino: u64,
     files: Vec<StageEntry>,
+    staged_bytes: u64,
     removed: bool,
+}
+const MAX_STAGE_FILES: usize = kf_contracts::judging_v2::MAX_CLASS_FILES + 1;
+const MAX_STAGE_JOURNAL_BYTES: u64 = 65_536;
+fn indexed_program(name: &str) -> bool {
+    name.strip_prefix("program-").is_some_and(|index| {
+        index.len() == 3
+            && index.bytes().all(|b| b.is_ascii_digit())
+            && index
+                .parse::<usize>()
+                .is_ok_and(|i| i < kf_contracts::judging_v2::MAX_CLASS_FILES)
+    })
+}
+fn stage_entries_valid(names: &[&str]) -> bool {
+    let indexed = names.iter().any(|n| indexed_program(n));
+    let mut unique = std::collections::HashSet::new();
+    names.len() <= if indexed { MAX_STAGE_FILES } else { 2 }
+        && names.iter().all(|n| {
+            unique.insert(*n)
+                && if indexed {
+                    *n == "stdin" || indexed_program(n)
+                } else {
+                    matches!(*n, "source" | "program" | "stdin")
+                }
+        })
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -462,6 +514,7 @@ impl StagePublication {
             dev: st.st_dev,
             ino: st.st_ino,
             files: vec![],
+            staged_bytes: 0,
             removed: false,
         };
         let header = StageOwner {
@@ -537,16 +590,16 @@ impl StagePublication {
                 || j.st_mode & 0o7777 != 0o600
                 || j.st_nlink != 1
                 || j.st_size < 0
-                || j.st_size > 2048
+                || j.st_size as u64 > MAX_STAGE_JOURNAL_BYTES
                 || FileType::from_raw_mode(j.st_mode) != FileType::RegularFile
             {
                 return Err(refused("untrusted stage journal"));
             }
             let mut bytes = String::new();
             readonly_handle(&journal)?
-                .take(2049)
+                .take(MAX_STAGE_JOURNAL_BYTES + 1)
                 .read_to_string(&mut bytes)?;
-            if bytes.len() > 2048 || !bytes.ends_with('\n') {
+            if bytes.len() as u64 > MAX_STAGE_JOURNAL_BYTES || !bytes.ends_with('\n') {
                 return Err(refused("stage journal framing"));
             }
             let mut lines = bytes.lines();
@@ -572,13 +625,7 @@ impl StagePublication {
                         .map_err(|_| refused("stage entry journal"))
                 })
                 .collect::<io::Result<Vec<_>>>()?;
-            let mut unique = std::collections::HashSet::new();
-            if entries.len() > 2
-                || entries.iter().any(|e| {
-                    !matches!(e.name.as_str(), "source" | "program" | "stdin")
-                        || !unique.insert(e.name.clone())
-                })
-            {
+            if !stage_entries_valid(&entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>()) {
                 return Err(refused("stage entry set"));
             }
             let mut value = Self {
@@ -588,6 +635,7 @@ impl StagePublication {
                 dev: st.st_dev,
                 ino: st.st_ino,
                 files: entries,
+                staged_bytes: 0,
                 removed: false,
             };
             value.cleanup()?;
@@ -599,9 +647,12 @@ impl StagePublication {
         &self.root
     }
     pub fn put(&mut self, name: &str, reader: &mut impl Read, bytes: u64) -> io::Result<()> {
-        if !matches!(name, "source" | "program" | "stdin")
-            || self.files.len() >= 2
+        let mut names: Vec<_> = self.files.iter().map(|e| e.name.as_str()).collect();
+        names.push(name);
+        if !stage_entries_valid(&names)
             || bytes > MAX_SNAPSHOT_BYTES
+            || (indexed_program(name) && bytes == 0)
+            || self.staged_bytes.saturating_add(bytes) > MAX_SNAPSHOT_BYTES
         {
             return Err(refused("fixed staging entry/budget"));
         }
@@ -628,6 +679,7 @@ impl StagePublication {
         file.write_all(b"\n")?;
         file.sync_all()?;
         self.files.push(entry);
+        self.staged_bytes += bytes;
         let mut file = File::from(fd);
         let copied = io::copy(&mut reader.take(bytes + 1), &mut file)?;
         if copied != bytes {
@@ -650,7 +702,7 @@ impl StagePublication {
         use rustix::fd::AsRawFd;
         let actual: Vec<_> =
             std::fs::read_dir(format!("/proc/self/fd/{}", self.root.fd.as_raw_fd()))?
-                .take(5)
+                .take(MAX_STAGE_FILES + 2)
                 .map(|e| Ok(e?.file_name()))
                 .collect::<io::Result<_>>()?;
         if actual.len() != self.files.len() + 1
@@ -708,5 +760,35 @@ impl StagePublication {
 impl Drop for StagePublication {
     fn drop(&mut self) {
         let _ = self.cleanup();
+    }
+}
+
+#[cfg(test)]
+mod stage_policy_tests {
+    use super::*;
+    #[test]
+    fn bounded_indexed_batch_and_legacy_names_are_separate() {
+        assert!(stage_entries_valid(&["source"]));
+        assert!(stage_entries_valid(&["program", "stdin"]));
+        assert!(!stage_entries_valid(&["source", "program", "stdin"]));
+        let mut names: Vec<_> = (0..256).map(|i| format!("program-{i:03}")).collect();
+        names.push("stdin".into());
+        assert!(stage_entries_valid(
+            &names.iter().map(String::as_str).collect::<Vec<_>>()
+        ));
+        for name in [
+            "program-256",
+            "program-00",
+            "program-0000",
+            "program-../a",
+            "Main.class",
+            ".owner",
+            "expected",
+        ] {
+            assert!(!stage_entries_valid(&[name]));
+        }
+        assert!(!stage_entries_valid(&["program-000", "source"]));
+        assert!(!stage_entries_valid(&["program-000", "program"]));
+        assert!(!stage_entries_valid(&["program-000", "program-000"]));
     }
 }

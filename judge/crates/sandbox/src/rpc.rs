@@ -117,7 +117,7 @@ pub(crate) fn execute_channel(
 ) -> io::Result<Executed> {
     c.send(&Request { spec })?;
     c.send_fd(publication)?;
-    c.execution_deadline(validated.spec().limits.wall_time_us)?;
+    c.request_deadline(validated.spec().limits.wall_time_us)?;
     let report = match c.receive::<Reply>()? {
         Reply::Completed { report } => *report,
         Reply::Rejected {
@@ -229,7 +229,7 @@ pub(crate) fn serve_stream(
     }
     let artifacts = ArtifactRoot::from_worker_directory(c.receive_fd()?, ids.worker_uid)?;
     let peer = c.duplicate_stream()?;
-    c.execution_deadline(request.spec.limits.wall_time_us)?;
+    c.request_deadline(request.spec.limits.wall_time_us)?;
     match execution::execute(
         config,
         request.spec,

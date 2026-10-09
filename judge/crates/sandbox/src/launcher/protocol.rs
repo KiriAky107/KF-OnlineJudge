@@ -244,10 +244,22 @@ impl ControlChannel {
     }
 
     pub(crate) fn execution_deadline(&mut self, wall_us: u64) -> io::Result<()> {
+        self.runtime_deadline(wall_us, Duration::ZERO)
+    }
+
+    /// The ordinary RPC starts before catalog verification and isolation setup.
+    /// Its fixed preparation allowance is separate from the student's measured
+    /// execution wall limit. The factory's job/cancellation watcher stays active.
+    pub(crate) fn request_deadline(&mut self, wall_us: u64) -> io::Result<()> {
+        self.runtime_deadline(wall_us, Duration::from_secs(30))
+    }
+
+    fn runtime_deadline(&mut self, wall_us: u64, preparation: Duration) -> io::Result<()> {
         if wall_us == 0 || wall_us > 120_000_000 || self.poisoned || !self.pending.is_empty() {
             return Err(invalid("execution deadline"));
         }
-        self.deadline = Instant::now() + Duration::from_micros(wall_us) + Duration::from_secs(5);
+        self.deadline =
+            Instant::now() + preparation + Duration::from_micros(wall_us) + Duration::from_secs(5);
         Ok(())
     }
 
@@ -577,6 +589,24 @@ mod tests {
             ControlChannel::new(a, peer, Instant::now() + MAX_CONTROL_TIMEOUT).unwrap(),
             ControlChannel::new(b, peer, Instant::now() + MAX_CONTROL_TIMEOUT).unwrap(),
         )
+    }
+
+    #[test]
+    fn request_preparation_allowance_is_fixed_and_execution_limit_is_separate() {
+        let (mut request, mut execution) = pair();
+        let start = Instant::now();
+        request.request_deadline(3_000_000).unwrap();
+        execution.execution_deadline(3_000_000).unwrap();
+        assert!(request.deadline.duration_since(start) >= Duration::from_secs(38));
+        assert!(request.deadline.duration_since(start) < Duration::from_secs(39));
+        assert!(execution.deadline.duration_since(start) >= Duration::from_secs(8));
+        assert!(execution.deadline.duration_since(start) < Duration::from_secs(9));
+        request.request_deadline(120_000_000).unwrap();
+        assert!(request.deadline.duration_since(start) < Duration::from_secs(156));
+        assert!(request.request_deadline(0).is_err());
+        assert!(request.request_deadline(120_000_001).is_err());
+        request.poisoned = true;
+        assert!(request.request_deadline(3_000_000).is_err());
     }
 
     #[test]
