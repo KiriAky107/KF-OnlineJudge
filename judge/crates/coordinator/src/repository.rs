@@ -6,6 +6,7 @@ use kf_contracts::judging_versions::{
 use kf_contracts::{SchemaVersion, judging::*, judging_v2 as v2};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
+use std::collections::HashMap;
 use tokio_postgres::{Row, Transaction};
 use uuid::Uuid;
 #[derive(Clone)]
@@ -13,6 +14,7 @@ pub struct Repository {
     pub database: Database,
     pub admission: NodeAdmission,
     pub lease_seconds: u32,
+    pub measurement_epochs: HashMap<Identifier, Digest>,
 }
 pub fn identifier(v: Uuid) -> Identifier {
     v.to_string().try_into().expect("non-nil generated UUID")
@@ -165,7 +167,8 @@ impl Repository {
             .checked_add(1)
             .ok_or(Error::Invalid)?;
         let digest = hash(&m.canonical_bytes().map_err(invalid)?);
-        let row=t.query_one("INSERT INTO judge_attempts(id,evaluation_id,worker_id,number,fencing_version,lease_token_hash,expires_at,manifest,manifest_digest) VALUES($1,$2,$3,$4,$5,$6,clock_timestamp()+$7::bigint*interval '1 second',$8,$9) RETURNING floor(extract(epoch from expires_at)*1000)::bigint",&[&attempt,&eid.as_uuid(),&worker.as_uuid(),&number,&fence,&hash(token.as_bytes()),&i64::from(self.lease_seconds),&as_value(&m)?,&digest]).await?;
+        let epoch = self.measurement_epochs.get(&worker).map(|e| e.as_str());
+        let row=t.query_one("INSERT INTO judge_attempts(id,evaluation_id,worker_id,number,fencing_version,lease_token_hash,expires_at,manifest,manifest_digest,measurement_epoch) VALUES($1,$2,$3,$4,$5,$6,clock_timestamp()+$7::bigint*interval '1 second',$8,$9,$10) RETURNING floor(extract(epoch from expires_at)*1000)::bigint",&[&attempt,&eid.as_uuid(),&worker.as_uuid(),&number,&fence,&hash(token.as_bytes()),&i64::from(self.lease_seconds),&as_value(&m)?,&digest,&epoch]).await?;
         t.execute("UPDATE evaluations SET state='claimed',current_attempt_id=$2,attempts_count=$3,fencing_version=$4,updated_at=clock_timestamp() WHERE id=$1",&[&eid.as_uuid(),&attempt,&number,&fence]).await?;
         let grant = LeaseGrant::for_manifest(
             &m,
@@ -401,8 +404,45 @@ impl Repository {
             fields.cleanup_complete,
         )
         .await?;
+        crate::performance::record(&t, &m, r, &digest).await?;
         t.commit().await?;
         Ok(())
+    }
+    pub async fn backfill_performance(&self, evaluation: Identifier) -> Result<u64> {
+        let mut s = self.database.session().await?;
+        let t = s.client.transaction().await?;
+        let row = t
+            .query_opt(
+                "SELECT final_report FROM evaluations WHERE id=$1 FOR UPDATE",
+                &[&evaluation.as_uuid()],
+            )
+            .await?
+            .ok_or(Error::Rejected)?;
+        let value: Value = row.get::<_, Option<Value>>(0).ok_or(Error::Rejected)?;
+        let report: JudgementReport = as_wire(value.clone())?;
+        let b = report.fields().binding;
+        if b.evaluation_id != evaluation {
+            return Err(Error::Rejected);
+        }
+        let e = self.bound(&t, b, None).await?;
+        let manifest: JobManifest = as_wire(e.get("manifest"))?;
+        let manifest_digest: Digest = e
+            .get::<_, String>("manifest_digest")
+            .try_into()
+            .map_err(invalid)?;
+        report
+            .validate_for_manifest(&manifest, &manifest_digest)
+            .map_err(invalid)?;
+        report.validate_program_budget(&manifest).map_err(invalid)?;
+        let digest = hash(&serde_json::to_vec(&as_value(&report)?).map_err(invalid)?);
+        if e.get::<_, Option<String>>("final_report_digest").as_deref() != Some(&digest)
+            || e.get::<_, Option<String>>("report_digest").as_deref() != Some(&digest)
+        {
+            return Err(Error::Rejected);
+        }
+        let count = crate::performance::record(&t, &manifest, &report, &digest).await?;
+        t.commit().await?;
+        Ok(count)
     }
     pub async fn cancel(&self, eid: Identifier) -> Result<()> {
         let mut s = self.database.session().await?;

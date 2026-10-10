@@ -1,5 +1,5 @@
 //! Service-only secrets from a private local file; never format database/token values.
-use kf_contracts::judging::{Identifier, LeaseToken};
+use kf_contracts::judging::{Digest, Identifier, LeaseToken};
 use kf_contracts::judging_versions::NodeAdmission;
 use serde::Deserialize;
 use std::{collections::HashSet, fs, io, net::SocketAddr, path::Path};
@@ -8,6 +8,10 @@ use std::{collections::HashSet, fs, io, net::SocketAddr, path::Path};
 pub struct WorkerIdentity {
     pub id: Identifier,
     pub token: LeaseToken,
+    /// Operator-attested measurement setup; absent means no comparable statistics.
+    /// Rotate whenever hardware/kernel/CPU scheduling or measurement setup changes.
+    #[serde(default)]
+    pub measurement_epoch: Option<Digest>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

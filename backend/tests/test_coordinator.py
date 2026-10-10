@@ -28,7 +28,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @asynccontextmanager
 async def fixture(
-    postgres_url, tmp_path, monkeypatch, *, import_builder=import_fixture, node_policy=None
+    postgres_url,
+    tmp_path,
+    monkeypatch,
+    *,
+    import_builder=import_fixture,
+    node_policy=None,
+    measurement_epochs=None,
 ):
     _, policy = import_builder(tmp_path / "import")
     engine = create_async_engine(postgres_url)
@@ -59,6 +65,9 @@ async def fixture(
         reserved.bind(("127.0.0.1", 0))
         port = reserved.getsockname()[1]
     workers = [dict(id=str(uuid4()), token=secrets.token_hex(32)) for _ in range(2)]
+    if measurement_epochs is not None:
+        for worker, epoch in zip(workers, measurement_epochs, strict=True):
+            worker["measurement_epoch"] = epoch
     platform = secrets.token_hex(32)
     config = tmp_path / "coordinator.json"
     config.write_text(
@@ -152,6 +161,7 @@ async def fixture(
                 client.fixture_version = version
                 client.coordinator_unit = unit
                 client.coordinator_role = role
+                client.coordinator_config = config
                 yield client, c, workers, platform, create
     finally:
         subprocess.run(["systemctl", "--user", "stop", unit], check=True, capture_output=True)
