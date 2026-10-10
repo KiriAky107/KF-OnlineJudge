@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "kind": "judge.performance",
+  "submission_id": "11111111-1111-4111-8111-111111111111",
+  "problem_version_id": "22222222-2222-4222-8222-222222222222",
+  "language": "python313",
+  "as_of": "2026-10-11T00:00:00Z",
+  "comparison_group": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "window_limit": 10000,
+  "minimum_samples": 5,
+  "cpu": {
+    "unit": "cpu_microseconds",
+    "current": "9007199254740993",
+    "available": true,
+    "reason": null,
+    "sample_count": 6,
+    "window_truncated": false,
+    "oldest_sample_at": "2026-10-10T00:00:00Z",
+    "strictly_slower_count": 2,
+    "tied_count": 1,
+    "buckets": [
+      {"start": "0", "end": "9007199254740993", "upper_inclusive": false, "count": 3},
+      {"start": "9007199254740993", "end": "9007199254740999", "upper_inclusive": true, "count": 3}
+    ]
+  },
+  "memory": {
+    "unit": "bytes",
+    "current": "0",
+    "available": false,
+    "reason": "insufficient_samples",
+    "sample_count": 0,
+    "window_truncated": false,
+    "oldest_sample_at": null,
+    "strictly_slower_count": null,
+    "tied_count": null,
+    "buckets": []
+  }
+}

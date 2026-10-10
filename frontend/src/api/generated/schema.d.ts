@@ -195,6 +195,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/submissions/{submission_id}/performance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Performance */
+        get: operations["performance_api_v1_submissions__submission_id__performance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/submissions/{submission_id}/source": {
         parameters: {
             query?: never;
@@ -365,6 +382,43 @@ export interface components {
              */
             expires_at: string;
             user: components["schemas"]["CurrentUser"];
+        };
+        /** PerformanceBucket */
+        PerformanceBucket: {
+            /** Count */
+            count: number;
+            /** End */
+            end: string;
+            /** Start */
+            start: string;
+            /** Upper Inclusive */
+            upper_inclusive: boolean;
+        };
+        /** PerformanceMetric */
+        PerformanceMetric: {
+            /** Available */
+            available: boolean;
+            /** Buckets */
+            buckets: components["schemas"]["PerformanceBucket"][];
+            /** Current */
+            current: string | null;
+            /** Oldest Sample At */
+            oldest_sample_at: string | null;
+            /** Reason */
+            reason: ("not_accepted" | "measurement_missing" | "environment_unverified" | "insufficient_samples") | null;
+            /** Sample Count */
+            sample_count: number;
+            /** Strictly Slower Count */
+            strictly_slower_count: number | null;
+            /** Tied Count */
+            tied_count: number | null;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "cpu_microseconds" | "bytes";
+            /** Window Truncated */
+            window_truncated: boolean;
         };
         /**
          * PreparationKind
@@ -581,6 +635,53 @@ export interface components {
             items: components["schemas"]["SubmissionSummary"][];
             /** Next After */
             next_after: string | null;
+        };
+        /** SubmissionPerformance */
+        SubmissionPerformance: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Comparison Group */
+            comparison_group: string | null;
+            cpu: components["schemas"]["PerformanceMetric"];
+            /**
+             * Kind
+             * @default judge.performance
+             * @constant
+             */
+            kind: "judge.performance";
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
+            memory: components["schemas"]["PerformanceMetric"];
+            /**
+             * Minimum Samples
+             * @default 5
+             * @constant
+             */
+            minimum_samples: 5;
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Window Limit
+             * @default 10000
+             * @constant
+             */
+            window_limit: 10000;
         };
         /** SubmissionSource */
         SubmissionSource: {
@@ -920,6 +1021,8 @@ export interface operations {
             query?: {
                 after?: string | null;
                 limit?: number;
+                problem_version_id?: string | null;
+                language?: components["schemas"]["Language-Input"] | null;
             };
             header?: never;
             path?: never;
@@ -1029,6 +1132,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CancellationAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    performance_api_v1_submissions__submission_id__performance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionPerformance"];
                 };
             };
             /** @description Validation Error */

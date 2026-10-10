@@ -8,6 +8,7 @@ from kf_oj.api.app import create_app
 from kf_oj.contracts.judge import JudgeTaskNotification
 from kf_oj.contracts.judging import WIRE_MODELS
 from kf_oj.contracts.judging_v2 import WIRE_MODELS as WIRE_MODELS_V2
+from kf_oj.contracts.submission_performance import SubmissionPerformance
 from kf_oj.core.settings import Settings
 
 
@@ -34,6 +35,14 @@ def main() -> None:
             "budgets, result consistency, UUID canonical form and UTF-8 byte limits."
         )
         outputs[root / f"contracts/schemas/{name}.v1.schema.json"] = document
+    performance = SubmissionPerformance.model_json_schema()
+    performance["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    performance["$id"] = "urn:kf-oj:submission-performance:v1"
+    performance["$comment"] = (
+        "Anonymous bounded aggregates, decimal raw units and strict same-snapshot "
+        "counts; also run model validation and server-side ownership/environment checks."
+    )
+    outputs[root / "contracts/schemas/submission-performance.v1.schema.json"] = performance
     for name, model in WIRE_MODELS_V2.items():
         document = model.model_json_schema()
         document["$schema"] = "https://json-schema.org/draft/2020-12/schema"

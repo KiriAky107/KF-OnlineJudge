@@ -88,7 +88,14 @@ class SubmissionQueries:
             .where(Submission.id == submission_id, Submission.account_id == principal.account_id)
         )
 
-    async def page(self, principal: Principal, after: str | None, limit: int) -> SubmissionPage:
+    async def page(
+        self,
+        principal: Principal,
+        after: str | None,
+        limit: int,
+        problem_version_id: UUID | None = None,
+        language: str | None = None,
+    ) -> SubmissionPage:
         if not 1 <= limit <= 100:
             raise ValueError("invalid history limit")
         query = (
@@ -98,6 +105,10 @@ class SubmissionQueries:
             .order_by(Submission.created_at.desc(), Submission.id.desc())
             .limit(limit + 1)
         )
+        if problem_version_id is not None:
+            query = query.where(Submission.problem_version_id == problem_version_id)
+        if language is not None:
+            query = query.where(Submission.language == language)
         if after is not None:
             query = query.where(tuple_(Submission.created_at, Submission.id) < cursor_decode(after))
         async with self.sessions() as session:

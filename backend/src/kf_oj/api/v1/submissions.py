@@ -4,6 +4,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from kf_oj.api.dependencies import current_principal, unsafe_principal
+from kf_oj.contracts.judging_v2 import Language
+from kf_oj.contracts.submission_performance import SubmissionPerformance
 from kf_oj.contracts.submissions import (
     CancellationAccepted,
     CreateSubmission,
@@ -65,9 +67,11 @@ async def history(
     principal: Annotated[Principal, Depends(current_principal)],
     after: Annotated[str | None, Query(max_length=128)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    problem_version_id: UUID | None = None,
+    language: Language | None = None,
 ):
     try:
-        return await queries(request).page(principal, after, limit)
+        return await queries(request).page(principal, after, limit, problem_version_id, language)
     except ValueError:
         raise HTTPException(422, "invalid history request") from None
 
@@ -84,6 +88,23 @@ async def detail(
         raise HTTPException(404, "submission unavailable") from None
     except ValueError:
         raise HTTPException(503, "stored result unavailable") from None
+
+
+@router.get("/{submission_id}/performance", response_model=SubmissionPerformance)
+async def performance(
+    submission_id: UUID,
+    request: Request,
+    principal: Annotated[Principal, Depends(current_principal)],
+):
+    service = getattr(request.app.state, "submission_performance", None)
+    if service is None:
+        raise HTTPException(503, "performance service unavailable")
+    try:
+        return await service.detail(principal, submission_id)
+    except SubmissionUnavailable:
+        raise HTTPException(404, "submission unavailable") from None
+    except ValueError:
+        raise HTTPException(503, "performance unavailable") from None
 
 
 @router.get("/{submission_id}/source", response_model=SubmissionSource)

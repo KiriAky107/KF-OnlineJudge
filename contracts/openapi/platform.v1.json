@@ -308,6 +308,161 @@
         "title": "LoginResponse",
         "type": "object"
       },
+      "PerformanceBucket": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "end": {
+            "maxLength": 19,
+            "minLength": 1,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "maxLength": 19,
+            "minLength": 1,
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Start",
+            "type": "string"
+          },
+          "upper_inclusive": {
+            "title": "Upper Inclusive",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "upper_inclusive",
+          "count"
+        ],
+        "title": "PerformanceBucket",
+        "type": "object"
+      },
+      "PerformanceMetric": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/PerformanceBucket"
+            },
+            "maxItems": 64,
+            "title": "Buckets",
+            "type": "array"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "maxLength": 19,
+                "minLength": 1,
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current"
+          },
+          "oldest_sample_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Sample At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_accepted",
+                  "measurement_missing",
+                  "environment_unverified",
+                  "insufficient_samples"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "sample_count": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Sample Count",
+            "type": "integer"
+          },
+          "strictly_slower_count": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strictly Slower Count"
+          },
+          "tied_count": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tied Count"
+          },
+          "unit": {
+            "enum": [
+              "cpu_microseconds",
+              "bytes"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "window_truncated": {
+            "title": "Window Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "unit",
+          "current",
+          "available",
+          "reason",
+          "sample_count",
+          "window_truncated",
+          "oldest_sample_at",
+          "strictly_slower_count",
+          "tied_count",
+          "buckets"
+        ],
+        "title": "PerformanceMetric",
+        "type": "object"
+      },
       "PreparationKind": {
         "enum": [
           "compile",
@@ -905,6 +1060,84 @@
           "next_after"
         ],
         "title": "SubmissionPage",
+        "type": "object"
+      },
+      "SubmissionPerformance": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "comparison_group": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison Group"
+          },
+          "cpu": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "kind": {
+            "const": "judge.performance",
+            "default": "judge.performance",
+            "title": "Kind",
+            "type": "string"
+          },
+          "language": {
+            "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/PerformanceMetric"
+          },
+          "minimum_samples": {
+            "const": 5,
+            "default": 5,
+            "title": "Minimum Samples",
+            "type": "integer"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          },
+          "window_limit": {
+            "const": 10000,
+            "default": 10000,
+            "title": "Window Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "submission_id",
+          "problem_version_id",
+          "language",
+          "as_of",
+          "comparison_group",
+          "cpu",
+          "memory"
+        ],
+        "title": "SubmissionPerformance",
         "type": "object"
       },
       "SubmissionSource": {
@@ -1557,6 +1790,39 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "problem_version_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Problem Version Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Language-Input"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Language"
+            }
           }
         ],
         "responses": {
@@ -1707,6 +1973,49 @@
           }
         },
         "summary": "Cancel",
+        "tags": [
+          "submissions"
+        ]
+      }
+    },
+    "/api/v1/submissions/{submission_id}/performance": {
+      "get": {
+        "operationId": "performance_api_v1_submissions__submission_id__performance_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Submission Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionPerformance"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Performance",
         "tags": [
           "submissions"
         ]
