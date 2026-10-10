@@ -20,6 +20,7 @@ from kf_oj.infra.coordinator import CoordinatorControl
 from kf_oj.infra.db.session import build_engine, build_session_factory
 from kf_oj.modules.identity.service import IdentityService
 from kf_oj.modules.problems.service import ProblemService
+from kf_oj.modules.submissions.performance import SubmissionPerformanceQueries
 from kf_oj.modules.submissions.queries import SubmissionQueries
 from kf_oj.modules.submissions.service import SubmissionService
 from kf_oj.modules.submissions.worker_access import WorkerAccess
@@ -42,6 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 app.state.identity = IdentityService(
                     app.state.sessions, lifetime_seconds=settings.session_lifetime_seconds
                 )
+                app.state.submission_performance = SubmissionPerformanceQueries(app.state.sessions)
                 artifacts = None
                 if settings.artifact_root is not None:
                     store = ArtifactStore(
@@ -77,6 +79,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.worker_access = None
             app.state.submissions = None
             app.state.submission_queries = None
+            app.state.submission_performance = None
             if engine is not None:
                 await engine.dispose()
             if store is not None:

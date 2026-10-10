@@ -170,6 +170,12 @@ class EvaluationPerformance(Base):
         CheckConstraint("cpu_time_us IS NULL OR cpu_time_us >= 0", name="cpu"),
         CheckConstraint("memory_peak_bytes IS NULL OR memory_peak_bytes >= 0", name="memory"),
         Index(
+            "ix_performance_group_watermark",
+            "comparison_group",
+            text("finished_at DESC"),
+            text("evaluation_id DESC"),
+        ),
+        Index(
             "ix_performance_cpu_time_us_cohort",
             "comparison_group",
             text("finished_at DESC"),
