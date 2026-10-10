@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api/client'
@@ -12,12 +12,28 @@ import { languageCapability, preparationName } from '../composables/judgingLangu
 import CodeEditor from '../components/CodeEditor.vue'
 import EmptyState from '../components/EmptyState.vue'
 import UiIcon from '../components/UiIcon.vue'
+import ProblemSubmissionList from '../components/ProblemSubmissionList.vue'
+import SubmissionInspector from '../components/SubmissionInspector.vue'
 const route = useRoute()
 const router = useRouter()
 const id = String(route.params.id)
 const problem = ref<components['schemas']['ProblemDetail'] | null>(null)
 const { language, code, state, save } = useCodeDraft(id)
 const session = useSession()
+const statementTab = ref<'statement' | 'submissions'>('statement')
+const workbench = ref<'editor' | 'submission'>('editor')
+const selectedSubmission = ref<string | null>(null)
+function selectSubmission(id: string) {
+  selectedSubmission.value = id
+  workbench.value = 'submission'
+}
+watch(
+  () => session.user.value?.id,
+  () => {
+    selectedSubmission.value = null
+    workbench.value = 'editor'
+  },
+)
 const theme = ref('vs')
 const fontSize = ref(14)
 const plain = ref(false)
@@ -178,45 +194,67 @@ onBeforeUnmount(() => {
   >
     <section class="panel statement-panel">
       <div class="statement-content">
-        <div class="problem-title-row">
-          <div>
-            <p class="small muted mono">{{ problem.slug }} · 版本 {{ problem.revision }}</p>
-            <h1>{{ problem.title }}</h1>
-          </div>
-        </div>
-        <div class="problem-limits">
-          <span>CPU 限制：{{ runLimits ? runLimits.cpu_time_us / 1000 + ' ms' : '未提供' }}</span
-          ><span>墙钟限制：{{ runLimits ? runLimits.wall_time_us / 1000 + ' ms' : '未提供' }}</span
-          ><span
-            >内存限制：{{ runLimits ? runLimits.memory_bytes / 1048576 + ' MiB' : '未提供' }}</span
-          ><span>精确字节比较</span>
-        </div>
-        <div class="detail-prose">
-          <h2>题目描述</h2>
-          <pre style="white-space: pre-wrap">{{ problem.statement }}</pre>
-          <div v-for="(item, index) in problem.samples" :key="index" class="sample-grid">
+        <nav class="workspace-tabs" aria-label="题目内容">
+          <el-button
+            :aria-pressed="statementTab === 'statement'"
+            @click="statementTab = 'statement'"
+            >题面</el-button
+          >
+          <el-button
+            :aria-pressed="statementTab === 'submissions'"
+            @click="statementTab = 'submissions'"
+            >本题我的提交</el-button
+          >
+        </nav>
+        <ProblemSubmissionList
+          v-if="statementTab === 'submissions'"
+          :problem-version-id="id"
+          @select="selectSubmission"
+        />
+        <div v-show="statementTab === 'statement'">
+          <div class="problem-title-row">
             <div>
-              <h2>
-                样例输入 {{ index + 1 }}
-                <el-button link @click="copySample(item.input)">复制</el-button>
-              </h2>
-              <pre class="sample-block">{{ sample(item.input) }}</pre>
-            </div>
-            <div>
-              <h2>
-                样例输出 {{ index + 1 }}
-                <el-button link @click="copySample(item.output)">复制</el-button>
-              </h2>
-              <pre class="sample-block">{{ sample(item.output) }}</pre>
+              <p class="small muted mono">{{ problem.slug }} · 版本 {{ problem.revision }}</p>
+              <h1>{{ problem.title }}</h1>
             </div>
           </div>
-          <h2>提交说明</h2>
-          <p>
-            使用标准输入 / 标准输出。支持语言：{{
-              problem.languages.join(' / ')
-            }}。隐藏测试数据不会公开。
-          </p>
-          <RouterLink to="/submissions" class="text-link">查看个人提交记录</RouterLink>
+          <div class="problem-limits">
+            <span>CPU 限制：{{ runLimits ? runLimits.cpu_time_us / 1000 + ' ms' : '未提供' }}</span
+            ><span
+              >墙钟限制：{{ runLimits ? runLimits.wall_time_us / 1000 + ' ms' : '未提供' }}</span
+            ><span
+              >内存限制：{{
+                runLimits ? runLimits.memory_bytes / 1048576 + ' MiB' : '未提供'
+              }}</span
+            ><span>精确字节比较</span>
+          </div>
+          <div class="detail-prose">
+            <h2>题目描述</h2>
+            <pre style="white-space: pre-wrap">{{ problem.statement }}</pre>
+            <div v-for="(item, index) in problem.samples" :key="index" class="sample-grid">
+              <div>
+                <h2>
+                  样例输入 {{ index + 1 }}
+                  <el-button link @click="copySample(item.input)">复制</el-button>
+                </h2>
+                <pre class="sample-block">{{ sample(item.input) }}</pre>
+              </div>
+              <div>
+                <h2>
+                  样例输出 {{ index + 1 }}
+                  <el-button link @click="copySample(item.output)">复制</el-button>
+                </h2>
+                <pre class="sample-block">{{ sample(item.output) }}</pre>
+              </div>
+            </div>
+            <h2>提交说明</h2>
+            <p>
+              使用标准输入 / 标准输出。支持语言：{{
+                problem.languages.join(' / ')
+              }}。隐藏测试数据不会公开。
+            </p>
+            <RouterLink to="/submissions" class="text-link">查看个人提交记录</RouterLink>
+          </div>
         </div>
       </div>
     </section>
@@ -232,108 +270,131 @@ onBeforeUnmount(() => {
       @keydown.left.prevent="split = Math.max(30, split - 2)"
       @keydown.right.prevent="split = Math.min(70, split + 2)"
     />
-    <section class="panel editor-panel">
-      <header class="editor-toolbar">
-        <span class="small muted">语言</span
-        ><el-select v-model="language" aria-label="编程语言" size="small"
-          ><el-option
-            v-for="(label, value) in languageLabels"
-            :key="value"
-            :label="label"
-            :value="value" /></el-select
-        ><el-button size="small" aria-label="重置代码模板" @click="resetCode"
-          ><UiIcon name="refresh" /></el-button
-        ><span class="draft-label" aria-live="polite">{{ draftText }}</span
-        ><el-button size="small" aria-label="下载代码" @click="downloadCode"
-          ><UiIcon name="document"
-        /></el-button>
-        <el-button size="small" @click="plain = !plain">{{
-          plain ? '代码编辑器' : '纯文本编辑'
-        }}</el-button>
-        <el-popover v-model:visible="settingsOpen" trigger="click" width="240"
-          ><template #reference
-            ><el-button size="small" aria-label="编辑器设置"><UiIcon name="settings" /></el-button
-          ></template>
-          <div class="editor-settings">
-            <label>主题</label
-            ><el-select v-model="theme" aria-label="编辑器主题"
-              ><el-option label="浅色" value="vs" /><el-option
-                label="深色"
-                value="vs-dark" /></el-select
-            ><label>字号</label><el-slider v-model="fontSize" :min="12" :max="22" show-input /></div
-        ></el-popover>
-      </header>
-      <div class="editor-area">
-        <textarea
-          v-if="plain"
-          v-model="code"
-          aria-label="源码"
-          style="
-            width: 100%;
-            height: 100%;
-            min-height: 320px;
-            padding: 18px;
-            font-family: monospace;
-            resize: none;
-          "
-          spellcheck="false"
-        /><CodeEditor
-          v-else
-          v-model="code"
-          :language="language"
-          :theme="theme"
-          :font-size="fontSize"
-        />
-      </div>
-      <div class="editor-testing">
-        <p v-if="!supported" class="notice-strip">
-          当前题目版本不支持此语言，草稿仍会保存。请选择题目公布的可用语言。
-        </p>
-        <p
-          v-else-if="capability?.configuration"
-          class="notice-strip"
-          data-testid="language-capability"
+    <section class="panel workbench-panel">
+      <nav class="workspace-tabs" aria-label="工作台">
+        <el-button :aria-pressed="workbench === 'editor'" @click="workbench = 'editor'"
+          >代码编辑器</el-button
         >
-          {{ languageLabels[language] }} · {{ capability.configuration.runtime_version }} ·
-          {{ preparationName(capability.wire) }}后逐点运行。
-          <template v-if="capability.wire === 'java21'">
-            默认包 Main.java，入口为 public static void main(String[])。
-          </template>
-          <template v-else-if="capability.wire === 'python313'">
-            单文件 main.py，仅标准库。
-          </template>
-        </p>
-        <p v-if="submitError" role="alert">
-          {{ submitError }}
-          <RouterLink
-            v-if="!session.user.value"
-            :to="{ path: '/login', query: { next: route.fullPath } }"
-            >重新登录</RouterLink
+        <el-button :aria-pressed="workbench === 'submission'" @click="workbench = 'submission'"
+          >提交详情</el-button
+        >
+      </nav>
+      <div v-show="workbench === 'editor'" class="editor-panel">
+        <header class="editor-toolbar">
+          <span class="small muted">语言</span
+          ><el-select v-model="language" aria-label="编程语言" size="small"
+            ><el-option
+              v-for="(label, value) in languageLabels"
+              :key="value"
+              :label="label"
+              :value="value" /></el-select
+          ><el-button size="small" aria-label="重置代码模板" @click="resetCode"
+            ><UiIcon name="refresh" /></el-button
+          ><span class="draft-label" aria-live="polite">{{ draftText }}</span
+          ><el-button size="small" aria-label="下载代码" @click="downloadCode"
+            ><UiIcon name="document"
+          /></el-button>
+          <el-button size="small" @click="plain = !plain">{{
+            plain ? '代码编辑器' : '纯文本编辑'
+          }}</el-button>
+          <el-popover v-model:visible="settingsOpen" trigger="click" width="240"
+            ><template #reference
+              ><el-button size="small" aria-label="编辑器设置"><UiIcon name="settings" /></el-button
+            ></template>
+            <div class="editor-settings">
+              <label>主题</label
+              ><el-select v-model="theme" aria-label="编辑器主题"
+                ><el-option label="浅色" value="vs" /><el-option
+                  label="深色"
+                  value="vs-dark" /></el-select
+              ><label>字号</label
+              ><el-slider v-model="fontSize" :min="12" :max="22" show-input /></div
+          ></el-popover>
+        </header>
+        <div class="editor-area">
+          <textarea
+            v-if="plain"
+            v-model="code"
+            aria-label="源码"
+            style="
+              width: 100%;
+              height: 100%;
+              min-height: 320px;
+              padding: 18px;
+              font-family: monospace;
+              resize: none;
+            "
+            spellcheck="false"
+          /><CodeEditor
+            v-else
+            v-model="code"
+            :language="language"
+            :theme="theme"
+            :font-size="fontSize"
+          />
+        </div>
+        <div class="editor-testing">
+          <p v-if="!supported" class="notice-strip">
+            当前题目版本不支持此语言，草稿仍会保存。请选择题目公布的可用语言。
+          </p>
+          <p
+            v-else-if="capability?.configuration"
+            class="notice-strip"
+            data-testid="language-capability"
           >
-        </p>
-        <el-input
-          v-model="testInput"
-          type="textarea"
-          :rows="3"
-          aria-label="自测输入"
-          placeholder="自测能力暂未开放，输入不会随提交发送"
-        />
+            {{ languageLabels[language] }} · {{ capability.configuration.runtime_version }} ·
+            {{ preparationName(capability.wire) }}后逐点运行。
+            <template v-if="capability.wire === 'java21'">
+              默认包 Main.java，入口为 public static void main(String[])。
+            </template>
+            <template v-else-if="capability.wire === 'python313'">
+              单文件 main.py，仅标准库。
+            </template>
+          </p>
+          <p v-if="submitError" role="alert">
+            {{ submitError }}
+            <RouterLink
+              v-if="!session.user.value"
+              :to="{ path: '/login', query: { next: route.fullPath } }"
+              >重新登录</RouterLink
+            >
+          </p>
+          <el-input
+            v-model="testInput"
+            type="textarea"
+            :rows="3"
+            aria-label="自测输入"
+            placeholder="自测能力暂未开放，输入不会随提交发送"
+          />
+        </div>
+        <footer class="editor-buttons">
+          <span class="small muted">{{
+            session.user.value ? '提交后评测隐藏测试' : '登录后可提交'
+          }}</span
+          ><el-button size="small" @click="save">保存草稿</el-button
+          ><el-button size="small" type="success" plain disabled>自测运行</el-button
+          ><el-button
+            size="small"
+            type="primary"
+            :loading="busy"
+            :disabled="!supported"
+            @click="submit"
+            >提交代码</el-button
+          >
+        </footer>
       </div>
-      <footer class="editor-buttons">
-        <span class="small muted">{{
-          session.user.value ? '提交后评测隐藏测试' : '登录后可提交'
-        }}</span
-        ><el-button size="small" @click="save">保存草稿</el-button
-        ><el-button size="small" type="success" plain disabled>自测运行</el-button
-        ><el-button
-          size="small"
-          type="primary"
-          :loading="busy"
-          :disabled="!supported"
-          @click="submit"
-          >提交代码</el-button
-        >
-      </footer>
+      <div
+        v-if="workbench === 'submission'"
+        class="workbench-detail"
+        data-testid="workbench-detail"
+      >
+        <SubmissionInspector
+          v-if="selectedSubmission"
+          :submission-id="selectedSubmission"
+          embedded
+        />
+        <p v-else>从“本题我的提交”选择一条记录。</p>
+      </div>
     </section>
   </div>
   <EmptyState v-else :title="loading ? '正在加载题目…' : '题目暂时无法读取'" :description="error"
@@ -580,5 +641,30 @@ onBeforeUnmount(() => {
     width: calc(100% - 24px);
     margin-top: 14px;
   }
+}
+</style>
+
+<style scoped>
+.workbench-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--el-border-color);
+}
+.workbench-panel > .editor-panel {
+  flex: 1;
+  overflow: hidden;
+}
+.workbench-detail {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
 }
 </style>
