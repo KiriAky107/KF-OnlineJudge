@@ -92,6 +92,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn grouping_separates_exact_image_version_and_execution_budgets() {
+        let bytes = include_bytes!(
+            "../../../../tests/fixtures/contracts-v2/judge-manifest.valid-python313.json"
+        );
+        let value: Value = serde_json::from_slice(bytes).unwrap();
+        let original: JobManifest = serde_json::from_value(value.clone()).unwrap();
+        let epoch = "a".repeat(64);
+        let original_group = comparison_group(&original, &epoch).unwrap();
+        for (pointer, replacement) in [
+            ("/toolchain/image_digest", json!("b".repeat(64))),
+            (
+                "/problem_version_id",
+                json!("33333333-3333-4333-8333-333333333333"),
+            ),
+            ("/run_limits/cpu_time_us", json!(500_001)),
+            ("/compile_limits/cpu_time_us", json!(5_000_001)),
+            ("/job_wall_time_us", json!(120_000_001)),
+        ] {
+            let mut changed = value.clone();
+            *changed.pointer_mut(pointer).unwrap() = replacement;
+            let manifest: JobManifest = serde_json::from_value(changed).unwrap();
+            assert_ne!(
+                original_group,
+                comparison_group(&manifest, &epoch).unwrap(),
+                "{pointer} must isolate the cohort"
+            );
+        }
+    }
+
+    #[test]
     fn grouping_ignores_submission_identity_and_separates_epoch_and_language() {
         let bytes =
             include_bytes!("../../../../tests/fixtures/contracts/judge-manifest.valid.json");
