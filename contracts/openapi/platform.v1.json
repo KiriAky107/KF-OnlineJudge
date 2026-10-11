@@ -164,6 +164,38 @@
         "title": "CandidatePreview",
         "type": "object"
       },
+      "ChangeProblemAvailability": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_active_version_id": {
+            "format": "uuid",
+            "title": "Expected Active Version Id",
+            "type": "string"
+          },
+          "expected_enabled": {
+            "title": "Expected Enabled",
+            "type": "boolean"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operation_id",
+          "expected_active_version_id",
+          "expected_enabled"
+        ],
+        "title": "ChangeProblemAvailability",
+        "type": "object"
+      },
       "CompilationStatus": {
         "enum": [
           "succeeded",
@@ -513,6 +545,400 @@
           "csrf_token"
         ],
         "title": "LoginResponse",
+        "type": "object"
+      },
+      "MaintainedProblem": {
+        "additionalProperties": false,
+        "properties": {
+          "active_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Version Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "slug": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "title": "Slug",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "enabled",
+          "active_version_id",
+          "revision",
+          "title",
+          "created_at"
+        ],
+        "title": "MaintainedProblem",
+        "type": "object"
+      },
+      "MaintainedProblemPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MaintainedProblem"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_after": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "next_after"
+        ],
+        "title": "MaintainedProblemPage",
+        "type": "object"
+      },
+      "MaintainedVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "case_count": {
+            "maximum": 256.0,
+            "minimum": 1.0,
+            "title": "Case Count",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "slug": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "title": "Slug",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "version_id",
+          "revision",
+          "title",
+          "languages",
+          "published_at",
+          "case_count"
+        ],
+        "title": "MaintainedVersion",
+        "type": "object"
+      },
+      "MaintainedVersionPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MaintainedVersion"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "next_before"
+        ],
+        "title": "MaintainedVersionPage",
+        "type": "object"
+      },
+      "MaintenanceAuditEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "upload_created",
+              "upload_received",
+              "import_ready",
+              "import_failed",
+              "import_discarded",
+              "import_expired",
+              "published",
+              "disabled",
+              "restored",
+              "authority_bootstrap",
+              "authority_grant",
+              "authority_revoke",
+              "authority_enable",
+              "authority_disable"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "actor_kind": {
+            "enum": [
+              "account",
+              "operator"
+            ],
+            "title": "Actor Kind",
+            "type": "string"
+          },
+          "authorization_version": {
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "title": "Authorization Version",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "operator_name": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator Name"
+          },
+          "result": {
+            "const": "committed",
+            "default": "committed",
+            "title": "Result",
+            "type": "string"
+          },
+          "target_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Id"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "actor_kind",
+          "actor_id",
+          "operator_name",
+          "authorization_version",
+          "operation_id",
+          "action",
+          "target_id"
+        ],
+        "title": "MaintenanceAuditEvent",
+        "type": "object"
+      },
+      "MaintenanceAuditPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MaintenanceAuditEvent"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "next_before"
+        ],
+        "title": "MaintenanceAuditPage",
+        "type": "object"
+      },
+      "MaintenanceReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "publish",
+              "disable",
+              "restore"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "title": "Completed At",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "problem": {
+            "$ref": "#/components/schemas/MaintainedProblem"
+          },
+          "published_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published Version Id"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operation_id",
+          "action",
+          "completed_at",
+          "problem"
+        ],
+        "title": "MaintenanceReceipt",
         "type": "object"
       },
       "PerformanceBucket": {
@@ -1433,6 +1859,52 @@
         "title": "PublicSample",
         "type": "object"
       },
+      "PublishCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_id": {
+            "format": "uuid",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "expected_active_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Active Version Id"
+          },
+          "import_operation_id": {
+            "format": "uuid",
+            "title": "Import Operation Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operation_id",
+          "import_operation_id",
+          "candidate_id",
+          "expected_active_version_id"
+        ],
+        "title": "PublishCandidate",
+        "type": "object"
+      },
       "RunLimits": {
         "additionalProperties": false,
         "properties": {
@@ -2016,6 +2488,100 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/admin/maintenance-audit": {
+      "get": {
+        "operationId": "audit_api_v1_admin_maintenance_audit_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "upload_created",
+                    "upload_received",
+                    "import_ready",
+                    "import_failed",
+                    "import_discarded",
+                    "import_expired",
+                    "published",
+                    "disabled",
+                    "restored",
+                    "authority_bootstrap",
+                    "authority_grant",
+                    "authority_revoke",
+                    "authority_enable",
+                    "authority_disable"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceAuditPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Audit",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
     "/api/v1/admin/problem-imports": {
       "get": {
         "operationId": "page_api_v1_admin_problem_imports_get",
@@ -2273,6 +2839,431 @@
           }
         },
         "summary": "Discard",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
+    "/api/v1/admin/problem-maintenance/{operation_id}": {
+      "get": {
+        "operationId": "receipt_api_v1_admin_problem_maintenance__operation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Receipt",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
+    "/api/v1/admin/problem-publications": {
+      "post": {
+        "operationId": "publish_api_v1_admin_problem_publications_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishCandidate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
+    "/api/v1/admin/problem-slugs/{slug}": {
+      "get": {
+        "operationId": "by_slug_api_v1_admin_problem_slugs__slug__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintainedProblem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "By Slug",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
+    "/api/v1/admin/problems": {
+      "get": {
+        "operationId": "page_api_v1_admin_problems_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "enabled",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Enabled"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintainedProblemPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Page",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
+    "/api/v1/admin/problems/{problem_id}": {
+      "get": {
+        "operationId": "detail_api_v1_admin_problems__problem_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Problem Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintainedProblem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Detail",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
+    "/api/v1/admin/problems/{problem_id}/disable": {
+      "post": {
+        "operationId": "disable_api_v1_admin_problems__problem_id__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Problem Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeProblemAvailability"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disable",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
+    "/api/v1/admin/problems/{problem_id}/restore": {
+      "post": {
+        "operationId": "restore_api_v1_admin_problems__problem_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Problem Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeProblemAvailability"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
+    "/api/v1/admin/problems/{problem_id}/versions": {
+      "get": {
+        "operationId": "versions_api_v1_admin_problems__problem_id__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Problem Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintainedVersionPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Versions",
         "tags": [
           "problem-maintenance"
         ]

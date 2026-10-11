@@ -78,3 +78,7 @@ class JudgingVersion:
 
 class ProblemPort(Protocol):
     async def for_submission(self, session, version_id: UUID) -> JudgingVersion: ...
+
+    async def for_accepted_execution(self, session, version_id: UUID) -> JudgingVersion:
+        """Require an already-validated live execution lease; allow a disabled published version."""
+        ...

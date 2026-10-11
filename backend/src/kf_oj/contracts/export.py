@@ -13,6 +13,12 @@ from kf_oj.contracts.admin_problems import (
 from kf_oj.contracts.judge import JudgeTaskNotification
 from kf_oj.contracts.judging import WIRE_MODELS
 from kf_oj.contracts.judging_v2 import WIRE_MODELS as WIRE_MODELS_V2
+from kf_oj.contracts.problem_maintenance import (
+    ChangeProblemAvailability,
+    MaintenanceAuditPage,
+    MaintenanceReceipt,
+    PublishCandidate,
+)
 from kf_oj.contracts.submission_performance import SubmissionPerformance
 from kf_oj.core.settings import Settings
 
@@ -49,6 +55,10 @@ def main() -> None:
     )
     outputs[root / "contracts/schemas/submission-performance.v1.schema.json"] = performance
     for name, model in {
+        "problem-publish": PublishCandidate,
+        "problem-availability": ChangeProblemAvailability,
+        "problem-maintenance": MaintenanceReceipt,
+        "problem-maintenance-audit": MaintenanceAuditPage,
         "problem-import-create": CreateProblemImport,
         "problem-import": ProblemImportDetail,
         "problem-import-capabilities": ProblemImportCapabilities,

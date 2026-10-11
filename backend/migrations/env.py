@@ -11,7 +11,7 @@ from kf_oj.infra.db.session import build_engine
 from kf_oj.infra.messaging import models as messaging_models  # noqa: F401
 from kf_oj.modules.identity import models as identity_models  # noqa: F401
 from kf_oj.modules.operations import models as operations_models  # noqa: F401
-from kf_oj.modules.problems import import_models  # noqa: F401
+from kf_oj.modules.problems import import_models, maintenance_models  # noqa: F401
 from kf_oj.modules.problems import models as problem_models  # noqa: F401
 from kf_oj.modules.submissions import models as submission_models  # noqa: F401
 

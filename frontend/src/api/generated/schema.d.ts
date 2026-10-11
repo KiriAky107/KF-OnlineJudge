@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/admin/maintenance-audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audit */
+        get: operations["audit_api_v1_admin_maintenance_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/problem-imports": {
         parameters: {
             query?: never;
@@ -84,6 +101,142 @@ export interface paths {
         put?: never;
         /** Discard */
         post: operations["discard_api_v1_admin_problem_imports__operation_id__discard_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-maintenance/{operation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Receipt */
+        get: operations["receipt_api_v1_admin_problem_maintenance__operation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-publications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish */
+        post: operations["publish_api_v1_admin_problem_publications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-slugs/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** By Slug */
+        get: operations["by_slug_api_v1_admin_problem_slugs__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page */
+        get: operations["page_api_v1_admin_problems_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problems/{problem_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_admin_problems__problem_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problems/{problem_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable */
+        post: operations["disable_api_v1_admin_problems__problem_id__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problems/{problem_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore */
+        post: operations["restore_api_v1_admin_problems__problem_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problems/{problem_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Versions */
+        get: operations["versions_api_v1_admin_problems__problem_id__versions_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -392,6 +545,27 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** ChangeProblemAvailability */
+        ChangeProblemAvailability: {
+            /**
+             * Expected Active Version Id
+             * Format: uuid
+             */
+            expected_active_version_id: string;
+            /** Expected Enabled */
+            expected_enabled: boolean;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
         /**
          * CompilationStatus
          * @enum {string}
@@ -551,6 +725,165 @@ export interface components {
              */
             expires_at: string;
             user: components["schemas"]["CurrentUser"];
+        };
+        /** MaintainedProblem */
+        MaintainedProblem: {
+            /** Active Version Id */
+            active_version_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Revision */
+            revision: number;
+            /** Slug */
+            slug: string;
+            /** Title */
+            title: string | null;
+        };
+        /** MaintainedProblemPage */
+        MaintainedProblemPage: {
+            /** Items */
+            items: components["schemas"]["MaintainedProblem"][];
+            /** Next After */
+            next_after: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** MaintainedVersion */
+        MaintainedVersion: {
+            /** Case Count */
+            case_count: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Languages */
+            languages: components["schemas"]["kf_oj__contracts__judging_v2__Language"][];
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Revision */
+            revision: number;
+            /** Slug */
+            slug: string;
+            /** Title */
+            title: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** MaintainedVersionPage */
+        MaintainedVersionPage: {
+            /** Items */
+            items: components["schemas"]["MaintainedVersion"][];
+            /** Next Before */
+            next_before: number | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** MaintenanceAuditEvent */
+        MaintenanceAuditEvent: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "upload_created" | "upload_received" | "import_ready" | "import_failed" | "import_discarded" | "import_expired" | "published" | "disabled" | "restored" | "authority_bootstrap" | "authority_grant" | "authority_revoke" | "authority_enable" | "authority_disable";
+            /** Actor Id */
+            actor_id: string | null;
+            /**
+             * Actor Kind
+             * @enum {string}
+             */
+            actor_kind: "account" | "operator";
+            /** Authorization Version */
+            authorization_version: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /** Operator Name */
+            operator_name: string | null;
+            /**
+             * Result
+             * @default committed
+             * @constant
+             */
+            result: "committed";
+            /** Target Id */
+            target_id: string | null;
+        };
+        /** MaintenanceAuditPage */
+        MaintenanceAuditPage: {
+            /** Items */
+            items: components["schemas"]["MaintenanceAuditEvent"][];
+            /** Next Before */
+            next_before: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** MaintenanceReceipt */
+        MaintenanceReceipt: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "publish" | "disable" | "restore";
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            problem: components["schemas"]["MaintainedProblem"];
+            /** Published Version Id */
+            published_version_id?: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
         };
         /** PerformanceBucket */
         PerformanceBucket: {
@@ -955,6 +1288,32 @@ export interface components {
             /** Output */
             output: string;
         };
+        /** PublishCandidate */
+        PublishCandidate: {
+            /**
+             * Candidate Id
+             * Format: uuid
+             */
+            candidate_id: string;
+            /** Expected Active Version Id */
+            expected_active_version_id: string | null;
+            /**
+             * Import Operation Id
+             * Format: uuid
+             */
+            import_operation_id: string;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
         /** RunLimits */
         RunLimits: {
             /** Cpu Time Us */
@@ -1208,6 +1567,39 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    audit_api_v1_admin_maintenance_audit_get: {
+        parameters: {
+            query?: {
+                before?: string | null;
+                limit?: number;
+                action?: ("upload_created" | "upload_received" | "import_ready" | "import_failed" | "import_discarded" | "import_expired" | "published" | "disabled" | "restored" | "authority_bootstrap" | "authority_grant" | "authority_revoke" | "authority_enable" | "authority_disable") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceAuditPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     page_api_v1_admin_problem_imports_get: {
         parameters: {
             query?: {
@@ -1377,6 +1769,269 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProblemImportSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    receipt_api_v1_admin_problem_maintenance__operation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_api_v1_admin_problem_publications_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishCandidate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    by_slug_api_v1_admin_problem_slugs__slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintainedProblem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    page_api_v1_admin_problems_get: {
+        parameters: {
+            query?: {
+                after?: string | null;
+                limit?: number;
+                enabled?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintainedProblemPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detail_api_v1_admin_problems__problem_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintainedProblem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disable_api_v1_admin_problems__problem_id__disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeProblemAvailability"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_api_v1_admin_problems__problem_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeProblemAvailability"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    versions_api_v1_admin_problems__problem_id__versions_get: {
+        parameters: {
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                problem_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintainedVersionPage"];
                 };
             };
             /** @description Validation Error */

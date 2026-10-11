@@ -1,8 +1,9 @@
 import base64
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4, uuid5
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from kf_oj.contracts import judging_v2 as v2
@@ -28,8 +29,9 @@ from kf_oj.infra.artifacts.repository import ArtifactRepository
 from kf_oj.modules.problems import repository
 from kf_oj.modules.problems.import_format import ImportEnvelope, ProblemImport
 from kf_oj.modules.problems.local_files import LocalImportFiles
-from kf_oj.modules.problems.models import Problem, ProblemCase, ProblemVersion
+from kf_oj.modules.problems.models import Problem
 from kf_oj.modules.problems.public import JudgingVersion, ProblemUnavailable
+from kf_oj.modules.problems.publication import admit_version, publish_version
 
 
 class ProblemService:
@@ -83,27 +85,7 @@ class ProblemService:
             )
             for case, (data, answer) in zip(manifest.cases, payloads, strict=True)
         )
-        legacy = isinstance(manifest, ProblemImport)
-        projection = JudgingVersion(
-            version_id,
-            uuid4(),
-            manifest.languages,
-            manifest.toolchain if legacy else None,
-            manifest.compile_limits if legacy else None,
-            manifest.run_limits if legacy else None,
-            manifest.job_wall_time_us if legacy else None,
-            cases,
-            manifest.schema_version,
-            () if legacy else manifest.language_configurations,
-        )
-        for language in manifest.languages:
-            check = projection.manifest(
-                uuid4(),
-                uuid4(),
-                language,
-                ArtifactReference(digest="0" * 64, bytes=MAX_SOURCE_BYTES),
-            )
-            v2.admit_manifest(self.policy, check, 1)
+        admit_version(self.policy, manifest, version_id, uuid4(), cases)
         async with self.sessions.begin() as session:
             # Lock existing and not-yet-existing logical slugs before assigning revisions.
             await repository.lock_slug(session, manifest.slug)
@@ -114,32 +96,6 @@ class ProblemService:
                 await session.flush()
             if not problem.enabled:
                 raise ProblemUnavailable("problem disabled")
-            revision = await repository.next_revision(session, problem.id)
-            session.add(
-                ProblemVersion(
-                    id=version_id,
-                    problem_id=problem.id,
-                    revision=revision,
-                    title=manifest.title,
-                    statement=statement,
-                    languages=[lang.value for lang in manifest.languages],
-                    judging_schema_version=manifest.schema_version,
-                    language_configurations=(
-                        None
-                        if legacy
-                        else [c.model_dump(mode="json") for c in manifest.language_configurations]
-                    ),
-                    toolchain=manifest.toolchain.model_dump(mode="json") if legacy else None,
-                    compile_limits=manifest.compile_limits.model_dump(mode="json")
-                    if legacy
-                    else None,
-                    run_limits=manifest.run_limits.model_dump(mode="json") if legacy else None,
-                    job_wall_time_us=manifest.job_wall_time_us if legacy else None,
-                    comparison=manifest.comparison,
-                    public_samples=[s.model_dump() for s in samples],
-                )
-            )
-            await session.flush()
             # Consistent digest lock order avoids deadlocks between overlapping imports/jobs.
             unique = {
                 ref.digest: (data, ref)
@@ -149,20 +105,14 @@ class ProblemService:
             for digest in sorted(unique):
                 data, reference = unique[digest]
                 await self.artifacts.put(session, data, reference)
-            for position, case in enumerate(cases):
-                session.add(
-                    ProblemCase(
-                        id=case.case_id,
-                        version_id=version_id,
-                        position=position,
-                        input_digest=case.input.digest,
-                        expected_digest=case.expected.digest,
-                    )
-                )
-            await session.flush()
-            version = await session.get(ProblemVersion, version_id)
-            version.published_at = await session.scalar(select(func.now()))
-            problem.active_version_id = version_id
+            await publish_version(
+                session,
+                problem,
+                manifest,
+                SimpleNamespace(statement=statement, samples=samples),
+                version_id,
+                cases,
+            )
         return version_id
 
     @staticmethod
@@ -213,7 +163,16 @@ class ProblemService:
     async def for_submission(self, session, version_id: UUID) -> JudgingVersion:
         if self.artifacts is None:
             raise ProblemUnavailable("artifact service unavailable")
-        row = await repository.public_version(session, version_id)
+        row = await repository.public_version(session, version_id, admission=True)
+        return await self._judging_version(session, row)
+
+    async def for_accepted_execution(self, session, version_id: UUID) -> JudgingVersion:
+        # Only WorkerAccess calls this after validating the current lease and its
+        # immutable submission/attempt binding; this is never a public UUID lookup.
+        row = await repository.published_version(session, version_id)
+        return await self._judging_version(session, row)
+
+    async def _judging_version(self, session, row):
         if row is None:
             raise ProblemUnavailable("problem version unavailable")
         version, problem = row

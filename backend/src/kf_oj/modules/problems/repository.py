@@ -24,7 +24,22 @@ async def next_revision(session: AsyncSession, problem_id: UUID) -> int:
     return (latest or 0) + 1
 
 
-async def public_version(session: AsyncSession, version_id: UUID):
+async def published_version(session: AsyncSession, version_id: UUID, *, admission=False):
+    query = (
+        select(ProblemVersion, Problem)
+        .join(Problem, Problem.id == ProblemVersion.problem_id)
+        .where(ProblemVersion.id == version_id, ProblemVersion.published_at.is_not(None))
+    )
+    if admission:
+        # A new submission commits while this shared problem lock is held. A
+        # concurrent disable either precedes admission or follows that commit.
+        query = query.where(Problem.enabled.is_(True)).with_for_update(read=True, of=Problem)
+    return (await session.execute(query)).one_or_none()
+
+
+async def public_version(session: AsyncSession, version_id: UUID, *, admission=False):
+    if admission:
+        return await published_version(session, version_id, admission=True)
     return (
         await session.execute(
             select(ProblemVersion, Problem)

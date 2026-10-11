@@ -1,0 +1,122 @@
+{
+  "$defs": {
+    "MaintainedProblem": {
+      "additionalProperties": false,
+      "properties": {
+        "active_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Active Version Id"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 0,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+          "title": "Slug",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Title"
+        }
+      },
+      "required": [
+        "id",
+        "slug",
+        "enabled",
+        "active_version_id",
+        "revision",
+        "title",
+        "created_at"
+      ],
+      "title": "MaintainedProblem",
+      "type": "object"
+    }
+  },
+  "$id": "urn:kf-oj:problem-maintenance:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "publish",
+        "disable",
+        "restore"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "completed_at": {
+      "format": "date-time",
+      "title": "Completed At",
+      "type": "string"
+    },
+    "operation_id": {
+      "format": "uuid",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "problem": {
+      "$ref": "#/$defs/MaintainedProblem"
+    },
+    "published_version_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Published Version Id"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "operation_id",
+    "action",
+    "completed_at",
+    "problem"
+  ],
+  "title": "MaintenanceReceipt",
+  "type": "object"
+}

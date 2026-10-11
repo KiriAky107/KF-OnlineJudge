@@ -1,0 +1,149 @@
+{
+  "$defs": {
+    "MaintenanceAuditEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "upload_created",
+            "upload_received",
+            "import_ready",
+            "import_failed",
+            "import_discarded",
+            "import_expired",
+            "published",
+            "disabled",
+            "restored",
+            "authority_bootstrap",
+            "authority_grant",
+            "authority_revoke",
+            "authority_enable",
+            "authority_disable"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "actor_kind": {
+          "enum": [
+            "account",
+            "operator"
+          ],
+          "title": "Actor Kind",
+          "type": "string"
+        },
+        "authorization_version": {
+          "pattern": "^[1-9][0-9]{0,18}$",
+          "title": "Authorization Version",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "operator_name": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Operator Name"
+        },
+        "result": {
+          "const": "committed",
+          "default": "committed",
+          "title": "Result",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "actor_kind",
+        "actor_id",
+        "operator_name",
+        "authorization_version",
+        "operation_id",
+        "action",
+        "target_id"
+      ],
+      "title": "MaintenanceAuditEvent",
+      "type": "object"
+    }
+  },
+  "$id": "urn:kf-oj:problem-maintenance-audit:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/MaintenanceAuditEvent"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_before": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Before"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "items",
+    "next_before"
+  ],
+  "title": "MaintenanceAuditPage",
+  "type": "object"
+}

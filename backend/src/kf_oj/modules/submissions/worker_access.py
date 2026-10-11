@@ -62,7 +62,9 @@ class WorkerAccess:
                 )
             ):
                 raise WorkerAccessDenied("worker snapshot rejected")
-            version = await self.problems.for_submission(session, manifest.problem_version_id)
+            version = await self.problems.for_accepted_execution(
+                session, manifest.problem_version_id
+            )
             await self.artifacts.check_metadata(session, manifest.source)
             expected = version.manifest(
                 manifest.evaluation_id, manifest.submission_id, manifest.language, manifest.source

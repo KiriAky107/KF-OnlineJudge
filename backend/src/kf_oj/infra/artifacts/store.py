@@ -168,6 +168,51 @@ class ArtifactStore:
         with self.exclusive():
             return self._read(reference)
 
+    def verify(self, reference: ArtifactReference) -> None:
+        """Verify publication inputs with a 64 KiB buffer, without exposing hidden bytes."""
+        ArtifactReference.model_validate(reference)
+        with self.exclusive():
+            try:
+                descriptor = os.open(
+                    reference.digest,
+                    os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                    dir_fd=self._directory,
+                )
+                with os.fdopen(descriptor, "rb") as source:
+                    before = os.fstat(source.fileno())
+                    self._regular(before)
+                    if before.st_size != reference.bytes:
+                        raise ArtifactError("artifact digest or length mismatch")
+                    digest = hashlib.sha256()
+                    remaining = reference.bytes
+                    while remaining:
+                        data = source.read(min(65536, remaining))
+                        if not data:
+                            raise ArtifactError("artifact digest or length mismatch")
+                        digest.update(data)
+                        remaining -= len(data)
+                    after = os.fstat(source.fileno())
+                    if (
+                        source.read(1)
+                        or digest.hexdigest() != reference.digest
+                        or any(
+                            getattr(before, k) != getattr(after, k)
+                            for k in (
+                                "st_dev",
+                                "st_ino",
+                                "st_nlink",
+                                "st_mode",
+                                "st_uid",
+                                "st_size",
+                                "st_mtime_ns",
+                                "st_ctime_ns",
+                            )
+                        )
+                    ):
+                        raise ArtifactError("artifact input changed")
+            except OSError:
+                raise ArtifactError("artifact unavailable") from None
+
     def put_file(self, source: int, expected: ArtifactReference) -> ArtifactReference:
         """Adopt a validated private FD without buffering a hidden testcase in memory."""
         before = os.fstat(source)

@@ -1,5 +1,6 @@
 """Durable imports/candidates, append-only events and accepted-authority worker port."""
 
+import sqlalchemy as sa
 from alembic import op
 
 from kf_oj.modules.operations.models import MaintenanceEvent
@@ -50,9 +51,31 @@ def upgrade():
         ProblemImportOperation,
         ProblemCandidate,
         CandidateCase,
-        MaintenanceEvent,
     ):
         model.__table__.create(connection)
+    # Freeze the historical shape. A later operations model must not cause a
+    # fresh database to skip ahead and conflict with a subsequent ALTER migration.
+    op.create_table(
+        "problem_maintenance_events",
+        sa.Column("id", sa.Uuid(), primary_key=True),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column("actor_id", sa.Uuid(), sa.ForeignKey("accounts.id"), nullable=False),
+        sa.Column("authorization_version", sa.BigInteger(), nullable=False),
+        sa.Column("operation_id", sa.Uuid(), nullable=False),
+        sa.Column("action", sa.String(24), nullable=False),
+        sa.Column("target_id", sa.Uuid()),
+        sa.CheckConstraint("authorization_version > 0", name="authority"),
+        sa.CheckConstraint(
+            "action IN ('upload_created','upload_received','import_ready','import_failed',"
+            "'import_discarded','import_expired','published','disabled','restored')",
+            name="action",
+        ),
+    )
+    op.create_index(
+        "ix_problem_maintenance_events_page", "problem_maintenance_events", ["created_at", "id"]
+    )
     op.create_foreign_key(
         "fk_problem_import_candidate",
         "problem_import_operations",

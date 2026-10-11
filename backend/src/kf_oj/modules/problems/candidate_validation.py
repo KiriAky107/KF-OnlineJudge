@@ -3,14 +3,13 @@
 import hashlib
 import json
 from dataclasses import dataclass
-from uuid import uuid4, uuid5
+from uuid import uuid5
 
-from kf_oj.contracts import judging_v2 as v2
 from kf_oj.contracts.admin_problems import CandidatePreview, LegacyImportBudget
-from kf_oj.contracts.judging import MAX_SOURCE_BYTES, ArtifactReference, TestCase
+from kf_oj.contracts.judging import ArtifactReference, TestCase
 from kf_oj.contracts.problems import PublicLanguageConfiguration
 from kf_oj.modules.problems.import_format import ImportEnvelope, ProblemImport
-from kf_oj.modules.problems.public import JudgingVersion
+from kf_oj.modules.problems.publication import admit_version
 
 
 @dataclass(frozen=True)
@@ -71,27 +70,5 @@ def validate_candidate(manifest_data, preview_data, references, policy) -> Valid
         )
         for c in manifest.cases
     )
-    projection = JudgingVersion(
-        preview.candidate_id,
-        uuid4(),
-        manifest.languages,
-        manifest.toolchain if legacy else None,
-        manifest.compile_limits if legacy else None,
-        manifest.run_limits if legacy else None,
-        manifest.job_wall_time_us if legacy else None,
-        cases,
-        manifest.schema_version,
-        () if legacy else manifest.language_configurations,
-    )
-    for language in manifest.languages:
-        v2.admit_manifest(
-            policy,
-            projection.manifest(
-                uuid4(),
-                uuid4(),
-                language,
-                ArtifactReference(digest="0" * 64, bytes=MAX_SOURCE_BYTES),
-            ),
-            1,
-        )
+    admit_version(policy, manifest, preview.candidate_id, preview.candidate_id, cases)
     return ValidatedCandidate(manifest.model_dump(mode="json"), preview, refs)

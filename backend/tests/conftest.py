@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -40,13 +41,20 @@ def postgres_url():
 
 
 def migrate(url: str, command: str, target: str | None = None) -> None:
-    subprocess.run(
-        [sys.executable, "-m", "alembic", command] + ([target] if target else []),
-        cwd=Path(__file__).resolve().parents[1],
-        env=os.environ | {"KF_OJ_DATABASE_URL": url},
-        check=True,
-        capture_output=True,
-    )
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "alembic", command] + ([target] if target else []),
+            cwd=Path(__file__).resolve().parents[1],
+            env=os.environ | {"KF_OJ_DATABASE_URL": url},
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as error:
+        diagnostic = ((error.stdout or b"") + (error.stderr or b"")).decode(errors="replace")[
+            -8192:
+        ]
+        diagnostic = re.sub(r"postgresql(?:\+asyncpg)?://[^\s]+", "[test database URL]", diagnostic)
+        raise AssertionError(f"test migration {command} failed: " + diagnostic) from None
 
 
 async def connect(url: str):

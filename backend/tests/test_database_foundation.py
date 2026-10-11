@@ -13,7 +13,7 @@ def test_migration_roundtrip_and_role_safety(postgres_url):
         c = await connect(postgres_url)
         try:
             tables = set(await c.fetch("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
-            assert len(tables) == 20  # Nineteen domain/control tables and Alembic history.
+            assert len(tables) == 21  # Twenty domain/control tables and Alembic history.
             roles = await c.fetch("SELECT * FROM pg_roles WHERE rolname LIKE 'kf_oj_%'")
             assert {row["rolname"] for row in roles} == {
                 "kf_oj_platform",
