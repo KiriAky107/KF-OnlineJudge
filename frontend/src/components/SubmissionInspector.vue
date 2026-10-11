@@ -234,6 +234,14 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+}
+
+.summary-card strong {
+  overflow-wrap: anywhere;
+}
+
 .submission-created-at,
 .submission-version-link {
   display: block;
