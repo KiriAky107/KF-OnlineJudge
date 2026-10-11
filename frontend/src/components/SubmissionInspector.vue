@@ -182,8 +182,10 @@ onBeforeUnmount(() => {
       </div>
       <div class="summary-card">
         <p>提交时间</p>
-        <small>{{ submission.created_at }}</small
-        ><RouterLink :to="'/problems/' + submission.problem_version_id"
+        <small class="submission-created-at">{{ submission.created_at }}</small>
+        <RouterLink
+          class="submission-version-link"
+          :to="'/problems/' + submission.problem_version_id"
           >返回提交时的题目版本</RouterLink
         >
       </div>
@@ -230,3 +232,15 @@ onBeforeUnmount(() => {
   </template>
   <p v-else-if="!error">正在读取提交…</p>
 </template>
+
+<style scoped>
+.submission-created-at,
+.submission-version-link {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.submission-version-link {
+  margin-top: 0.5rem;
+}
+</style>
