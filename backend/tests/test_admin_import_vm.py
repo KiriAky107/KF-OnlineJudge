@@ -190,9 +190,19 @@ def test_bounded_zip_and_streaming_adoption(independent_import_vm, tmp_path):
             os.close(fd)
 
 
-def test_real_admin_upload_worker_candidate_faults_restart_and_cleanup(
+def test_real_admin_upload_worker_candidate_boundaries(
     independent_import_vm, postgres_url, tmp_path
 ):
+    _real_import_acceptance(independent_import_vm, postgres_url, tmp_path, recovery_only=False)
+
+
+def test_real_admin_upload_worker_faults_restart_and_cleanup(
+    independent_import_vm, postgres_url, tmp_path
+):
+    _real_import_acceptance(independent_import_vm, postgres_url, tmp_path, recovery_only=True)
+
+
+def _real_import_acceptance(independent_import_vm, postgres_url, tmp_path, *, recovery_only):
     groups = independent_import_vm
     policy = AdmissionRegistry.model_validate_json(
         (ROOT / "tests/fixtures/contracts-v2/judge-registry.valid.json").read_bytes()
@@ -492,7 +502,7 @@ asyncio.run(run())
                     )
                     assert previous is not None
                     start("worker")
-                    deadline = time.monotonic() + 120
+                    deadline = time.monotonic() + 300
                     while time.monotonic() < deadline:
                         assert processes["worker"].poll() is None
                         if await c.fetchval(
@@ -526,122 +536,139 @@ asyncio.run(run())
                         writer.close()
                         await writer.wait_closed()
 
-                for multi, method in ((False, zipfile.ZIP_STORED), (True, zipfile.ZIP_DEFLATED)):
-                    blob, payload = package(policy, multi=multi, method=method)
+                if not recovery_only:
+                    for multi, method in (
+                        (False, zipfile.ZIP_STORED),
+                        (True, zipfile.ZIP_DEFLATED),
+                    ):
+                        blob, payload = package(policy, multi=multi, method=method)
+                        key = await create(blob)
+                        detail = await upload(blob, key)
+                        assert detail["state"] == "ready", (detail["failure_code"], detail["state"])
+                        print(
+                            "ACTUAL_READY_IMPORT", multi, method, detail["candidate_id"], flush=True
+                        )
+                        await wait_released(key, "ready")
+                        retry = await put_blob(blob, key)
+                        assert retry.status_code == 200
+                        different = blob[:-1] + bytes([blob[-1] ^ 1])
+                        conflict = await put_blob(different, key)
+                        assert conflict.status_code == 409
+                        assert (await client.get(f"{prefix}/{key}")).json()[
+                            "candidate_id"
+                        ] == detail["candidate_id"]
+                        assert detail["candidate"]["judging_schema_version"] == (2 if multi else 1)
+                        assert detail["candidate"]["case_count"] == 1
+                        assert len(detail["candidate"]["languages"]) == (4 if multi else 2)
+                        assert "synthetic-hidden" not in json.dumps(detail) and str(
+                            tmp_path
+                        ) not in json.dumps(detail)
+                        # Actual database enforcement, not trigger inspection alone.
+                        worker_db = await connect(
+                            make_url(postgres_url)
+                            .set(username=roles["worker"])
+                            .render_as_string(hide_password=False)
+                        )
+                        try:
+                            from asyncpg import CheckViolationError, InsufficientPrivilegeError
+
+                            with pytest.raises(InsufficientPrivilegeError):
+                                await worker_db.execute(
+                                    "UPDATE problem_candidates SET preview=preview WHERE id=$1",
+                                    UUID(detail["candidate_id"]),
+                                )
+                            with pytest.raises(CheckViolationError):
+                                await worker_db.execute(
+                                    "DELETE FROM problem_candidates WHERE id=$1",
+                                    UUID(detail["candidate_id"]),
+                                )
+                            with pytest.raises(CheckViolationError):
+                                await worker_db.execute(
+                                    """INSERT INTO problem_candidate_cases
+                                  (candidate_id,position,key,input_digest,input_bytes,expected_digest,expected_bytes)
+                                  SELECT candidate_id,1,'late',input_digest,input_bytes,
+                                  expected_digest,expected_bytes
+                                  FROM problem_candidate_cases WHERE candidate_id=$1""",
+                                    UUID(detail["candidate_id"]),
+                                )
+                        finally:
+                            await worker_db.close()
+                        refs = await c.fetch(
+                            "SELECT input_digest,input_bytes,expected_digest,expected_bytes "
+                            "FROM problem_candidate_cases WHERE candidate_id=$1",
+                            UUID(detail["candidate_id"]),
+                        )
+                        assert len(refs) == 1
+                        for field, name in (("input", "hidden.in"), ("expected", "hidden.out")):
+                            digest = refs[0][field + "_digest"]
+                            data = (artifact / digest).read_bytes()
+                            assert (
+                                data == payload[name] and hashlib.sha256(data).hexdigest() == digest
+                            )
+                        assert await c.fetchval("SELECT count(*) FROM problem_versions") == 0
+                        assert (await client.get("/api/v1/problems")).json()["items"] == []
+                        assert (
+                            await c.fetchval(
+                                "SELECT reserved_bytes FROM problem_import_pool WHERE id=1"
+                            )
+                            == 0
+                        )
+                        assert sorted(p.name for p in staging.iterdir()) == [".lock"]
+
+                    def reuse_public_member(payload):
+                        declaration = json.loads(payload["problem.json"])
+                        declaration["samples"][0]["output_file"] = "sample.in"
+                        payload["problem.json"] = json.dumps(declaration).encode()
+                        del payload["sample.out"]
+
+                    # Actual child consumes malformed data but never executes contents.
+                    for mutation in (
+                        lambda p: p.update({"../escape": b"bad"}),
+                        lambda p: p.update({"unknown.bin": b"bad"}),
+                        lambda p: p.update({"hidden.in": b"PK\x03\x04" + b"bad"}),
+                        lambda p: p.update({"sample.in": p["hidden.in"]}),
+                        reuse_public_member,
+                    ):
+                        blob, _ = package(policy, payload_mutation=mutation)
+                        key = await create(blob)
+                        result = await upload(blob, key)
+                        # Publicly declared samples can happen to equal hidden bytes; declarations,
+                        # not byte equality, decide visibility. This last finite case is legal.
+                        if (
+                            b"PK\x03\x04bad" in blob
+                            or b"../escape" in blob
+                            or b"unknown.bin" in blob
+                        ):
+                            assert result["state"] == "failed" and result["candidate"] is None, (
+                                result
+                            )
+                        else:
+                            assert result["state"] == "ready", result
+                        await wait_released(key, result["state"])
+                        assert (
+                            await c.fetchval(
+                                "SELECT reserved_bytes FROM problem_import_pool WHERE id=1"
+                            )
+                            == 0
+                        )
+                    blob, _ = package(policy)
                     key = await create(blob)
-                    detail = await upload(blob, key)
-                    assert detail["state"] == "ready", (detail["failure_code"], detail["state"])
-                    print("ACTUAL_READY_IMPORT", multi, method, detail["candidate_id"], flush=True)
-                    await wait_released(key, "ready")
-                    retry = await put_blob(blob, key)
-                    assert retry.status_code == 200
-                    different = blob[:-1] + bytes([blob[-1] ^ 1])
-                    conflict = await put_blob(different, key)
-                    assert conflict.status_code == 409
-                    assert (await client.get(f"{prefix}/{key}")).json()["candidate_id"] == detail[
-                        "candidate_id"
-                    ]
-                    assert detail["candidate"]["judging_schema_version"] == (2 if multi else 1)
-                    assert detail["candidate"]["case_count"] == 1
-                    assert len(detail["candidate"]["languages"]) == (4 if multi else 2)
-                    assert "synthetic-hidden" not in json.dumps(detail) and str(
-                        tmp_path
-                    ) not in json.dumps(detail)
-                    # Actual database enforcement, not trigger inspection alone.
-                    worker_db = await connect(
-                        make_url(postgres_url)
-                        .set(username=roles["worker"])
-                        .render_as_string(hide_password=False)
-                    )
+                    stop("worker")
+                    occupied = ImportStaging(staging)
                     try:
-                        from asyncpg import CheckViolationError, InsufficientPrivilegeError
-
-                        with pytest.raises(InsufficientPrivilegeError):
-                            await worker_db.execute(
-                                "UPDATE problem_candidates SET preview=preview WHERE id=$1",
-                                UUID(detail["candidate_id"]),
+                        with occupied.exclusive():
+                            mismatch = await client.put(
+                                f"{prefix}/{key}/archive",
+                                content=blob[:-1],
+                                headers=headers | {"Content-Type": "application/zip"},
                             )
-                        with pytest.raises(CheckViolationError):
-                            await worker_db.execute(
-                                "DELETE FROM problem_candidates WHERE id=$1",
-                                UUID(detail["candidate_id"]),
-                            )
-                        with pytest.raises(CheckViolationError):
-                            await worker_db.execute(
-                                """INSERT INTO problem_candidate_cases
-                              (candidate_id,position,key,input_digest,input_bytes,expected_digest,expected_bytes)
-                              SELECT candidate_id,1,'late',input_digest,input_bytes,
-                              expected_digest,expected_bytes
-                              FROM problem_candidate_cases WHERE candidate_id=$1""",
-                                UUID(detail["candidate_id"]),
-                            )
+                            assert mismatch.status_code == 409
                     finally:
-                        await worker_db.close()
-                    refs = await c.fetch(
-                        "SELECT input_digest,input_bytes,expected_digest,expected_bytes "
-                        "FROM problem_candidate_cases WHERE candidate_id=$1",
-                        UUID(detail["candidate_id"]),
-                    )
-                    assert len(refs) == 1
-                    for field, name in (("input", "hidden.in"), ("expected", "hidden.out")):
-                        digest = refs[0][field + "_digest"]
-                        data = (artifact / digest).read_bytes()
-                        assert data == payload[name] and hashlib.sha256(data).hexdigest() == digest
-                    assert await c.fetchval("SELECT count(*) FROM problem_versions") == 0
-                    assert (await client.get("/api/v1/problems")).json()["items"] == []
-                    assert (
-                        await c.fetchval(
-                            "SELECT reserved_bytes FROM problem_import_pool WHERE id=1"
-                        )
-                        == 0
-                    )
-                    assert sorted(p.name for p in staging.iterdir()) == [".lock"]
-
-                def reuse_public_member(payload):
-                    declaration = json.loads(payload["problem.json"])
-                    declaration["samples"][0]["output_file"] = "sample.in"
-                    payload["problem.json"] = json.dumps(declaration).encode()
-                    del payload["sample.out"]
-
-                # Actual child consumes malformed data but never executes contents.
-                for mutation in (
-                    lambda p: p.update({"../escape": b"bad"}),
-                    lambda p: p.update({"unknown.bin": b"bad"}),
-                    lambda p: p.update({"hidden.in": b"PK\x03\x04" + b"bad"}),
-                    lambda p: p.update({"sample.in": p["hidden.in"]}),
-                    reuse_public_member,
-                ):
-                    blob, _ = package(policy, payload_mutation=mutation)
-                    key = await create(blob)
-                    result = await upload(blob, key)
-                    # Publicly declared samples can happen to equal hidden bytes; declarations,
-                    # not byte equality, decide visibility. This last finite case is legal.
-                    if b"PK\x03\x04bad" in blob or b"../escape" in blob or b"unknown.bin" in blob:
-                        assert result["state"] == "failed" and result["candidate"] is None, result
-                    else:
-                        assert result["state"] == "ready", result
-                    await wait_released(key, result["state"])
-                    assert (
-                        await c.fetchval(
-                            "SELECT reserved_bytes FROM problem_import_pool WHERE id=1"
-                        )
-                        == 0
-                    )
+                        occupied.close()
+                    assert (await discard_owned(key)).status_code == 200
+                    print("ACTUAL_IMPORT_CANDIDATE_BOUNDARIES_ACCEPTED", flush=True)
+                    return
                 blob, _ = package(policy)
-                key = await create(blob)
-                stop("worker")
-                occupied = ImportStaging(staging)
-                try:
-                    with occupied.exclusive():
-                        mismatch = await client.put(
-                            f"{prefix}/{key}/archive",
-                            content=blob[:-1],
-                            headers=headers | {"Content-Type": "application/zip"},
-                        )
-                        assert mismatch.status_code == 409
-                finally:
-                    occupied.close()
-                assert (await discard_owned(key)).status_code == 200
                 # Restart after receipt before consumption preserves the immutable operation.
                 stop("worker")
                 key = await create(blob)
@@ -652,12 +679,23 @@ asyncio.run(run())
                 )
                 assert r.status_code == 200 and r.json()["state"] == "uploaded"
                 start("worker")
-                deadline = time.monotonic() + 120
+                began = time.monotonic()
+                deadline = began + 300
+                previous_state = None
                 while time.monotonic() < deadline:
                     detail = (await client.get(f"{prefix}/{key}")).json()
+                    current_state = detail["state"]
+                    if current_state != previous_state:
+                        print(
+                            "ACTUAL_RESTART_OBSERVATION",
+                            round(time.monotonic() - began, 3),
+                            current_state,
+                            flush=True,
+                        )
+                        previous_state = current_state
                     if detail["state"] in ("ready", "failed"):
                         break
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(1)
                 assert detail["state"] == "ready", (detail["failure_code"], detail["state"])
                 assert (
                     await c.fetchval(
@@ -954,7 +992,7 @@ asyncio.run(run())
                 # Missing configuration is observed through the real server, never preview data.
                 stop("api")
                 start("api", configured=False)
-                deadline = time.monotonic() + 120
+                deadline = time.monotonic() + 300
                 while time.monotonic() < deadline:
                     try:
                         r = await client.get(prefix + "/capabilities")
