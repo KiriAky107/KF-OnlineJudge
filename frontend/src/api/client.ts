@@ -19,3 +19,15 @@ export const api = createClient<paths>({
     () => authorizationVersion,
   ),
 })
+
+// Only the bounded administrator ZIP endpoint uses the longer upload deadline.
+// Ordinary login/submission requests keep their existing ten-second budget.
+export const uploadApi = createClient<paths>({
+  baseUrl: import.meta.env.VITE_API_BASE_URL || '',
+  fetch: boundedFetch(
+    globalThis.fetch.bind(globalThis),
+    () => expired(),
+    () => authorizationVersion,
+    40000,
+  ),
+})

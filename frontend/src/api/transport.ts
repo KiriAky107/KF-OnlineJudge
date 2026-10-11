@@ -19,6 +19,7 @@ export function boundedFetch(
   fetcher: typeof fetch,
   unauthorized: () => void,
   authorizationVersion: () => number = () => 0,
+  deadlineMs = 10000,
 ): typeof fetch {
   return async (input, init) => {
     const version = authorizationVersion()
@@ -28,7 +29,7 @@ export function boundedFetch(
         new Request(request, {
           credentials: 'same-origin',
           cache: 'no-store',
-          signal: AbortSignal.any([request.signal, AbortSignal.timeout(10000)]),
+          signal: AbortSignal.any([request.signal, AbortSignal.timeout(deadlineMs)]),
         }),
       )
       if (response.status === 401 && version === authorizationVersion()) unauthorized()
