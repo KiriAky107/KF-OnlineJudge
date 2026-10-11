@@ -1,5 +1,8 @@
 # 本地开发依赖
 
+管理员账号 bootstrap/恢复、有界题包解析服务、不可变发布/下架、审计与回收步骤见
+[题目维护运维说明](admin-problems.md)。该说明与服务模板用于受控部署准备，不表示已部署生产。
+
 `compose.dev.yml` 只提供 PostgreSQL 和 RabbitMQ，端口绑定 localhost。
 先复制 `.env.example` 为 `.env`，然后在仓库根目录运行：
 
