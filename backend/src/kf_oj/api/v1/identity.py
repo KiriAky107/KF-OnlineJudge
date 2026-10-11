@@ -9,11 +9,22 @@ from kf_oj.api.dependencies import (
     trusted_origin,
     unsafe_principal,
 )
-from kf_oj.contracts.identity import CurrentUser, LoginRequest, LoginResponse
+from kf_oj.contracts.identity import AccountCapabilities, CurrentUser, LoginRequest, LoginResponse
 from kf_oj.modules.identity.public import AuthenticationFailed, LoginThrottled, Principal
 from kf_oj.modules.identity.service import IdentityService
 
 router = APIRouter(prefix="/auth", tags=["identity"])
+
+
+def current_user(principal: Principal) -> CurrentUser:
+    return CurrentUser(
+        id=principal.account_id,
+        username=principal.username,
+        capabilities=AccountCapabilities(
+            problem_maintenance=principal.can_maintain_problems,
+            authorization_version=str(principal.authorization_version),
+        ),
+    )
 
 
 @router.post("/login", response_model=LoginResponse, dependencies=[Depends(trusted_origin)])
@@ -58,7 +69,7 @@ async def login(
     )
     response.headers["Cache-Control"] = "no-store"
     return LoginResponse(
-        user=CurrentUser(id=issued.principal.account_id, username=issued.principal.username),
+        user=current_user(issued.principal),
         expires_at=issued.expires_at,
         csrf_token=issued.csrf_token,
     )
@@ -67,7 +78,7 @@ async def login(
 @router.get("/me", response_model=CurrentUser)
 async def me(response: Response, principal: Annotated[Principal, Depends(current_principal)]):
     response.headers["Cache-Control"] = "no-store"
-    return CurrentUser(id=principal.account_id, username=principal.username)
+    return current_user(principal)
 
 
 @router.post("/logout", status_code=204, dependencies=[Depends(unsafe_principal)])

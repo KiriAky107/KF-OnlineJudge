@@ -51,19 +51,31 @@ async def account_by_username(session: AsyncSession, username: str) -> Account |
     return await session.scalar(select(Account).where(Account.username == username))
 
 
-async def current_session(session: AsyncSession, token_hash: str):
-    return (
-        await session.execute(
-            select(Session, Account)
-            .join(Account)
-            .where(
-                Session.token_hash == token_hash,
-                Session.revoked_at.is_(None),
-                Session.expires_at > func.now(),
-                Account.enabled.is_(True),
-            )
+async def lock_authority(session: AsyncSession, account_id) -> Account | None:
+    return await session.scalar(
+        select(Account)
+        .where(Account.id == account_id)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+
+
+async def current_session(session: AsyncSession, token_hash: str, *, lock_session: bool = False):
+    query = (
+        select(Session, Account)
+        .join(Account)
+        .where(
+            Session.token_hash == token_hash,
+            Session.revoked_at.is_(None),
+            Session.expires_at > func.clock_timestamp(),
+            Account.enabled.is_(True),
         )
-    ).one_or_none()
+    )
+    if lock_session:
+        query = query.with_for_update(read=True, of=Session).execution_options(
+            populate_existing=True
+        )
+    return (await session.execute(query)).one_or_none()
 
 
 async def prune_sessions(session: AsyncSession, account_id) -> None:

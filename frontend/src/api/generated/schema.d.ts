@@ -233,6 +233,25 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AccountCapabilities */
+        AccountCapabilities: {
+            /**
+             * Authorization Version
+             * @default 1
+             */
+            authorization_version: string;
+            /**
+             * Problem Maintenance
+             * @default false
+             */
+            problem_maintenance: boolean;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
         /** ArtifactReference */
         ArtifactReference: {
             /** Bytes */
@@ -282,6 +301,7 @@ export interface components {
         };
         /** CurrentUser */
         CurrentUser: {
+            capabilities?: components["schemas"]["AccountCapabilities"];
             /**
              * Id
              * Format: uuid

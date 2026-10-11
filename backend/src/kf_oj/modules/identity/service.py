@@ -18,7 +18,12 @@ from kf_oj.modules.identity.passwords import (
     validate_account,
     verify_password,
 )
-from kf_oj.modules.identity.public import AuthenticationFailed, LoginThrottled, Principal
+from kf_oj.modules.identity.public import (
+    AuthenticationFailed,
+    LoginThrottled,
+    MaintenanceDenied,
+    Principal,
+)
 
 TOKEN = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -107,7 +112,7 @@ class IdentityService:
                         expires_at=expires,
                     )
                 )
-                principal = Principal(account.id, account.username)
+                principal = self._principal(account, token_digest(token))
             return IssuedSession(principal, expires, token, csrf)
 
     async def authenticate(self, token: str | None, *, csrf_token: str | None = None) -> Principal:
@@ -123,7 +128,43 @@ class IdentityService:
                     record.csrf_hash, token_digest(csrf_token)
                 ):
                     raise AuthenticationFailed("invalid request token")
-            return Principal(account.id, account.username)
+            return self._principal(account, record.token_hash)
+
+    @staticmethod
+    def _principal(account: Account, session_token_hash: str) -> Principal:
+        return Principal(
+            account.id,
+            account.username,
+            account.is_administrator,
+            account.authorization_version,
+            session_token_hash,
+        )
+
+    async def require_problem_maintenance(self, session, principal: Principal) -> None:
+        if not session.in_transaction():
+            raise ValueError("maintenance authorization requires an active write transaction")
+        if (
+            not principal.can_maintain_problems
+            or principal.session_token_hash is None
+            or not TOKEN.fullmatch(principal.session_token_hash)
+        ):
+            raise MaintenanceDenied("problem maintenance required")
+        # Account first, then session: authority changes use that same lock order.
+        # SHARE locks last until the caller commits/rolls back; a stale principal,
+        # explicit logout, revocation or expired session cannot authorize a write.
+        account = await repository.lock_authority(session, principal.account_id)
+        if (
+            account is None
+            or not account.enabled
+            or not account.is_administrator
+            or account.authorization_version != principal.authorization_version
+        ):
+            raise MaintenanceDenied("problem maintenance required")
+        row = await repository.current_session(
+            session, principal.session_token_hash, lock_session=True
+        )
+        if row is None or row[1].id != account.id:
+            raise MaintenanceDenied("problem maintenance required")
 
     async def logout(self, token: str, csrf_token: str) -> None:
         await self.authenticate(token, csrf_token=csrf_token)
