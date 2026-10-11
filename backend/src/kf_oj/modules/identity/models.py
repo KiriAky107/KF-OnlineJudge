@@ -3,7 +3,17 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from kf_oj.infra.db.base import Base
@@ -15,12 +25,20 @@ class Account(CreatedAt, Base):
     __table_args__ = (
         CheckConstraint("username ~ '^[a-z0-9_]{3,24}$'", name="canonical_username"),
         CheckConstraint("char_length(password_hash) BETWEEN 40 AND 256", name="password_hash_size"),
+        CheckConstraint("authorization_version >= 1", name="authorization_version"),
+        Index(
+            "ix_accounts_active_administrators",
+            "id",
+            postgresql_where=text("is_administrator AND enabled"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(24), unique=True)
     password_hash: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    is_administrator: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    authorization_version: Mapped[int] = mapped_column(BigInteger, server_default="1")
 
 
 class Session(CreatedAt, Base):
