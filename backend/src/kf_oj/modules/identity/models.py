@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    SmallInteger,
     String,
     Text,
     text,
@@ -18,6 +19,19 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from kf_oj.infra.db.base import Base
 from kf_oj.infra.db.columns import CreatedAt
+
+
+class AuthorityGuard(Base):
+    """Migration-owned singleton; runtime roles have no access."""
+
+    __tablename__ = "identity_authority_guard"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="singleton"),
+        CheckConstraint("generation >= 0", name="generation"),
+    )
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    generation: Mapped[int] = mapped_column(BigInteger, server_default="0")
 
 
 class Account(CreatedAt, Base):

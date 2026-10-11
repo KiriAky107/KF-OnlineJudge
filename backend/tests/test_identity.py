@@ -219,7 +219,7 @@ def test_real_concurrent_logins_keep_bounded_active_sessions(postgres_url):
     asyncio.run(run())
 
 
-def test_account_cli_hidden_password_and_disable(postgres_url):
+def test_account_cli_hidden_password_and_session_disable(postgres_url):
     password = secrets.token_hex(16)
     # The CLI prompts through a real private PTY; the password is never an argument/environment.
     pid, descriptor = pty.fork()
@@ -264,9 +264,7 @@ def test_account_cli_hidden_password_and_disable(postgres_url):
         try:
             service = IdentityService(sessions)
             issued = await service.login("cli_user", password, peer="cli-fixture")
-            from kf_oj.modules.identity.cli import run
-
-            await run("disable", "cli_user")
+            assert await service.disable_account("cli_user")
             with pytest.raises(AuthenticationFailed):
                 await service.authenticate(issued.token)
         finally:

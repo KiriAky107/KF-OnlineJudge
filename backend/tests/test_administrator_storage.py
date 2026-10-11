@@ -118,7 +118,7 @@ def test_authority_columns_and_import_role_are_not_runtime_write_permissions(pos
             assert await connection.fetchval(
                 "SELECT has_column_privilege('kf_oj_platform','accounts','enabled','UPDATE')"
             )
-            assert await connection.fetchval(
+            assert not await connection.fetchval(
                 "SELECT has_column_privilege('kf_oj_identity_operator',"
                 "'accounts','is_administrator','UPDATE')"
             )
@@ -146,7 +146,7 @@ def test_authority_change_derives_version_and_revokes_old_session_atomically(pos
             async with connection.transaction():
                 await connection.execute("SET LOCAL ROLE kf_oj_identity_operator")
                 await connection.execute(
-                    "UPDATE accounts SET is_administrator=true WHERE id=$1", account
+                    "SELECT * FROM public.kf_manage_account_authority('storage_user','bootstrap')"
                 )
             assert (
                 await connection.fetchval(
@@ -159,7 +159,7 @@ def test_authority_change_derives_version_and_revokes_old_session_atomically(pos
             async with connection.transaction():
                 await connection.execute("SET LOCAL ROLE kf_oj_identity_operator")
                 await connection.execute(
-                    "UPDATE accounts SET is_administrator=true WHERE id=$1", account
+                    "SELECT * FROM public.kf_manage_account_authority('storage_user','bootstrap')"
                 )
             assert (
                 await connection.fetchval(
@@ -175,10 +175,19 @@ def test_authority_change_derives_version_and_revokes_old_session_atomically(pos
                 token_digest(fresh_csrf),
                 account,
             )
+            await connection.execute(
+                "INSERT INTO accounts(id,username,password_hash) "
+                "VALUES(gen_random_uuid(),'storage_recovery',repeat('synthetic-only-',5))"
+            )
+            async with connection.transaction():
+                await connection.execute("SET LOCAL ROLE kf_oj_identity_operator")
+                await connection.execute(
+                    "SELECT * FROM public.kf_manage_account_authority('storage_recovery','grant')"
+                )
             with pytest.raises(RollBackAuthorityChange):
                 async with connection.transaction():
                     await connection.execute(
-                        "UPDATE accounts SET is_administrator=false WHERE id=$1", account
+                        "SELECT * FROM public.kf_manage_account_authority('storage_user','revoke')"
                     )
                     assert (
                         await connection.fetchval(
@@ -200,7 +209,7 @@ def test_authority_change_derives_version_and_revokes_old_session_atomically(pos
             async with connection.transaction():
                 await connection.execute("SET LOCAL ROLE kf_oj_identity_operator")
                 await connection.execute(
-                    "UPDATE accounts SET is_administrator=false WHERE id=$1", account
+                    "SELECT * FROM public.kf_manage_account_authority('storage_user','revoke')"
                 )
             assert (
                 await connection.fetchval(

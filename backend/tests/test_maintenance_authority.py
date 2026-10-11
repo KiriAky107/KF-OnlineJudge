@@ -34,10 +34,27 @@ def test_capability_wire_version_and_default_denial():
 
 
 async def set_administrator(connection, account_id, enabled):
+    username = await connection.fetchval("SELECT username FROM accounts WHERE id=$1", account_id)
+    active = await connection.fetchval(
+        "SELECT count(*) FROM accounts WHERE enabled AND is_administrator"
+    )
+    async with connection.transaction():
+        await connection.execute("SET LOCAL ROLE kf_oj_identity_operator")
+        operation = ("grant" if active else "bootstrap") if enabled else "revoke"
+        await connection.execute(
+            "SELECT * FROM public.kf_manage_account_authority($1,$2)", username, operation
+        )
+
+
+async def add_recovery_administrator(connection):
+    await connection.execute(
+        "INSERT INTO accounts(id,username,password_hash) "
+        "VALUES(gen_random_uuid(),'authority_recovery',repeat('synthetic-only-',5))"
+    )
     async with connection.transaction():
         await connection.execute("SET LOCAL ROLE kf_oj_identity_operator")
         await connection.execute(
-            "UPDATE accounts SET is_administrator=$1 WHERE id=$2", enabled, account_id
+            "SELECT * FROM public.kf_manage_account_authority('authority_recovery','grant')"
         )
 
 
@@ -74,6 +91,7 @@ def test_live_http_capabilities_and_old_cookies_after_grant_and_revoke(postgres_
                     )
                     assert actual.json() == user
                     assert actual.headers["cache-control"] == "no-store"
+                    await add_recovery_administrator(connection)
                     await set_administrator(connection, account.account_id, False)
                     assert (await client.get("/api/v1/auth/me")).status_code == 401
                     refused = await client.post(
@@ -105,6 +123,7 @@ def test_write_transaction_rechecks_session_and_serializes_authority_change(post
             principal = await identity.authenticate(issued.token)
             assert principal.can_maintain_problems and principal.authorization_version == 2
             assert principal.session_token_hash not in repr(principal)
+            await add_recovery_administrator(connection)
             async with sessions.begin() as session:
                 await identity.require_problem_maintenance(session, principal)
                 pending = asyncio.create_task(set_administrator(other, account.account_id, False))

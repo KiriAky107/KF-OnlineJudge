@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     database_url: SecretStr | None = None
+    identity_operator_database_url: SecretStr | None = None
     amqp_url: SecretStr | None = None
     browser_origins: tuple[str, ...] = (
         "http://localhost:5173",
@@ -22,6 +23,8 @@ class Settings(BaseSettings):
     )
     session_lifetime_seconds: int = Field(default=43200, ge=300, le=86400)
     artifact_root: Path | None = None
+    import_staging_root: Path | None = None
+    import_worker_cgroup: Path | None = None
     artifact_max_bytes: int = Field(default=536870912, ge=1, le=16 * 1024**3)
     artifact_max_files: int = Field(default=4096, ge=1, le=65536)
     judge_admission: NodeAdmission | None = None

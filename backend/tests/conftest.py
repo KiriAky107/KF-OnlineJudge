@@ -3,6 +3,7 @@
 import asyncio
 import os
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -40,8 +41,7 @@ def postgres_url():
 
 def migrate(url: str, command: str, target: str | None = None) -> None:
     subprocess.run(
-        [str(Path(__file__).resolve().parents[1] / ".venv/bin/alembic"), command]
-        + ([target] if target else []),
+        [sys.executable, "-m", "alembic", command] + ([target] if target else []),
         cwd=Path(__file__).resolve().parents[1],
         env=os.environ | {"KF_OJ_DATABASE_URL": url},
         check=True,
