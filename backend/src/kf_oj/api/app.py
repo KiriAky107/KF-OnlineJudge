@@ -7,6 +7,7 @@ from starlette.responses import JSONResponse
 
 from kf_oj import __version__
 from kf_oj.api.body_limits import BodyLimitMiddleware
+from kf_oj.api.v1.admin_imports import router as import_router
 from kf_oj.api.v1.identity import router as identity_router
 from kf_oj.api.v1.problems import router as problems_router
 from kf_oj.api.v1.router import router
@@ -15,10 +16,13 @@ from kf_oj.api.v1.worker_artifacts import router as worker_router
 from kf_oj.core.logging import configure_logging
 from kf_oj.core.settings import Settings
 from kf_oj.infra.artifacts.repository import ArtifactRepository
+from kf_oj.infra.artifacts.staging import ImportStaging
 from kf_oj.infra.artifacts.store import ArtifactStore
 from kf_oj.infra.coordinator import CoordinatorControl
 from kf_oj.infra.db.session import build_engine, build_session_factory
 from kf_oj.modules.identity.service import IdentityService
+from kf_oj.modules.operations.service import MaintenanceAudit
+from kf_oj.modules.problems.imports import ProblemImports
 from kf_oj.modules.problems.service import ProblemService
 from kf_oj.modules.submissions.performance import SubmissionPerformanceQueries
 from kf_oj.modules.submissions.queries import SubmissionQueries
@@ -36,6 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         logger.info("Platform API started")
         engine = None
         store = None
+        staging = None
         try:
             if settings.database_url is not None:
                 engine = build_engine(settings)
@@ -52,6 +57,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         max_files=settings.artifact_max_files,
                     )
                     artifacts = ArtifactRepository(store)
+                    if (
+                        settings.import_staging_root is not None
+                        and settings.judge_admission is not None
+                    ):
+                        staging = ImportStaging(settings.import_staging_root)
+                        app.state.problem_imports = ProblemImports(
+                            app.state.sessions,
+                            staging,
+                            app.state.identity,
+                            MaintenanceAudit(),
+                            settings.judge_admission,
+                        )
                 app.state.problems = ProblemService(
                     app.state.sessions, artifacts, settings.judge_admission
                 )
@@ -80,10 +97,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.submissions = None
             app.state.submission_queries = None
             app.state.submission_performance = None
+            app.state.problem_imports = None
             if engine is not None:
                 await engine.dispose()
             if store is not None:
                 store.close()
+            if staging is not None:
+                staging.close()
             logger.info("Platform API stopped")
 
     app = FastAPI(
@@ -101,7 +121,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.middleware("http")
     async def private_responses(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(("/api/v1/auth", "/api/v1/submissions", "/api/v1/internal")):
+        if request.url.path.startswith(
+            ("/api/v1/auth", "/api/v1/submissions", "/api/v1/internal", "/api/v1/admin")
+        ):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -114,4 +136,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(problems_router, prefix="/api/v1")
     app.include_router(worker_router, prefix="/api/v1")
     app.include_router(submission_router, prefix="/api/v1")
+    app.include_router(import_router, prefix="/api/v1")
     return app

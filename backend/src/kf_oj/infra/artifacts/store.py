@@ -168,6 +168,90 @@ class ArtifactStore:
         with self.exclusive():
             return self._read(reference)
 
+    def put_file(self, source: int, expected: ArtifactReference) -> ArtifactReference:
+        """Adopt a validated private FD without buffering a hidden testcase in memory."""
+        before = os.fstat(source)
+        self._regular(before)
+        if before.st_size != expected.bytes:
+            raise ArtifactError("artifact digest or length mismatch")
+
+        def unchanged(descriptor, original):
+            current = os.fstat(descriptor)
+            fields = (
+                "st_dev",
+                "st_ino",
+                "st_nlink",
+                "st_mode",
+                "st_uid",
+                "st_size",
+                "st_mtime_ns",
+                "st_ctime_ns",
+            )
+            if any(getattr(current, k) != getattr(original, k) for k in fields):
+                raise ArtifactError("artifact input changed")
+
+        def stream(descriptor, *, output=None):
+            digest = hashlib.sha256()
+            for offset in range(0, expected.bytes, 65536):
+                data = os.pread(descriptor, min(65536, expected.bytes - offset), offset)
+                if len(data) != min(65536, expected.bytes - offset):
+                    raise ArtifactError("artifact digest or length mismatch")
+                digest.update(data)
+                if output is not None:
+                    output.write(data)
+            if digest.hexdigest() != expected.digest:
+                raise ArtifactError("artifact digest or length mismatch")
+
+        with self.exclusive():
+            entries = self._entries()
+            if any(name == expected.digest for name, _ in entries):
+                existing = os.open(
+                    expected.digest,
+                    os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                    dir_fd=self._directory,
+                )
+                try:
+                    self._regular(os.fstat(existing))
+                    if os.fstat(existing).st_size != expected.bytes:
+                        raise ArtifactError("artifact digest or length mismatch")
+                    stream(source)
+                    stream(existing)
+                finally:
+                    os.close(existing)
+            else:
+                if (
+                    len(entries) + 1 > self.max_files
+                    or sum(s.st_size for _, s in entries) + expected.bytes > self.max_bytes
+                ):
+                    raise ArtifactError("storage capacity exhausted")
+                temporary = ".tmp-" + uuid4().hex
+                descriptor = os.open(
+                    temporary,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    0o600,
+                    dir_fd=self._directory,
+                )
+                try:
+                    with os.fdopen(descriptor, "wb") as out:
+                        stream(source, output=out)
+                        out.flush()
+                        os.fsync(out.fileno())
+                    unchanged(source, before)
+                    os.rename(
+                        temporary,
+                        expected.digest,
+                        src_dir_fd=self._directory,
+                        dst_dir_fd=self._directory,
+                    )
+                    os.fsync(self._directory)
+                finally:
+                    try:
+                        os.unlink(temporary, dir_fd=self._directory)
+                    except FileNotFoundError:
+                        pass
+        unchanged(source, before)
+        return expected
+
     def remove(self, digest: str) -> None:
         if not DIGEST.fullmatch(digest):
             raise ArtifactError("invalid artifact identifier")

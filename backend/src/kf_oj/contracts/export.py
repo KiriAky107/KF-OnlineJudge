@@ -5,6 +5,11 @@ import json
 from pathlib import Path
 
 from kf_oj.api.app import create_app
+from kf_oj.contracts.admin_problems import (
+    CreateProblemImport,
+    ProblemImportCapabilities,
+    ProblemImportDetail,
+)
 from kf_oj.contracts.judge import JudgeTaskNotification
 from kf_oj.contracts.judging import WIRE_MODELS
 from kf_oj.contracts.judging_v2 import WIRE_MODELS as WIRE_MODELS_V2
@@ -43,6 +48,15 @@ def main() -> None:
         "counts; also run model validation and server-side ownership/environment checks."
     )
     outputs[root / "contracts/schemas/submission-performance.v1.schema.json"] = performance
+    for name, model in {
+        "problem-import-create": CreateProblemImport,
+        "problem-import": ProblemImportDetail,
+        "problem-import-capabilities": ProblemImportCapabilities,
+    }.items():
+        document = model.model_json_schema()
+        document["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+        document["$id"] = f"urn:kf-oj:{name}:v1"
+        outputs[root / f"contracts/schemas/{name}.v1.schema.json"] = document
     for name, model in WIRE_MODELS_V2.items():
         document = model.model_json_schema()
         document["$schema"] = "https://json-schema.org/draft/2020-12/schema"

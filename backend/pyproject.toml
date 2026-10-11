@@ -22,6 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
+ kf-problem-import-worker = "kf_oj.workers.problem_import:main"
 kf-accounts = "kf_oj.modules.identity.cli:main"
 kf-problems = "kf_oj.modules.problems.cli:main"
 kf-artifacts = "kf_oj.infra.artifacts.cli:main"

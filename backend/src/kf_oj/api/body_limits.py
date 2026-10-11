@@ -1,6 +1,7 @@
 """Bound request bytes and upload time before schema parsing can allocate large inputs."""
 
 import asyncio
+import re
 
 from starlette.responses import JSONResponse
 
@@ -11,6 +12,14 @@ class BodyLimitMiddleware:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope["method"] in {"GET", "HEAD", "OPTIONS"}:
+            await self.app(scope, receive, send)
+            return
+        if scope["method"] == "PUT" and re.fullmatch(
+            r"/api/v1/admin/problem-imports/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/archive",
+            scope["path"],
+        ):
+            # Only this exact endpoint can stream. Its live administrator gate runs
+            # before receive(), then its service enforces actual bytes/chunks/deadline.
             await self.app(scope, receive, send)
             return
         limit = 8192 if scope["path"] == "/api/v1/auth/login" else 1024 * 1024

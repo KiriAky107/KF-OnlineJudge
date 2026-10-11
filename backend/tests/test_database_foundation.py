@@ -1,5 +1,6 @@
 import asyncio
 import json
+import subprocess
 from uuid import uuid4
 
 import asyncpg
@@ -12,7 +13,7 @@ def test_migration_roundtrip_and_role_safety(postgres_url):
         c = await connect(postgres_url)
         try:
             tables = set(await c.fetch("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
-            assert len(tables) == 15  # Fourteen domain/control tables and Alembic history.
+            assert len(tables) == 20  # Nineteen domain/control tables and Alembic history.
             roles = await c.fetch("SELECT * FROM pg_roles WHERE rolname LIKE 'kf_oj_%'")
             assert {row["rolname"] for row in roles} == {
                 "kf_oj_platform",
@@ -44,7 +45,14 @@ def test_migration_roundtrip_and_role_safety(postgres_url):
     asyncio.run(inspect())
     migrate(postgres_url, "downgrade", "base")
     migrate(postgres_url, "upgrade", "head")
-    migrate(postgres_url, "check")
+    try:
+        migrate(postgres_url, "check")
+    except subprocess.CalledProcessError as error:
+        raise AssertionError(
+            "migration model consistency failed: "
+            + (error.stdout or b"").decode(errors="replace")[-8192:]
+            + (error.stderr or b"").decode(errors="replace")[-8192:]
+        ) from None
     asyncio.run(inspect())
 
 

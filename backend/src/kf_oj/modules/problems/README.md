@@ -31,3 +31,32 @@ v2 使用 `schema_version: 2` 与 `language_configurations`，每个配置包含
 导入同一 slug 的 v2 版本保持原 v1 版本与提交不变。已有提交按其保存的协议版本解析，
 不能重新序列化旧 canonical 数据来补入新字段。Java 使用 Main.java 与默认包 Main；
 Python 使用 main.py。每个新版本的语言集合独立，浏览器不得为旧版本补开新语言。
+
+
+Web题包导入是独立的待发布流程：`/api/v1/admin/problem-imports` 使用真实维护会话，
+写入还要求明确Origin与绑定CSRF。先以稳定操作UUID、ZIP摘要和精确字节数建立容量预约，
+再向该操作的 `/archive` 流式PUT；同键重试仍验证实际内容，不会确认异内容。
+列表、详情和丢弃只开放给该操作的管理员本人，响应仅含公开题面、样例、语言预算与有限错误。
+`ready` 尚未发布，不会加入学生题库，也不改变既有题目版本。
+
+Web格式固定单层ZIP的stored/deflate，清单名为`problem.json`；公开文件与隐藏用例文件
+必须显式分别声明且不得混用。文件名只接受有界ASCII单层普通名；未知成员、链接/设备、
+加密、嵌套归档、额外前缀/尾随内容、损坏CRC与虚假大小被拒。旧受控目录CLI格式保持原义。
+压缩与实际解压各64 MiB、最多534文件，上传最多4096帧/每帧1 MiB/30秒；
+解析期限60秒。staging总预约256 MiB，每次128 MiB，单全局上传/解析槽位，
+本人最多10个/全局32个活跃候选，操作24小时到期，解析死亡最多领取两次。
+真实限额由管理capabilities返回；缺少配置或新鲜Worker资源证明时明确不可用。
+
+`uv run --locked kf-problem-import-worker` 是普通用户、独立数据库登录的组合入口。
+配置`KF_OJ_IMPORT_STAGING_ROOT`、`KF_OJ_ARTIFACT_ROOT`、可信准入和
+`KF_OJ_IMPORT_WORKER_CGROUP`；staging与工件目录必须归服务用户所有且权限0700。
+服务不会sudo、执行上传内容/学生源码、联网安装依赖或读写评测状态。启动及每次解析
+读回128 MiB/swap0/PIDs16/CPU不超过一核及文件/FD/core上限，错误身份/无界环境拒绝服务。
+解析子进程继承同一个内核文件锁，父进程死亡不能让GC在存活子进程仍持有文件时释放容量。
+租约与fence防止旧结果写入；完整工件持久化、候选和引用原子落库后才返回ready。
+丢弃/失败/到期先清理私有暂存字节再释放预约，保留不可变操作记录与追加式有限审计。
+
+资源约束服务模板见`deploy/problem-import-worker.service.example`。API和Worker需可访问
+同一普通用户的私有目录；数据库采用各自最小角色，导入Worker只通过固定身份公开端口
+验证已受理的维护授权。PrivateNetwork模板要求Unix PostgreSQL socket；实际部署前由运维
+设置外部私有配置、专用登录与目录，不包含默认口令，也不代表本轮已经生产部署。

@@ -50,6 +50,28 @@ class ArtifactRepository:
             raise ArtifactError("artifact metadata unavailable")
         return await asyncio.to_thread(self.store.read, reference)
 
+    async def put_file(
+        self, session: AsyncSession, descriptor: int, reference: ArtifactReference
+    ) -> ArtifactReference:
+        await lock_digest(session, reference.digest)
+        existing = await session.get(Artifact, reference.digest)
+        if existing is not None and (
+            existing.state != "ready" or existing.bytes != reference.bytes
+        ):
+            raise ArtifactError("artifact metadata unavailable")
+        task = asyncio.create_task(asyncio.to_thread(self.store.put_file, descriptor, reference))
+        try:
+            await asyncio.shield(task)
+        except BaseException:
+            await task
+            raise
+        await session.execute(
+            insert(Artifact)
+            .values(digest=reference.digest, bytes=reference.bytes)
+            .on_conflict_do_nothing(index_elements=[Artifact.digest])
+        )
+        return reference
+
     async def check_metadata(self, session: AsyncSession, reference: ArtifactReference) -> None:
         metadata = await session.get(Artifact, reference.digest)
         if metadata is None or metadata.state != "ready" or metadata.bytes != reference.bytes:

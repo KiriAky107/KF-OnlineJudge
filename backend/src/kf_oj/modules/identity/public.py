@@ -28,5 +28,11 @@ class AuthenticationFailed(ValueError):
     pass
 
 
+class ReservedMaintenancePort(Protocol):
+    async def require_reserved_maintenance(self, session, actor_id: UUID, epoch: int) -> None:
+        """Recheck/lock an immutable accepted receipt, with no login/session secret access."""
+        ...
+
+
 class LoginThrottled(ValueError):
     pass

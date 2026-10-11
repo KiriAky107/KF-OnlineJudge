@@ -1,0 +1,38 @@
+{
+  "$id": "urn:kf-oj:problem-import-create:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "archive_bytes": {
+      "maximum": 67108864,
+      "minimum": 1,
+      "title": "Archive Bytes",
+      "type": "integer"
+    },
+    "archive_digest": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Archive Digest",
+      "type": "string"
+    },
+    "operation_id": {
+      "format": "uuid",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "operation_id",
+    "archive_digest",
+    "archive_bytes"
+  ],
+  "title": "CreateProblemImport",
+  "type": "object"
+}

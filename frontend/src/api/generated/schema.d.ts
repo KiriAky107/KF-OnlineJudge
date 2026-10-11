@@ -4,6 +4,92 @@
  */
 
 export interface paths {
+    "/api/v1/admin/problem-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page */
+        get: operations["page_api_v1_admin_problem_imports_get"];
+        put?: never;
+        /** Create */
+        post: operations["create_api_v1_admin_problem_imports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-imports/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Capabilities */
+        get: operations["capabilities_api_v1_admin_problem_imports_capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-imports/{operation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_admin_problem_imports__operation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-imports/{operation_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Upload */
+        put: operations["upload_api_v1_admin_problem_imports__operation_id__archive_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-imports/{operation_id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Discard */
+        post: operations["discard_api_v1_admin_problem_imports__operation_id__discard_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -278,11 +364,57 @@ export interface components {
              */
             submission_id: string;
         };
+        /** CandidatePreview */
+        CandidatePreview: {
+            /**
+             * Candidate Id
+             * Format: uuid
+             */
+            candidate_id: string;
+            /** Case Count */
+            case_count: number;
+            /** Judging Schema Version */
+            judging_schema_version: number;
+            /**
+             * Language Configurations
+             * @default []
+             */
+            language_configurations: components["schemas"]["PublicLanguageConfiguration"][];
+            /** Languages */
+            languages: components["schemas"]["kf_oj__contracts__judging_v2__Language"][];
+            legacy_budget: components["schemas"]["LegacyImportBudget"] | null;
+            /** Samples */
+            samples: components["schemas"]["PublicSample"][];
+            /** Slug */
+            slug: string;
+            /** Statement */
+            statement: string;
+            /** Title */
+            title: string;
+        };
         /**
          * CompilationStatus
          * @enum {string}
          */
         CompilationStatus: "succeeded" | "compilation_error" | "compilation_limit" | "cancelled" | "system_error";
+        /** CreateProblemImport */
+        CreateProblemImport: {
+            /** Archive Bytes */
+            archive_bytes: number;
+            /** Archive Digest */
+            archive_digest: string;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
         /** CreateSubmission */
         CreateSubmission: {
             /**
@@ -335,6 +467,16 @@ export interface components {
             /** Version */
             version: string;
         };
+        /**
+         * ImportFailure
+         * @enum {string}
+         */
+        ImportFailure: "invalid_archive" | "invalid_manifest" | "invalid_data" | "digest_mismatch" | "policy_rejected" | "upload_interrupted" | "upload_deadline" | "validation_deadline" | "validation_unavailable" | "storage_unavailable" | "authority_revoked" | "expired";
+        /**
+         * ImportState
+         * @enum {string}
+         */
+        ImportState: "uploading" | "uploaded" | "validating" | "ready" | "failed" | "published" | "discarded" | "expired";
         /** JobManifest */
         JobManifest: {
             /** Cases */
@@ -382,6 +524,13 @@ export interface components {
          * @enum {string}
          */
         "Language-Input": "c17" | "cpp20" | "python313" | "java21";
+        /** LegacyImportBudget */
+        LegacyImportBudget: {
+            compile_limits: components["schemas"]["RunLimits"];
+            /** Job Wall Time Us */
+            job_wall_time_us: number;
+            run_limits: components["schemas"]["RunLimits"];
+        };
         /** LoginRequest */
         LoginRequest: {
             /**
@@ -475,6 +624,254 @@ export interface components {
              * Format: uuid
              */
             version_id: string;
+        };
+        /** ProblemImportCapabilities */
+        ProblemImportCapabilities: {
+            /**
+             * @default {
+             *       "archive_bytes": 67108864,
+             *       "archive_format": "single_level_zip",
+             *       "candidate_lifetime_seconds": 86400,
+             *       "chunk_bytes": 1048576,
+             *       "filename_ascii_bytes": 128,
+             *       "files": 534,
+             *       "global_concurrency": 1,
+             *       "languages": [
+             *         "c17",
+             *         "cpp20",
+             *         "python313",
+             *         "java21"
+             *       ],
+             *       "manifest_name": "problem.json",
+             *       "manifest_schema_versions": [
+             *         1,
+             *         2
+             *       ],
+             *       "owner_candidates": 10,
+             *       "owner_concurrency": 1,
+             *       "schema_version": 1,
+             *       "staging_bytes": 268435456,
+             *       "total_candidates": 32,
+             *       "unpacked_bytes": 67108864,
+             *       "upload_chunks": 4096,
+             *       "upload_deadline_seconds": 30,
+             *       "validation_deadline_seconds": 60
+             *     }
+             */
+            limits: components["schemas"]["ProblemImportLimits"];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Uploads Available */
+            uploads_available: boolean;
+            /** Validation Available */
+            validation_available: boolean;
+        };
+        /** ProblemImportDetail */
+        ProblemImportDetail: {
+            /** Archive Bytes */
+            archive_bytes: number;
+            candidate: components["schemas"]["CandidatePreview"] | null;
+            /** Candidate Id */
+            candidate_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expected Archive Digest */
+            expected_archive_digest: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            failure_code: components["schemas"]["ImportFailure"] | null;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /** Published Version Id */
+            published_version_id: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            state: components["schemas"]["ImportState"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** ProblemImportLimits */
+        ProblemImportLimits: {
+            /**
+             * Archive Bytes
+             * @default 67108864
+             */
+            archive_bytes: number;
+            /**
+             * Archive Format
+             * @default single_level_zip
+             * @constant
+             */
+            archive_format: "single_level_zip";
+            /**
+             * Candidate Lifetime Seconds
+             * @default 86400
+             */
+            candidate_lifetime_seconds: number;
+            /**
+             * Chunk Bytes
+             * @default 1048576
+             */
+            chunk_bytes: number;
+            /**
+             * Filename Ascii Bytes
+             * @default 128
+             */
+            filename_ascii_bytes: number;
+            /**
+             * Files
+             * @default 534
+             */
+            files: number;
+            /**
+             * Global Concurrency
+             * @default 1
+             * @constant
+             */
+            global_concurrency: 1;
+            /**
+             * Languages
+             * @default [
+             *       "c17",
+             *       "cpp20",
+             *       "python313",
+             *       "java21"
+             *     ]
+             */
+            languages: components["schemas"]["kf_oj__contracts__judging_v2__Language"][];
+            /**
+             * Manifest Name
+             * @default problem.json
+             * @constant
+             */
+            manifest_name: "problem.json";
+            /**
+             * Manifest Schema Versions
+             * @default [
+             *       1,
+             *       2
+             *     ]
+             */
+            manifest_schema_versions: (1 | 2)[];
+            /**
+             * Owner Candidates
+             * @default 10
+             */
+            owner_candidates: number;
+            /**
+             * Owner Concurrency
+             * @default 1
+             * @constant
+             */
+            owner_concurrency: 1;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Staging Bytes
+             * @default 268435456
+             */
+            staging_bytes: number;
+            /**
+             * Total Candidates
+             * @default 32
+             */
+            total_candidates: number;
+            /**
+             * Unpacked Bytes
+             * @default 67108864
+             */
+            unpacked_bytes: number;
+            /**
+             * Upload Chunks
+             * @default 4096
+             */
+            upload_chunks: number;
+            /**
+             * Upload Deadline Seconds
+             * @default 30
+             */
+            upload_deadline_seconds: number;
+            /**
+             * Validation Deadline Seconds
+             * @default 60
+             */
+            validation_deadline_seconds: number;
+        };
+        /** ProblemImportPage */
+        ProblemImportPage: {
+            /** Items */
+            items: components["schemas"]["ProblemImportSummary"][];
+            /** Next After */
+            next_after: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** ProblemImportSummary */
+        ProblemImportSummary: {
+            /** Archive Bytes */
+            archive_bytes: number;
+            /** Candidate Id */
+            candidate_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expected Archive Digest */
+            expected_archive_digest: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            failure_code: components["schemas"]["ImportFailure"] | null;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /** Published Version Id */
+            published_version_id: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            state: components["schemas"]["ImportState"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** ProblemPage */
         ProblemPage: {
@@ -811,6 +1208,188 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    page_api_v1_admin_problem_imports_get: {
+        parameters: {
+            query?: {
+                after?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemImportPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_api_v1_admin_problem_imports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProblemImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemImportSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    capabilities_api_v1_admin_problem_imports_capabilities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemImportCapabilities"];
+                };
+            };
+        };
+    };
+    detail_api_v1_admin_problem_imports__operation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemImportDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_api_v1_admin_problem_imports__operation_id__archive_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/zip": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemImportSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discard_api_v1_admin_problem_imports__operation_id__discard_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemImportSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     login_api_v1_auth_login_post: {
         parameters: {
             query?: never;

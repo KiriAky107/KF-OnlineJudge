@@ -7,7 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from kf_oj.modules.identity import repository
@@ -170,3 +171,20 @@ class IdentityService:
         await self.authenticate(token, csrf_token=csrf_token)
         async with self.sessions.begin() as session:
             await repository.revoke(session, token_digest(token))
+
+
+class ReservedMaintenance:
+    """Import worker uses only the fixed, narrow SQL authority port."""
+
+    async def require_reserved_maintenance(self, session, actor_id, epoch):
+        if not session.in_transaction() or type(epoch) is not int or epoch < 1:
+            raise MaintenanceDenied("invalid maintenance receipt")
+        try:
+            await session.execute(
+                text("SELECT public.kf_lock_reserved_maintenance(:actor,:epoch)"),
+                {"actor": actor_id, "epoch": epoch},
+            )
+        except DBAPIError as error:
+            if getattr(error.orig, "sqlstate", None) == "42501":
+                raise MaintenanceDenied("problem maintenance revoked") from None
+            raise
