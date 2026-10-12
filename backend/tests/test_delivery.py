@@ -22,6 +22,7 @@ service_install = importlib.import_module("scripts.release.service_install")
 factory_service = importlib.import_module("scripts.release.factory_service")
 dependencies = importlib.import_module("scripts.release.dependencies")
 dependency_install = importlib.import_module("scripts.release.dependency_install")
+dependency_initialize = importlib.import_module("scripts.release.dependency_initialize")
 
 
 def test_delivery_authorities_and_layout():
@@ -687,3 +688,40 @@ def test_dependency_receipt_excludes_foreign_files_and_health_claims():
 def test_dependency_pointer_does_not_adopt_unknown_units_or_paths(target):
     with pytest.raises(policy.DeliveryError, match="unknown dependency unit"):
         dependency_install.previous_batch(target, "kf-postgres.service")
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        b"",
+        b"123\n",
+        b"b" * 64,
+        b"b" * 64 + b"\nextra\n",
+        b"b" * 32 + b" " + b"b" * 31 + b"\n",
+    ],
+)
+def test_database_initializer_refuses_empty_multiline_or_noncanonical_password(contents):
+    with pytest.raises(policy.DeliveryError, match="bootstrap password"):
+        dependency_initialize.validate_password(contents)
+
+
+def test_database_initialization_receipt_does_not_prove_migration_or_authentication():
+    receipt = {
+        "schema_version": 1,
+        "source_sha": "b" * 40,
+        "configuration_id": "cfg-" + "e" * 24,
+        "cluster_identity": {"device": 5, "inode": 900, "major_version": 18, "uid": 1203},
+        "bootstrap_sha256": "f" * 64,
+        "initialized": True,
+        "migrated": False,
+        "services_started": False,
+        "execution_verified": False,
+    }
+    dependency_initialize.validate_receipt(receipt)
+    receipt["migrated"] = True
+    with pytest.raises(policy.DeliveryError, match="binding"):
+        dependency_initialize.validate_receipt(receipt)
+    receipt["migrated"] = False
+    receipt["cluster_identity"]["uid"] = 0
+    with pytest.raises(policy.DeliveryError, match="cluster identity"):
+        dependency_initialize.validate_receipt(receipt)

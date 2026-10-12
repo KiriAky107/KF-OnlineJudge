@@ -223,3 +223,23 @@ System unit pointers may replace only recorded root-owned dependency snapshots.
 The command retains old batches, verifies loaded/inactive metadata, starts no
 service and initializes no database. Cluster initialization, actual effective
 limits, broker authorization and startup/readiness still require VM acceptance.
+
+`python3.13 -m scripts.release.dependency_initialize --password-file PRIVATE_FILE
+--password-sha256 SHA` is the separate explicit PostgreSQL cluster initialization
+step. It requires the selected dependency snapshot, stopped services, the dedicated
+storage mount and an operator-supplied hexadecimal bootstrap password file. Only
+a fresh unrecorded target is initialized. The fixed ordinary PostgreSQL identity
+runs `initdb` in a transient network-isolated unit with node/service/process/disk
+budgets checked before execution. systemd passes the password as a private file
+credential; its bytes are neither unit arguments nor environment values. Both
+local and host authentication use SCRAM; incomplete data is retained for explicit
+recovery, not silently deleted or reused. The initializer never starts a database
+server or migrates business tables; Alembic and role provisioning remain separate.
+
+A root-owned initialization receipt binds the physical cluster identity and initial
+credential fingerprint. Repeat initialization requires that recorded identity and
+does not reset a password or claim successful DB authentication. The operator
+reads the transient unit result and confirms stop; foreign/residual units and
+unrecorded/partial targets are refused. These are implementation interfaces, not
+actual VM acceptance. See [PostgreSQL initdb](https://www.postgresql.org/docs/18/app-initdb.html)
+and [systemd credentials](https://systemd.io/CREDENTIALS/) for the underlying interfaces.

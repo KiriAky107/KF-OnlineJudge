@@ -75,7 +75,9 @@ def validate_storage(name: str, observation: dict) -> None:
         raise DeliveryError("dedicated hard dependency storage budget differs")
 
 
-def check_runtime(name: str) -> dict:
+def check_runtime(name: str, *, initializing: bool = False) -> dict:
+    if initializing and name != "postgres":
+        raise DeliveryError("unexpected dependency initializer")
     uid = {"postgres": 1203, "rabbitmq": 1204}[name]
     if (
         os.getuid() != uid
@@ -92,7 +94,8 @@ def check_runtime(name: str) -> dict:
     ):
         raise DeliveryError("dependency privilege boundary differs")
     group = preflight.current_cgroup()
-    if str(group) != "/sys/fs/cgroup/kfonlinejudge.slice/kf-" + name + ".service":
+    unit = name + "-initialize" if initializing else name
+    if str(group) != "/sys/fs/cgroup/kfonlinejudge.slice/kf-" + unit + ".service":
         raise DeliveryError("dependency cgroup identity differs")
     limits = {
         key: (group / key).read_text().strip()
