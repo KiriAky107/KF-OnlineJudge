@@ -26,6 +26,7 @@ dependency_initialize = importlib.import_module("scripts.release.dependency_init
 node_health = importlib.import_module("scripts.release.node_health")
 broker_health = importlib.import_module("scripts.release.broker_health")
 lifecycle = importlib.import_module("scripts.release.lifecycle")
+journal = importlib.import_module("scripts.release.journal")
 
 
 def test_delivery_authorities_and_layout():
@@ -942,3 +943,32 @@ def test_maintenance_receipt_cannot_silently_adopt_unknown_history_or_release_pr
     value["drain_projection"]["factory"]["cleanup_complete"] = False
     with pytest.raises(policy.DeliveryError):
         lifecycle.validate_record(value)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("shared", True),
+        ("capacity_bytes", True),
+        ("capacity_bytes", 128 * 1024**2),
+        ("options", ["ro", "nosuid", "nodev", "noexec"]),
+        ("root", "/another-directory"),
+        ("filesystem", "tmpfs"),
+    ],
+)
+def test_journal_profile_never_substitutes_rotation_settings_for_a_dedicated_hard_volume(
+    field, value
+):
+    path = Path("/var/log/journal/" + "b" * 32 + ".kf-onlinejudge")
+    observed = {
+        "path": str(path),
+        "root": "/",
+        "filesystem": "ext4",
+        "options": ["rw", "nosuid", "nodev", "noexec"],
+        "shared": False,
+        "capacity_bytes": 64 * 1024**2,
+    }
+    journal.validate_storage(observed, path)
+    observed[field] = value
+    with pytest.raises(policy.DeliveryError):
+        journal.validate_storage(observed, path)

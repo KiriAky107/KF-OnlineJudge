@@ -304,3 +304,21 @@ operations and cleanup results. Root factory termination uses a signal notice an
 the existing bounded guardian/recovery path; ordinary import termination finishes
 its current authorized operation before claiming another. These interfaces require
 actual independent-VM lifecycle acceptance and are not installation/safety proof.
+
+`python3.13 -m scripts.release.journal` separately installs a fixed KF journal
+namespace profile. It requires a preprovisioned dedicated 64-MiB ext4 mount at
+`/var/log/journal/MACHINE_ID.kf-onlinejudge`, with the same private hard-volume
+mount rules used for dependencies. It never creates/formats/mounts a disk, changes
+the default system journal, adopts old unrecorded log data or starts a daemon.
+Unknown configuration/overrides and partial installations are retained and refused.
+
+The profile fixes 32-MiB persistent/8-MiB runtime rotation budgets, bounded files,
+lines and seven-day retention. Its namespaced daemon override limits CPU, memory,
+swap and PIDs. Rotation settings are not a hard filesystem guarantee; the dedicated
+volume must also be observed. The `check_ready` interface reads actual namespace
+service/process/cgroup state. Connecting service templates to this profile,
+redaction and real retention/capacity behavior remain C+D/F installation acceptance
+work; installing the profile alone does not route existing service logs or verify
+their privacy. The profile relies on the pinned systemd 262
+[namespace interface](https://github.com/systemd/systemd/blob/v262/man/systemd.exec.xml)
+and [journal configuration](https://github.com/systemd/systemd/blob/v262/man/journald.conf.xml).
