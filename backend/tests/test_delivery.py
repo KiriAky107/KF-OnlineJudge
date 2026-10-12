@@ -972,3 +972,60 @@ def test_journal_profile_never_substitutes_rotation_settings_for_a_dedicated_har
     observed[field] = value
     with pytest.raises(policy.DeliveryError):
         journal.validate_storage(observed, path)
+
+
+@pytest.mark.parametrize("failure", ["publication", "receipt", "readback"])
+def test_maintenance_does_not_leave_admission_open_when_final_confirmation_fails(
+    monkeypatch, failure
+):
+    # Pure controller error flow, no Root, manager or filesystem operations.
+    # Publication atomicity, actual stop and disk failure remain VM-only cases.
+    gate = []
+    maintenance = object.__new__(lifecycle.Maintenance)
+    maintenance.selected = {}
+    maintenance.payload = Path("/unused")
+    monkeypatch.setattr(maintenance, "change", lambda *_: None)
+
+    def publish(_, state):
+        gate.append(state)
+        if state == "open" and failure == "publication":
+            raise OSError("publication readback unavailable")
+
+    def save(_):
+        if failure == "receipt":
+            raise OSError("maintenance receipt unavailable")
+
+    monkeypatch.setattr(lifecycle.availability, "write", publish)
+    monkeypatch.setattr(maintenance, "save", save)
+    monkeypatch.setattr(
+        lifecycle.operator_units,
+        "run",
+        lambda *_: {
+            "service_preconditions_met": True,
+            "ready_for_admission": failure != "readback",
+        },
+    )
+    with pytest.raises((OSError, policy.DeliveryError)):
+        maintenance.start(resume=True)
+    assert gate == ["draining", "open", "draining"]
+
+
+def test_failed_gate_closure_requires_known_api_stop_without_forging_owner_cleanup(monkeypatch):
+    # Controller flow only; actual cgroup/stop/full-volume evidence is VM-only.
+    maintenance = object.__new__(lifecycle.Maintenance)
+    maintenance.selected = {}
+    calls = []
+
+    def unavailable(*_):
+        raise OSError("publication unavailable")
+
+    monkeypatch.setattr(lifecycle.availability, "write", unavailable)
+    monkeypatch.setattr(
+        maintenance, "unit", lambda name: {"ActiveState": "inactive", "MainPID": "0"}
+    )
+    monkeypatch.setattr(lifecycle.service_install, "systemctl", lambda *args: calls.append(args))
+    monkeypatch.setattr(
+        maintenance, "empty_cgroup", lambda name: calls.append(("prove_empty", name))
+    )
+    maintenance.close_failed_admission()
+    assert calls == [("--no-block", "stop", "kf-api.service"), ("prove_empty", "api")]

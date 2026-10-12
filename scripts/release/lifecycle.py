@@ -446,15 +446,37 @@ class Maintenance:
         ready = operator_units.run("node-health", self.payload)
         if ready.get("service_preconditions_met") is not True:
             raise DeliveryError("service preconditions unavailable; admission remains closed")
-        availability.write(self.selected, "open")
         try:
+            availability.write(self.selected, "open")
             ready = operator_units.run("node-health", self.payload)
             if ready.get("ready_for_admission") is not True:
                 raise DeliveryError("admission readiness readback unconfirmed")
+            self.save("accepting")
         except (OSError, ValueError, subprocess.SubprocessError):
-            availability.write(self.selected, "draining")
+            self.close_failed_admission()
             raise
-        self.save("accepting")
+
+    def close_failed_admission(self) -> None:
+        try:
+            availability.write(self.selected, "draining")
+            return
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        # A full/read-only availability filesystem must not leave a successful
+        # earlier publication accepting mutations. Stop only the verified API
+        # target without depending on another receipt write. Owners retain work
+        # and capacity; this is not a factory cleanup or terminal-state proof.
+        self.unit("api")
+        service_install.systemctl("--no-block", "stop", "kf-api.service")
+        deadline = time.monotonic() + 50
+        while True:
+            values = self.unit("api")
+            if values["ActiveState"] == "inactive" and values["MainPID"] == "0":
+                self.empty_cgroup("api")
+                return
+            if time.monotonic() >= deadline or values["ActiveState"] == "failed":
+                raise DeliveryError("admission closure/API stop unconfirmed; operator required")
+            time.sleep(0.5)
 
 
 def run(action: str) -> dict:
@@ -473,9 +495,17 @@ def run(action: str) -> dict:
         install.exclusive_file(lockpath, b"", 0o600)
     preflight.protected(lockpath)
     configuration.private(lockpath)
+    if lockpath.stat().st_size != 0:
+        raise DeliveryError("unrecorded maintenance lock contents")
     fd = os.open(lockpath, os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Refuse unknown history before publishing availability, including
+        # resume where every known service could already be running.
+        if LAST.exists() or LAST.is_symlink():
+            preflight.protected(LAST)
+            configuration.private(LAST)
+            validate_record(read_json(LAST, 32768))
         maintenance = Maintenance(selected, paths, payload, action)
         try:
             if action in {"drain", "stop", "restart"}:
