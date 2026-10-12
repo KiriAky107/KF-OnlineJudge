@@ -1,5 +1,8 @@
 """Trusted checkout + hash-bound offline runtime inputs -> directory bundle."""
 
+import base64
+import csv
+import io
 import os
 import shutil
 import stat
@@ -85,6 +88,43 @@ def tracked(repo: Path, source_prefix: str, payload: Path) -> None:
         if source.is_symlink():
             raise DeliveryError("tracked payload link refused")
         copy(source, payload / name)
+
+
+def dependency_records(site: Path) -> None:
+    """Bind only shipped wheel members; venv console scripts are not shipped.
+
+    uv's generated console-script hashes include the temporary interpreter path.
+    Removing their RECORD rows is necessary for relocatable, repeatable payloads.
+    Included members retain their original verified wheel hashes.
+    """
+    for record in sorted(site.glob("*.dist-info/RECORD")):
+        rows = []
+        for row in csv.reader(io.StringIO(record.read_text())):
+            if len(row) != 3:
+                raise DeliveryError("invalid dependency RECORD")
+            name, checksum, size = row
+            if name.startswith("../../../bin/"):
+                continue
+            if "__pycache__" in Path(name).parts or name.endswith((".pyc", ".pyo")):
+                continue
+            relative_name("site/" + name)
+            member = site / name
+            if not member.exists():
+                raise DeliveryError("dependency RECORD member absent")
+            if member == record and checksum == size == "":
+                rows.append(row)
+                continue
+            expected = "sha256=" + base64.urlsafe_b64encode(
+                bytes.fromhex(digest(member))
+            ).decode().rstrip("=")
+            if checksum != expected or size != str(member.stat().st_size):
+                raise DeliveryError("dependency RECORD fingerprint differs")
+            rows.append(row)
+        output = io.StringIO(newline="")
+        csv.writer(output, lineterminator="\n").writerows(sorted(rows))
+        record.chmod(0o600)
+        record.write_text(output.getvalue())
+        record.chmod(0o444)
 
 
 def curated(root: Path, records: dict, name: str, target: Path) -> None:
@@ -275,6 +315,7 @@ def build(repo: Path, inputs: Path, output: Path, work: Path) -> dict:
     tracked(repo, "backend/migrations", payload)
     copy(repo / "backend/alembic.ini", payload / "backend/alembic.ini")
     tree(work / "venv/lib/python3.13/site-packages", payload / "site")
+    dependency_records(payload / "site")
     tree(repo / "frontend/dist", payload / "frontend")
     tracked(repo, "deploy", payload)
     for name in ("kf-sandbox", "kf-worker", "kf-coordinator"):
