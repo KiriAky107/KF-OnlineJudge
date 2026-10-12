@@ -16,6 +16,8 @@ builder = importlib.import_module("scripts.release.build")
 configuration = importlib.import_module("scripts.release.configuration")
 architecture = importlib.import_module("scripts.check_architecture")
 proxy = importlib.import_module("scripts.release.proxy")
+services = importlib.import_module("scripts.release.services")
+service_bootstrap = importlib.import_module("scripts.release.service_bootstrap")
 
 
 def test_delivery_authorities_and_layout():
@@ -330,3 +332,56 @@ def test_proxy_is_separate_from_private_execution_control():
     assert "proxy_request_buffering off" in contents
     assert "$request_uri" not in contents and "$http_cookie" not in contents
     assert value["key_sha256"] not in contents
+
+
+def test_ordinary_units_bind_exact_batch_without_inline_secrets():
+    source, checksum = "123456789abc" + "d" * 28, "f" * 64
+    hashes = {name: "b" * 64 for name in configuration.CONFIG_FILES}
+    receipt = {
+        "schema_version": 1,
+        "source_sha": source,
+        "release_id": "sd-123456789abc",
+        "configuration_id": configuration.configuration_id(source, checksum, hashes),
+        "manifest_sha256": checksum,
+        "configuration_files": hashes,
+        "operator_attested_measurement": False,
+        "installed": False,
+        "execution_verified": False,
+    }
+    units = services.render(receipt)
+    assert set(units) == {
+        "kf-api.service",
+        "kf-outbox.service",
+        "kf-coordinator.service",
+        "kf-worker.service",
+        "kf-problem-import.service",
+    }
+    for contents in units.values():
+        text = contents.decode()
+        assert "User=root" not in text
+        assert "MemorySwapMax=0" in text and "StartLimitBurst=3" in text
+        assert receipt["configuration_id"] in text and receipt["release_id"] in text
+        assert "Password=" not in text and "postgresql://" not in text and "amqp://" not in text
+    assert "PrivateNetwork=yes" in units["kf-problem-import.service"].decode()
+    assert "PrivatePIDs=yes" in units["kf-problem-import.service"].decode()
+    assert "RestrictAddressFamilies=AF_UNIX\n" in units["kf-problem-import.service"].decode()
+    assert "-m kf_oj.infra.messaging.publisher" in units["kf-outbox.service"].decode()
+    assert "LoadCredential=worker.json:" in units["kf-worker.service"].decode()
+
+
+def test_systemd_credential_bytes_are_checked_before_private_copy(tmp_path):
+    import hashlib
+    import os
+
+    path = tmp_path / "configuration.json"
+    content = b'{"synthetic_configuration":true}\n'
+    path.write_bytes(content)
+    path.chmod(0o400)
+    expected = hashlib.sha256(content).hexdigest()
+    assert service_bootstrap.read_credential(path, expected, os.getuid()) == content
+    with pytest.raises(policy.DeliveryError, match="fingerprint mismatch"):
+        service_bootstrap.read_credential(path, "b" * 64, os.getuid())
+    path.chmod(0o600)
+    path.write_bytes(b"x" * 32769)
+    with pytest.raises(policy.DeliveryError, match="bounded systemd credential"):
+        service_bootstrap.read_credential(path, expected, os.getuid())

@@ -107,3 +107,23 @@ silently substitutes a healthy result when lifecycle evidence is absent.
 Proxy directive references: [NGINX core](https://nginx.org/en/docs/http/ngx_http_core_module.html),
 [proxy module](https://nginx.org/en/docs/http/ngx_http_proxy_module.html), and
 [TLS module](https://nginx.org/en/docs/http/ngx_http_ssl_module.html).
+
+`python3.13 -m scripts.release.services generate` composes five ordinary system
+units from a verified bundle and matching private configuration receipt. The
+matching service launch modules must themselves be in that bundle. Rendering
+uses fixed users, resource ceilings, finite restart/stop limits and an explicit
+release/configuration pre-start binding. It never writes system units, starts a
+process, migrates a schema or claims readiness. Actual units, mount/PID/cgroup
+views, Unix DB socket access, dependency roles and effective limits require VM
+installation/acceptance. Root factory and database/broker lifecycle are separate.
+
+API/outbox/import share the established content-storage identity; individual PID
+namespaces prevent same-UID inspection of another service's environment. This
+requires the fixed systemd profile and verified kernel namespace support. Rust
+Coordinator/Worker use distinct ordinary identities and systemd credentials.
+`service_bootstrap` verifies those bounded credential bytes, copies them to a
+private service runtime directory with the existing required 0600 mode and then
+launches only the fixed ordinary binary. It accepts no student executable,
+command override or privileged Sandbox operation. Tokens/URLs are not command
+arguments or unit text. The outbox unit uses the existing actual confirmed
+publisher module; the old scaffold check entry is not treated as a delivery loop.
