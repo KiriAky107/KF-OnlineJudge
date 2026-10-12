@@ -371,3 +371,6 @@ starts no server. Maintenance includes the proxy in start/drain/stop ordering.
 Readiness uses fixed loopback TLS with the supplied certificate as an explicit
 local trust anchor and checks hostname/leaf identity plus the API live response;
 it does not substitute for actual browser CA/HTTPS/security acceptance in the VM.
+The exact `/api/v1/health/live` route permits GET/HEAD for this bounded process
+liveness check. Other health, internal, execution and control routes remain
+outside the public proxy allowlist; liveness does not attest judging readiness.

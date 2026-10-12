@@ -121,6 +121,10 @@ http {
         limit_conn per_site 32;
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options DENY always;
+        location = /api/v1/health/live {
+            limit_except GET { deny all; }
+            PROXY
+        }
         location ~ "UPLOAD" {
             client_max_body_size 64m;
             limit_except PUT { deny all; }
