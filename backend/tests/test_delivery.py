@@ -19,6 +19,7 @@ proxy = importlib.import_module("scripts.release.proxy")
 services = importlib.import_module("scripts.release.services")
 service_bootstrap = importlib.import_module("scripts.release.service_bootstrap")
 service_install = importlib.import_module("scripts.release.service_install")
+factory_service = importlib.import_module("scripts.release.factory_service")
 
 
 def test_delivery_authorities_and_layout():
@@ -492,3 +493,28 @@ def test_unit_snapshot_binding_and_inventory_cannot_add_a_privileged_unit():
 def test_unit_snapshot_does_not_adopt_foreign_or_ambiguous_targets(target):
     with pytest.raises(policy.DeliveryError, match="unknown system unit target"):
         service_install.previous_batch(target, "kf-api.service")
+
+
+def test_factory_composition_keeps_privileged_boundary_and_finite_lifetime():
+    source, checksum = "123456789abc" + "d" * 28, "f" * 64
+    hashes = {name: "b" * 64 for name in configuration.CONFIG_FILES}
+    receipt = {
+        "schema_version": 1,
+        "source_sha": source,
+        "release_id": "sd-123456789abc",
+        "configuration_id": configuration.configuration_id(source, checksum, hashes),
+        "manifest_sha256": checksum,
+        "configuration_files": hashes,
+        "operator_attested_measurement": False,
+        "installed": False,
+        "execution_verified": False,
+    }
+    contents = factory_service.render(receipt).decode()
+    assert " prepare-factory --config " in contents
+    assert " --lifetime-seconds 3600 --max-requests 4096" in contents
+    assert "KillMode=mixed" in contents and "Restart=no" in contents
+    assert "NoNewPrivileges" not in contents and "SystemCallFilter" not in contents
+    assert "PrivatePIDs" not in contents and "ProtectControlGroups" not in contents
+    assert "EnvironmentFile" not in contents and "LoadCredential" not in contents
+    assert "env -i" in contents and "MemorySwapMax=0" in contents
+    assert receipt["configuration_id"] in contents

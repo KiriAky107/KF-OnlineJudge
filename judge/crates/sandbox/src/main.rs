@@ -63,6 +63,11 @@ enum Command {
         #[arg(long)]
         cycle_id: String,
     },
+    /// Root fixed-node preparation; never grants an execution permit.
+    PrepareFactory {
+        #[arg(long)]
+        config: PathBuf,
+    },
     #[cfg(target_os = "linux")]
     #[command(hide = true)]
     FactoryChild {
@@ -199,6 +204,21 @@ fn main() -> ExitCode {
             #[cfg(not(target_os = "linux"))]
             {
                 let _ = (config, cycle_id);
+                spec_error("unsupported_platform", None)
+            }
+        }
+        Command::PrepareFactory { config } => {
+            #[cfg(target_os = "linux")]
+            match kf_sandbox::factory_preparation::prepare(&config) {
+                Ok(report) => {
+                    println!("{report}");
+                    ExitCode::SUCCESS
+                }
+                Err(_) => spec_error("factory_preparation_refused", None),
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = config;
                 spec_error("unsupported_platform", None)
             }
         }

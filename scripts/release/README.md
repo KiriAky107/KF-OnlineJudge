@@ -151,3 +151,17 @@ may leave a mixed set of pointers, but each pre-start check rejects an unselecte
 binding. Repeat installation can finish the same verified batch after stopping
 all app units. Loaded/inactive unit readback starts no service and makes no
 claim about effective runtime limits, readiness, Sandbox gates or VM acceptance.
+
+`python3.13 -m scripts.release.factory_service --output DIRECTORY` composes the
+separate Root factory unit only after selection and protected configuration checks.
+It requires matching composition code in that delivery, uses the fixed Root
+binary and empty business environment, and preserves the supervisor reservations
+and finite lifetime. It does not inherit the ordinary service namespace/filter
+flags. Its pre-start `kf-sandbox prepare-factory` performs privileged cgroup
+preparation inside Sandbox: the exact node/UID pool, single supervisor process,
+empty task/lease/capture resources and factory lock are required. A retained
+boot/inode record recognizes only its own empty delegation; an unknown group,
+same-boot loss or conflicting record refuses. New-boot recreation requires empty
+persistent resources. No journal/lease is deleted and preparation grants no
+execution permit. Neither composition nor lexical tests are Root/kernel/service
+acceptance; install, restart, failure recovery and actual execution remain VM-only.
