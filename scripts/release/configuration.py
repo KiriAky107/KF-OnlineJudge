@@ -20,7 +20,7 @@ PROFILES = {
     "identity": "kf_identity_operator",
     "migration": "kf_migrator",
 }
-IMPORT_CGROUP = "/sys/fs/cgroup/system.slice/kf-problem-import.service"
+IMPORT_CGROUP = "/sys/fs/cgroup/kfonlinejudge.slice/kf-problem-import.service"
 CONFIG_FILES = {
     "api.env",
     "outbox.env",
@@ -170,7 +170,7 @@ def measured_hardware() -> dict:
     value["node_scheduler"] = {}
     for label, group in (
         ("root", Path("/sys/fs/cgroup")),
-        ("system", Path("/sys/fs/cgroup/system.slice")),
+        ("node", Path("/sys/fs/cgroup/kfonlinejudge.slice")),
     ):
         value["node_scheduler"][label] = {
             name: (group / name).read_text().strip() if (group / name).exists() else None
@@ -192,7 +192,7 @@ def admission_runtime(payload: Path, data: dict) -> tuple[dict, dict]:
     admission = AdmissionRegistry.model_validate(admission).model_dump(mode="json")
     state = "/var/lib/kf-judge/images/" + data["release_id"]
     root["image_root"] = state + "/legacy-gnu"
-    root["delegated_cgroup_root"] = "/sys/fs/cgroup/kf-judge-tasks"
+    root["delegated_cgroup_root"] = "/sys/fs/cgroup/kfonlinejudge.slice/kf-judge-tasks"
     root["identities"] = {
         "worker_uid": preflight.ACCOUNTS["kf-worker"],
         "worker_gid": preflight.ACCOUNTS["kf-worker"],

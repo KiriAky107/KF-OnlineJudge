@@ -1,0 +1,8 @@
+[Unit]
+Description=KF application and delegated execution node budget
+
+[Slice]
+MemoryMax=3840M
+MemorySwapMax=0
+TasksMax=384
+CPUQuota=200%

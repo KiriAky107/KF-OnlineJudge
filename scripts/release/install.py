@@ -205,6 +205,8 @@ def files(bundle: Path, expected: str) -> dict:
     for name in ("artifacts", "imports"):
         data_directory(Path("/var/lib/kf-onlinejudge") / name, preflight.ACCOUNTS["kf-oj"])
     data_directory(Path("/var/lib/kf-onlinejudge/worker"), preflight.ACCOUNTS["kf-worker"])
+    node_unit = bundle / "payload/deploy/release/kfonlinejudge.slice"
+    exclusive_file(Path("/etc/systemd/system/kfonlinejudge.slice"), node_unit.read_bytes(), 0o644)
     release = RELEASES / data["release_id"]
     if release.exists():
         preflight.protected(release, directory=True)

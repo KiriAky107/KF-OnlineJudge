@@ -34,6 +34,13 @@ an explicitly installed version. Private operator/service configuration lives in
 `/var/lib/kf-judge`. The delegated task cgroup is separate from the Root factory's
 own supervision cgroup. Application processes do not initialize tables on start;
 Backend Alembic remains the only migration entry point.
+All application services and the separate delegated task subtree live beneath
+`kfonlinejudge.slice`: 3840 MiB memory, no swap, 384 processes/threads and two CPU
+equivalents. The remaining physical RAM is reserved for the kernel/minimal OS.
+The task subtree is `/sys/fs/cgroup/kfonlinejudge.slice/kf-judge-tasks`, a sibling
+of the Root factory supervision unit under that same total node budget. Its
+installation template does not prove the effective limits; actual service and
+task limits are read back in the independent acceptance environment.
 
 Database login identities are separate for migration, API/outbox, Coordinator,
 problem import and local identity operations. Rust Worker and Root factory do not

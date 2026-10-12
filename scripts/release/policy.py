@@ -162,7 +162,7 @@ def contract(path: Path) -> dict:
         "data": "/var/lib/kf-onlinejudge",
         "judge_configuration": "/etc/kf-judge",
         "judge_state": "/var/lib/kf-judge",
-        "task_cgroup": "/sys/fs/cgroup/kf-judge-tasks",
+        "task_cgroup": "/sys/fs/cgroup/kfonlinejudge.slice/kf-judge-tasks",
     }:
         raise DeliveryError("delivery layout mismatch")
     expected_services = {
