@@ -13,6 +13,7 @@ from . import manifest
 from .policy import DeliveryError, contract, digest, fields, read_json, relative_name, sha256
 
 ENTRYPOINTS = {
+    "kf-delivery": "scripts.release",
     "kf-api": (
         "uvicorn kf_oj.api.app:create_app --factory --host 127.0.0.1 --port 8000 "
         "--no-proxy-headers --limit-concurrency 32 --backlog 64"
@@ -322,6 +323,13 @@ def build(repo: Path, inputs: Path, output: Path, work: Path) -> dict:
     dependency_records(payload / "site")
     tree(repo / "frontend/dist", payload / "frontend")
     tracked(repo, "deploy", payload)
+    for raw in subprocess.check_output(
+        ["git", "ls-files", "-z", "scripts/release"], cwd=repo
+    ).split(b"\0"):
+        if raw:
+            name = raw.decode()
+            relative_name("delivery/" + name)
+            copy(repo / name, payload / "delivery" / name)
     for name in ("kf-sandbox", "kf-worker", "kf-coordinator"):
         copy(repo / "judge/target/release" / name, payload / "bin" / name)
     for name in sorted(records):
@@ -374,7 +382,7 @@ def build(repo: Path, inputs: Path, output: Path, work: Path) -> dict:
             "#!/bin/sh\nset -eu\n"
             'APP_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)\n'
             'export PYTHONHOME="$APP_ROOT/python"\n'
-            'export PYTHONPATH="$APP_ROOT/backend/src:$APP_ROOT/site"\n'
+            'export PYTHONPATH="$APP_ROOT/backend/src:$APP_ROOT/site:$APP_ROOT/delivery"\n'
             "export PYTHONDONTWRITEBYTECODE=1\n"
             'export LD_LIBRARY_PATH="$APP_ROOT/lib:$APP_ROOT/python/lib"\n'
             'cd "$APP_ROOT"\n'

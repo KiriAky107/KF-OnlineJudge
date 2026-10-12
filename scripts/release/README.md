@@ -28,3 +28,44 @@ contains the source and manifest fingerprints, file count and byte total, with
 `installed=false` and `execution_verified=false`. Installation and service
 acceptance remain separate operations. See `deploy/release/README.md` for the
 versioned installation contract and authority split.
+
+`preflight` reads installation eligibility only. `install-files` requires root,
+a completely root-controlled verified input tree and the fixed target profile;
+it installs protected versions/images and bounded OS identities, without table
+migrations, application accounts, services or the active-version switch.
+Repeated identical files converge; unknown modes/owners, changed bytes or an
+incomplete staging directory require operator inspection and are never removed.
+
+`generate-configuration` composes exact public contracts with separately supplied
+0600 node and endpoint inputs. It emits a new private directory and a hash-bound
+receipt, never prints tokens, never changes a supplied password and never silently
+overwrites an earlier identity. API, publisher, import, migration and identity
+operations have distinct required database authority; Worker holds only its own
+MQ/control identity, Root receives no business credentials. Backend URLs use the
+existing asyncpg driver. No uvx/pip or online runtime installation is used.
+
+`install-configuration` validates the entire group before writing any member;
+`check-configuration` checks installed bytes, same-source admission, identity and
+hardware/kernel/node scheduler bindings. `activate` requires that check and
+stopped control ports, no factory socket and no retained task/identity/capture
+resources. It atomically selects an installed directory and starts no process;
+draining, migrations and actual health remain separate operations. It does not
+erase retained journals or release resources lacking cleanup proof.
+
+`provision-database-identities` is an explicit local database operator step.
+It uses the locked asyncpg dependency, bounded connections/statements and a
+120-second overall deadline. It installs only fixed independent logins/NOLOGIN
+groups and the application database, verifies every supplied credential and
+refuses unexpected existing authority. There is no application table DDL or
+automatic account bootstrap: the migration login owns the database without
+global superuser/create-role/create-db/bypass-RLS rights; Backend Alembic remains
+the only schema/grant migration entry. Runtime logins cannot grant/set group
+authority. See [PostgreSQL role membership](https://www.postgresql.org/docs/18/role-membership.html)
+and [function ownership](https://www.postgresql.org/docs/18/sql-alterfunction.html).
+
+Always bootstrap validation from a separately trusted tool copy and an out-of-band
+manifest SHA. Do not execute a checker supplied inside an unverified bundle to
+establish trust in that same bundle. A verified delivery includes `bin/kf-delivery`
+and its source for later offline operations. Command success/receipt generation
+does not claim Linux execution, working service roles or installation acceptance;
+these require the recorded independent VM evidence.

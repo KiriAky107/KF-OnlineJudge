@@ -5,7 +5,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from . import build, manifest, policy
+from . import build, configuration, database, install, manifest, policy, preflight
 
 
 def main() -> None:
@@ -21,6 +21,28 @@ def main() -> None:
     check.add_argument("--inputs", type=Path, required=True)
     check.add_argument("--output", type=Path, required=True)
     check.add_argument("--work", type=Path, required=True)
+    for name in ("preflight", "install-files"):
+        check = sub.add_parser(name)
+        check.add_argument("bundle", type=Path)
+        check.add_argument("--manifest-sha256", required=True)
+    check = sub.add_parser("generate-configuration")
+    check.add_argument("bundle", type=Path)
+    check.add_argument("--manifest-sha256", required=True)
+    check.add_argument("--profile", type=Path, required=True)
+    check.add_argument("--connections", type=Path, required=True)
+    check.add_argument("--output", type=Path, required=True)
+    check.add_argument("--attest-measurement", action="store_true")
+    check = sub.add_parser("install-configuration")
+    check.add_argument("directory", type=Path)
+    check.add_argument("--receipt-sha256", required=True)
+    check = sub.add_parser("check-configuration")
+    check.add_argument("receipt", type=Path)
+    check = sub.add_parser("provision-database-identities")
+    check.add_argument("--operator", type=Path, required=True)
+    check.add_argument("--connections", type=Path, required=True)
+    check = sub.add_parser("activate")
+    check.add_argument("release_id")
+    check.add_argument("--manifest-sha256", required=True)
     args = parser.parse_args()
     try:
         if args.command == "contract":
@@ -36,10 +58,41 @@ def main() -> None:
                 "installed": False,
                 "execution_verified": False,
             }
-        else:
+        elif args.command == "build":
             result = build.build(args.repo, args.inputs, args.output, args.work)
+        elif args.command == "preflight":
+            manifest.verify(args.bundle, args.manifest_sha256)
+            result = preflight.observe(args.bundle / "payload")
+            print(json.dumps(result, sort_keys=True))
+            if not result["eligible"]:
+                parser.exit(1)
+            return
+        elif args.command == "install-files":
+            result = install.files(args.bundle, args.manifest_sha256)
+        elif args.command == "generate-configuration":
+            result = configuration.generate(
+                args.bundle,
+                args.manifest_sha256,
+                args.profile,
+                args.connections,
+                args.output,
+                attest=args.attest_measurement,
+            )
+        elif args.command == "install-configuration":
+            result = configuration.install_configuration(args.directory, args.receipt_sha256)
+        elif args.command == "check-configuration":
+            receipt = configuration.check_installed(args.receipt)
+            result = {
+                "configuration_valid": True,
+                "source_sha": receipt["source_sha"],
+                "execution_verified": False,
+            }
+        elif args.command == "provision-database-identities":
+            result = database.provision(args.operator, args.connections)
+        else:
+            result = install.activate(args.release_id, args.manifest_sha256)
         print(json.dumps(result, sort_keys=True))
-    except (policy.DeliveryError, OSError, subprocess.SubprocessError) as error:
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
         # OSError filenames can include private operator paths; do not echo them.
         parser.exit(
             1,

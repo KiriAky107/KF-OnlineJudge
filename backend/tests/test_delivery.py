@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import secrets
 import sys
 from pathlib import Path
 
@@ -12,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 policy = importlib.import_module("scripts.release.policy")
 manifest = importlib.import_module("scripts.release.manifest")
 builder = importlib.import_module("scripts.release.build")
+configuration = importlib.import_module("scripts.release.configuration")
 architecture = importlib.import_module("scripts.check_architecture")
 
 
@@ -111,3 +113,127 @@ def test_signed_guest_library_alias_uses_guest_root(tmp_path):
     builder.curated(root, records, "services/usr/lib/library.so", target)
     assert target.read_bytes() == library.read_bytes()
     assert not target.is_symlink()
+
+
+@pytest.fixture
+def delivery_configuration(tmp_path, monkeypatch):
+    """Synthetic operator files only; no services, DB or user program are run."""
+    import hashlib
+
+    images = {}
+    for name, toolchain, kind, version in (
+        ("gnu", "gnu-cxx-v1", "linux_gnu_cxx_x86_64_v1", "16.2.1+r23+gd564253eb6c8"),
+        ("python313", "cpython313-v1", "linux_cpython313_x86_64_v1", "3.13.16"),
+        ("java21", "openjdk21-v1", "linux_openjdk21_x86_64_v1", "21.0.12.1+1-LTS"),
+    ):
+        images[name] = {
+            "toolchain_id": toolchain,
+            "image_kind": kind,
+            "image_revision": 1,
+            "runtime_version": version,
+            "image_digest": hashlib.sha256(name.encode()).hexdigest(),
+        }
+    data = {
+        "images": images,
+        "release_id": "sd-123456789abc",
+        "source_sha": "123456789abc" + "d" * 28,
+    }
+    node = {
+        "schema_version": 1,
+        "origin": "https://oj.test",
+        "worker_id": "a28adc33-8fbd-4a33-8b21-7a46431e506c",
+        "measurement_nonce": secrets.token_hex(32),
+    }
+    urls = {}
+    for name, role in configuration.PROFILES.items():
+        password = secrets.token_urlsafe(32)
+        authority = "" if name == "import" else "127.0.0.1:5432"
+        urls[name] = f"postgresql://{role}:{password}@{authority}/kf_onlinejudge"
+        if name == "import":
+            urls[name] += "?host=/run/postgresql"
+    endpoints = {
+        "schema_version": 1,
+        "database": urls,
+        "amqp": {
+            name: f"amqp://kf_{name}:{secrets.token_urlsafe(32)}@127.0.0.1:5672/kf"
+            for name in ("worker", "outbox")
+        },
+    }
+    configuration.validate_profile(node)
+    configuration.validate_connections(endpoints)
+    observed = {
+        "kernel": "6.18-fixture",
+        "architecture": "x86_64",
+        "online_cpus": 2,
+        "processor": {"model name": "fixture"},
+    }
+    monkeypatch.setattr(configuration, "measured_hardware", lambda: dict(observed))
+    raw = configuration.compose(ROOT, data, node, endpoints, attest=True)
+    paths = {}
+    for name, content in raw.items():
+        path = tmp_path / name
+        path.write_bytes(content)
+        path.chmod(0o600)
+        paths[name] = path
+    return paths, raw, data, node, endpoints, observed
+
+
+def test_generated_configuration_preserves_wire_policies_and_backend_settings(
+    delivery_configuration, monkeypatch
+):
+    from kf_oj.core.settings import Settings
+
+    paths, raw, data, _, _, _ = delivery_configuration
+    configuration.validate_contents(paths, ROOT, data, attest=True)
+    env = configuration.environment_read(raw["api.env"])
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    settings = Settings(_env_file=None)
+    assert settings.database_url.get_secret_value().startswith("postgresql+asyncpg:")
+    admission = json.loads(raw["admission.json"])
+    coordinator, worker, root = [
+        json.loads(raw[name]) for name in ("coordinator.json", "worker.json", "runtime.json")
+    ]
+    assert settings.judge_admission.model_dump(mode="json") == admission
+    assert coordinator["admission"] == worker["admission"] == admission
+    assert "database_url" not in worker and "database_url" not in root
+    assert root["identities"]["count"] == 1
+    assert root["image_root"] not in [image["image_root"] for image in root["runtime_images"]]
+    assert admission["legacy"]["toolchain"] == {
+        "toolchain_id": "gnu-cxx-v1",
+        "image_kind": "linux_gnu_cxx_x86_64_v1",
+        "image_revision": 1,
+    }
+
+
+def test_epoch_rebinds_when_kernel_changes(delivery_configuration):
+    paths, raw, data, node, endpoints, observed = delivery_configuration
+    before = json.loads(raw["measurement.json"])["epoch"]
+    observed["kernel"] = "6.19-fixture"
+    with pytest.raises(policy.DeliveryError, match="measurement policy mismatch"):
+        configuration.validate_contents(paths, ROOT, data, attest=True)
+    after = configuration.compose(ROOT, data, node, endpoints, attest=True)
+    assert json.loads(after["measurement.json"])["epoch"] != before
+
+
+def test_unattested_configuration_has_no_comparable_epoch(delivery_configuration):
+    _, _, data, node, endpoints, _ = delivery_configuration
+    raw = configuration.compose(ROOT, data, node, endpoints, attest=False)
+    assert json.loads(raw["coordinator.json"])["workers"][0]["measurement_epoch"] is None
+
+
+def test_configuration_receipt_is_bound_before_path_use():
+    receipt = {
+        "schema_version": 1,
+        "source_sha": "123456789abc" + "d" * 28,
+        "release_id": "sd-123456789abc",
+        "manifest_sha256": "f" * 64,
+        "configuration_files": {name: "b" * 64 for name in configuration.CONFIG_FILES},
+        "operator_attested_measurement": False,
+        "installed": False,
+        "execution_verified": False,
+    }
+    configuration.validate_receipt(receipt, installed=False)
+    receipt["installed"] = 0
+    with pytest.raises(policy.DeliveryError, match="configuration binding"):
+        configuration.validate_receipt(receipt, installed=False)

@@ -24,7 +24,7 @@ from .policy import (
 )
 
 
-def inventory(root: Path) -> list[dict]:
+def inventory(root: Path, *, path_prefix: str = "") -> list[dict]:
     """No links/devices or inferred inclusion; bounds apply before hashing."""
     if not root.is_dir() or root.is_symlink():
         raise DeliveryError("payload root must be an ordinary directory")
@@ -50,7 +50,8 @@ def inventory(root: Path) -> list[dict]:
             total += size
             if total > MAX_BUNDLE_BYTES or len(entries) >= MAX_FILES:
                 raise DeliveryError("payload aggregate limit")
-            relative = relative_name(path.relative_to(root).as_posix())
+            relative = path.relative_to(root).as_posix()
+            relative_name(path_prefix + relative)
             entries.append(
                 {
                     "path": relative,
@@ -62,13 +63,13 @@ def inventory(root: Path) -> list[dict]:
     return sorted(entries, key=lambda x: x["path"])
 
 
-def directories(root: Path) -> list[str]:
+def directories(root: Path, *, path_prefix: str = "") -> list[str]:
     result = []
     for directory, names, _ in os.walk(root, followlinks=False):
         for name in names:
             path = Path(directory) / name
             value = path.relative_to(root).as_posix()
-            relative_name(value + "/.__directory__")
+            relative_name(path_prefix + value + "/.__directory__")
             if path.is_symlink() or stat.S_IMODE(path.stat().st_mode) != 0o555:
                 raise DeliveryError("payload directories must be read-only ordinary directories")
             result.append(value)

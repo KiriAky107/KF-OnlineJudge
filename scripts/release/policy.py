@@ -13,7 +13,17 @@ MAX_BUNDLE_BYTES = 4 * 1024**3
 FORMAT = "kf.single-node.directory.v1"
 PLATFORM = "linux_x86_64_v3_glibc244_systemd"
 TOOLCHAINS = {"python": "3.13.16", "rust": "1.99.0", "node": "26.10.0", "pnpm": "11.28.4"}
-ROOTS = ("backend/", "python/", "site/", "lib/", "bin/", "frontend/", "images/", "deploy/")
+ROOTS = (
+    "backend/",
+    "python/",
+    "site/",
+    "lib/",
+    "bin/",
+    "frontend/",
+    "images/",
+    "deploy/",
+    "delivery/",
+)
 FORBIDDEN = {".git", ".localplan", "docs", "__pycache__", ".env", ".ssh"}
 
 
@@ -73,9 +83,25 @@ def read_json(path: Path, maximum: int = MAX_METADATA_BYTES) -> dict:
     if len(data) > maximum:
         raise DeliveryError("metadata size limit")
     try:
-        return json.loads(data, object_pairs_hook=unique_object)
-    except (UnicodeError, json.JSONDecodeError) as error:
+        value = json.loads(data, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        pending = [(value, 0)]
+        count = 0
+        while pending:
+            item, depth = pending.pop()
+            count += 1
+            if depth > 32 or count > 400000:
+                raise DeliveryError("metadata structure limit")
+            if isinstance(item, dict):
+                pending.extend((member, depth + 1) for member in item.values())
+            elif isinstance(item, list):
+                pending.extend((member, depth + 1) for member in item)
+        return value
+    except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
         raise DeliveryError("invalid JSON metadata") from error
+
+
+def invalid_constant(_value: str):
+    raise DeliveryError("nonfinite JSON value refused")
 
 
 def canonical(value: Any) -> bytes:

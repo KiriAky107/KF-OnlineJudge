@@ -44,3 +44,41 @@ data-loss target; restoring from already prepared release/backup materials has a
 verification. These are acceptance targets, not results inferred from this file.
 Installation/service/restore evidence is required before this pre-release can be
 treated as an accepted delivery; the contract itself does not deploy production.
+
+The node input for `generate-configuration` has exactly `schema_version: 1`,
+`origin` (one HTTPS origin), `worker_id` (canonical nonzero UUID), and
+`measurement_nonce` (null or a fresh operator-generated SHA-256-sized nonce).
+It is a 0600 single-link file. Endpoint input is a separate 0600 JSON object
+with exactly `schema_version: 1`, `database` and `amqp`: database keys are
+`api`, `coordinator`, `import`, `migration`, `identity`; broker keys are `outbox`
+and `worker`. Login names and numeric loopback/socket locations are validated by
+the tool. Every endpoint requires its own operator-supplied private credential;
+there is no working example password or shared default. Import uses the reachable
+`/run/postgresql` Unix socket; all other control connections use numeric loopback.
+
+Generated admission uses the actual verified catalogs for C17/C++20, CPython
+3.13.16 and OpenJDK 21.0.12.1+1-LTS and the unchanged public per-language budgets.
+The protected GNU legacy image is a separate directory: it retains the original
+v1 header and identical verified GNU executable/library bytes, while the three
+v2 catalog identities remain untouched. Shared Worker/task UID/GID pool and
+execution/prefetch/import slots remain one. No canonical judging report or
+historical runtime identity is converted by the installer.
+
+Comparability defaults to unavailable (`measurement_epoch=null`). A trusted
+operator may explicitly use `--attest-measurement` only after actual node/service
+limits and the intended execution environment have been verified. The attestation
+binds a fresh nonce, worker, source, exact images, budgets, CPU/microcode, kernel
+and node scheduling snapshot. `check-configuration` refuses an old binding when
+those values change; it does not manufacture replacement metrics for old reports.
+Before any service resume after such a change, drain execution, generate/install
+a new complete private group with a new nonce and independently revalidate the
+environment. Raw configuration checks are not performance or isolation evidence.
+
+The installation entry points are available with `python3.13 -m scripts.release
+--help`. Use them in order: verify/preflight, install-files, generate-configuration,
+install-configuration, explicit DB identity provision, controlled Backend Alembic
+and account CLI operations, then activate and the separately verified bounded
+service lifecycle. These operations never contact a package index and do not
+install onto a business host on their own. OS dependencies (systemd 262, matching
+glibc ABI bytes, PostgreSQL 18.6 and the fixed broker runtime) must already be
+present from separately verified offline materials.
