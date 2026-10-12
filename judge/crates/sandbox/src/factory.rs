@@ -1,6 +1,7 @@
 //! Root service -> fresh single-threaded helper. Only a run identifier crosses
 //! the allocation protocol. The accepted kernel-authenticated connection is the
 //! capability, so the client never selects a helper path, executable or config.
+use crate::factory_cycles::MAX_IDS;
 use crate::{
     artifacts::ArtifactRoot, execution, launcher::protocol::WireMessage, rpc, spec::ExecutionSpec,
 };
@@ -10,9 +11,8 @@ use rustix::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
     fs::File,
-    io::{self, Read, Write},
+    io::{self, Write},
     os::unix::{
         fs::{FileTypeExt, MetadataExt, PermissionsExt},
         net::{UnixListener, UnixStream},
@@ -21,7 +21,6 @@ use std::{
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
-const MAX_IDS: usize = 4096;
 fn denied() -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, "helper factory refused")
 }
@@ -220,7 +219,7 @@ struct Active {
     child: Child,
     _guardian: UnixStream,
 }
-fn private_file(path: &Path) -> io::Result<File> {
+pub(crate) fn private_file(path: &Path) -> io::Result<File> {
     let fd = match rustix::fs::open(
         path,
         OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
@@ -277,7 +276,7 @@ fn idle_recovery(config: &crate::runtime::ValidatedRuntimeConfig) -> io::Result<
         std::thread::sleep(Duration::from_millis(10));
     }
 }
-fn drained(config: &crate::runtime::ValidatedRuntimeConfig) -> io::Result<bool> {
+pub(crate) fn drained(config: &crate::runtime::ValidatedRuntimeConfig) -> io::Result<bool> {
     let p = config.config();
     for root in [
         PathBuf::from(&p.tasks_root),
@@ -305,10 +304,7 @@ fn drained(config: &crate::runtime::ValidatedRuntimeConfig) -> io::Result<bool> 
 /// Fixed executable/config come solely from the trusted service invocation.
 /// Runtime is finite even when the service manager is misconfigured; cgroup
 /// reservations are read back by authorize, and tasks retain their own gates.
-pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
-    if !(1..=86400).contains(&lifetime_seconds) {
-        return Err(denied());
-    }
+pub(crate) fn clean_environment() -> io::Result<()> {
     // Root management receives no ambient business/credential environment.
     if std::env::vars_os().any(|(k, v)| {
         !matches!(
@@ -320,6 +316,23 @@ pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
     }) {
         return Err(denied());
     }
+    Ok(())
+}
+
+pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
+    serve_with_limit(config_path, lifetime_seconds, MAX_IDS)
+}
+
+/// Limits are selected by the trusted operator, never by a Worker request.
+pub fn serve_with_limit(
+    config_path: &Path,
+    lifetime_seconds: u64,
+    max_requests: usize,
+) -> io::Result<()> {
+    if !(1..=86400).contains(&lifetime_seconds) || !(1..=MAX_IDS).contains(&max_requests) {
+        return Err(denied());
+    }
+    clean_environment()?;
     let config = execution::load_config(config_path)?;
     execution::authorize_registry(&config)?;
     let policy = config.config();
@@ -374,21 +387,15 @@ pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
         std::fs::remove_file(&socket)?;
     }
     let mut ledger = private_file(&root.join("requests"))?;
-    if ledger.metadata()?.len() > (MAX_IDS * 65) as u64 {
-        return Err(denied());
-    }
-    let mut old = String::new();
-    (&mut ledger)
-        .take((MAX_IDS * 65 + 1) as u64)
-        .read_to_string(&mut old)?;
-    let mut ids = HashSet::new();
-    for id in old.lines() {
-        if crate::spec::identifier(id, "run_id").is_err() || !ids.insert(id.to_owned()) {
+    let current =
+        crate::factory_cycles::parse_ids(&crate::factory_cycles::read_ledger(&mut ledger)?)?;
+    let mut used = current.len();
+    let mut ids = crate::factory_cycles::historical_ids(&root)?;
+    for id in current {
+        if !ids.insert(id) {
+            // Incomplete explicit rotation is preserved for operator recovery.
             return Err(denied());
         }
-    }
-    if ids.len() > MAX_IDS || (!old.is_empty() && !old.ends_with('\n')) {
-        return Err(denied());
     }
     let listener = UnixListener::bind(&socket)?;
     let m = std::fs::symlink_metadata(&socket)?;
@@ -463,7 +470,7 @@ pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
                 continue;
             }
             // Replay/ledger exhaustion is terminal even while all slots are busy.
-            if ids.len() >= MAX_IDS || ids.contains(&request.run_id) {
+            if used >= max_requests || ids.contains(&request.run_id) {
                 let _ = channel.send(&Allocation::Refused {});
                 continue;
             }
@@ -474,6 +481,7 @@ pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
             // Persist before allocating; IDs remain consumed across restarts.
             writeln!(ledger, "{}", request.run_id)?;
             ledger.sync_all()?;
+            used += 1;
             ids.insert(request.run_id.clone());
             let (guardian, child_guardian) = UnixStream::pair()?;
             let child = Command::new(&binary)

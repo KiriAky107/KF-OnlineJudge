@@ -39,3 +39,5 @@ pub mod rpc;
 
 #[cfg(target_os = "linux")]
 pub mod factory;
+#[cfg(target_os = "linux")]
+pub mod factory_cycles;

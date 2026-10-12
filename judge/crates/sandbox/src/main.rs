@@ -53,6 +53,15 @@ enum Command {
         config: PathBuf,
         #[arg(long, default_value_t = 3600)]
         lifetime_seconds: u64,
+        #[arg(long, default_value_t = 4096)]
+        max_requests: usize,
+    },
+    /// Explicit root maintenance: retain historical IDs after proven drain.
+    RotateFactoryCycle {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        cycle_id: String,
     },
     #[cfg(target_os = "linux")]
     #[command(hide = true)]
@@ -160,10 +169,13 @@ fn main() -> ExitCode {
         Command::Factory {
             config,
             lifetime_seconds,
+            max_requests,
         } => {
             #[cfg(target_os = "linux")]
             {
-                if kf_sandbox::factory::serve(&config, lifetime_seconds).is_ok() {
+                if kf_sandbox::factory::serve_with_limit(&config, lifetime_seconds, max_requests)
+                    .is_ok()
+                {
                     ExitCode::SUCCESS
                 } else {
                     spec_error("factory_refused", None)
@@ -171,7 +183,22 @@ fn main() -> ExitCode {
             }
             #[cfg(not(target_os = "linux"))]
             {
-                let _ = (config, lifetime_seconds);
+                let _ = (config, lifetime_seconds, max_requests);
+                spec_error("unsupported_platform", None)
+            }
+        }
+        Command::RotateFactoryCycle { config, cycle_id } => {
+            #[cfg(target_os = "linux")]
+            match kf_sandbox::factory_cycles::rotate(&config, &cycle_id) {
+                Ok(report) => {
+                    println!("{report}");
+                    ExitCode::SUCCESS
+                }
+                Err(_) => spec_error("factory_cycle_refused", None),
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (config, cycle_id);
                 spec_error("unsupported_platform", None)
             }
         }
