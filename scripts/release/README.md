@@ -137,3 +137,17 @@ arguments or unit text. The outbox unit uses the existing actual confirmed
 publisher module; the old scaffold check entry is not treated as a delivery loop.
 Python launches use a fixed module/argument list and only the generated service
 environment fields; inherited debugging/proxy/provider credentials are omitted.
+
+`python3.13 -m scripts.release.service_install DIRECTORY --receipt-sha256 SHA`
+is the separate root operator step for those five ordinary units. It requires
+the selected installed configuration, the canonical configuration receipt from
+the generator, and matching service launch/installer bytes in that delivery.
+All app units must be stopped. It stores immutable batches under the protected
+`/etc/kf-onlinejudge/units/RELEASE.CONFIGURATION/` directory, then updates only
+known root-owned system unit pointers and performs a bounded daemon reload.
+Unknown regular files, foreign pointers, changed bytes and unrecorded old batches
+refuse replacement. Previously installed batches remain available; interruption
+may leave a mixed set of pointers, but each pre-start check rejects an unselected
+binding. Repeat installation can finish the same verified batch after stopping
+all app units. Loaded/inactive unit readback starts no service and makes no
+claim about effective runtime limits, readiness, Sandbox gates or VM acceptance.

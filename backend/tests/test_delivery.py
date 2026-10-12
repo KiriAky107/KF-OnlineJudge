@@ -18,6 +18,7 @@ architecture = importlib.import_module("scripts.check_architecture")
 proxy = importlib.import_module("scripts.release.proxy")
 services = importlib.import_module("scripts.release.services")
 service_bootstrap = importlib.import_module("scripts.release.service_bootstrap")
+service_install = importlib.import_module("scripts.release.service_install")
 
 
 def test_delivery_authorities_and_layout():
@@ -454,3 +455,40 @@ def test_import_guard_refuses_missing_pid_privilege_or_network_boundary(field, v
     observed[field] = value
     with pytest.raises(policy.DeliveryError):
         service_bootstrap.validate_runtime("problem-import", observed)
+
+
+def test_unit_snapshot_binding_and_inventory_cannot_add_a_privileged_unit():
+    value = {
+        "schema_version": 1,
+        "source_sha": "123456789abc" + "d" * 28,
+        "configuration_id": "cfg-" + "e" * 24,
+        "configuration_receipt_sha256": "f" * 64,
+        "files": {name: "b" * 64 for name in service_install.NAMES},
+        "installed": False,
+        "services_started": False,
+        "execution_verified": False,
+    }
+    service_install.validate_receipt(value)
+    expected = "/etc/kf-onlinejudge/units/sd-123456789abc.cfg-" + "e" * 24
+    assert str(service_install.batch_directory(value)) == expected
+    assert (
+        str(service_install.previous_batch(expected + "/kf-api.service", "kf-api.service"))
+        == expected
+    )
+    value["files"]["kf-sandbox-factory.service"] = "b" * 64
+    with pytest.raises(policy.DeliveryError, match="unit inventory"):
+        service_install.validate_receipt(value)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "/etc/systemd/system/unknown.service",
+        "/tmp/sd-123456789abc.cfg-" + "e" * 24 + "/kf-api.service",
+        "/etc/kf-onlinejudge/units/sd-123456789abc.cfg-" + "e" * 24 + "/../kf-api.service",
+        "/etc//kf-onlinejudge/units/sd-123456789abc.cfg-" + "e" * 24 + "/kf-api.service",
+    ],
+)
+def test_unit_snapshot_does_not_adopt_foreign_or_ambiguous_targets(target):
+    with pytest.raises(policy.DeliveryError, match="unknown system unit target"):
+        service_install.previous_batch(target, "kf-api.service")

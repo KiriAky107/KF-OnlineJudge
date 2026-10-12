@@ -1,6 +1,7 @@
 """Ordinary service composition; rendering is not Linux service acceptance."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -148,6 +149,8 @@ def generate(
     from .policy import read_json
 
     receipt = configuration.validate_receipt(read_json(receipt_file, 16384), installed=False)
+    if hashlib.sha256(canonical(receipt)).hexdigest() != expected_receipt:
+        raise DeliveryError("canonical generated configuration receipt required")
     if receipt["source_sha"] != data["source_sha"] or receipt["manifest_sha256"] != expected:
         raise DeliveryError("service configuration source differs from bundle")
     if {p.name for p in source.iterdir()} != configuration.CONFIG_FILES | {"receipt.json"}:
