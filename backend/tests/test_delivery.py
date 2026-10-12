@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 policy = importlib.import_module("scripts.release.policy")
 manifest = importlib.import_module("scripts.release.manifest")
+builder = importlib.import_module("scripts.release.build")
 architecture = importlib.import_module("scripts.check_architecture")
 
 
@@ -90,3 +91,23 @@ def test_delivery_may_use_public_wire_contracts(tmp_path, monkeypatch):
     (tmp_path / "public.py").write_text("from kf_oj.contracts.judging_v2 import NodeAdmission\n")
     monkeypatch.setattr(architecture, "RELEASE", tmp_path)
     assert architecture.release_violations() == []
+
+
+def test_signed_guest_library_alias_uses_guest_root(tmp_path):
+    root = tmp_path / "runtime"
+    library = root / "services/usr/lib/library.so.1"
+    library.parent.mkdir(parents=True)
+    library.write_bytes(b"public-library-data")
+    alias = library.parent / "library.so"
+    alias.symlink_to("/usr/lib/library.so.1")
+    records = {
+        "services/usr/lib/library.so": {"link": "/usr/lib/library.so.1"},
+        "services/usr/lib/library.so.1": {
+            "bytes": library.stat().st_size,
+            "sha256": policy.digest(library),
+        },
+    }
+    target = tmp_path / "payload/lib/library.so"
+    builder.curated(root, records, "services/usr/lib/library.so", target)
+    assert target.read_bytes() == library.read_bytes()
+    assert not target.is_symlink()

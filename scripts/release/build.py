@@ -107,8 +107,15 @@ def curated(root: Path, records: dict, name: str, target: Path) -> None:
         if not current.is_symlink() or os.readlink(current) != entry["link"]:
             raise DeliveryError("runtime input link differs")
         if entry["link"].startswith("/"):
-            raise DeliveryError("absolute runtime input link refused")
-        current = Path(os.path.normpath(current.parent / entry["link"]))
+            # Public Arch libraries may contain /usr/lib aliases. Interpret
+            # them within the fingerprinted guest tree, never the build host.
+            if not relative.startswith("services/usr/lib/") or not entry["link"].startswith(
+                "/usr/lib/"
+            ):
+                raise DeliveryError("absolute runtime input link refused")
+            current = Path(os.path.normpath(root / "services" / entry["link"].lstrip("/")))
+        else:
+            current = Path(os.path.normpath(current.parent / entry["link"]))
         if not current.is_relative_to(root):
             raise DeliveryError("runtime input escapes trusted root")
     raise DeliveryError("runtime input link depth limit")
