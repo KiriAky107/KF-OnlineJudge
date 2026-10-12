@@ -48,6 +48,8 @@ def main() -> None:
     check = sub.add_parser("activate")
     check.add_argument("release_id")
     check.add_argument("--manifest-sha256", required=True)
+    check.add_argument("--configuration-id", required=True)
+    sub.add_parser("check-active")
     args = parser.parse_args()
     try:
         if args.command == "contract":
@@ -96,8 +98,14 @@ def main() -> None:
             }
         elif args.command == "provision-database-identities":
             result = database.provision(args.operator, args.connections)
+        elif args.command == "check-active":
+            result = {
+                **install.selection(),
+                "configuration_valid": True,
+                "execution_verified": False,
+            }
         else:
-            result = install.activate(args.release_id, args.manifest_sha256)
+            result = install.activate(args.release_id, args.manifest_sha256, args.configuration_id)
         print(json.dumps(result, sort_keys=True))
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         # OSError filenames can include private operator paths; do not echo them.

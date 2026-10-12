@@ -317,6 +317,7 @@ def validate_receipt(value: dict, *, installed: bool) -> dict:
             "schema_version",
             "source_sha",
             "release_id",
+            "configuration_id",
             "manifest_sha256",
             "configuration_files",
             "operator_attested_measurement",
@@ -331,6 +332,8 @@ def validate_receipt(value: dict, *, installed: bool) -> dict:
         or not isinstance(value["source_sha"], str)
         or not re.fullmatch(r"[0-9a-f]{40}", value["source_sha"])
         or value["release_id"] != "sd-" + value["source_sha"][:12]
+        or not isinstance(value["configuration_id"], str)
+        or not re.fullmatch(r"cfg-[0-9a-f]{24}", value["configuration_id"])
         or type(value["operator_attested_measurement"]) is not bool
         or value["installed"] is not installed
         or value["execution_verified"] is not False
@@ -339,16 +342,39 @@ def validate_receipt(value: dict, *, installed: bool) -> dict:
     sha256(value["manifest_sha256"])
     names = CONFIG_FILES
     if installed:
-        names = {installed_path(value["release_id"], name).as_posix() for name in CONFIG_FILES}
+        names = {
+            installed_path(value["release_id"], value["configuration_id"], name).as_posix()
+            for name in CONFIG_FILES
+        }
     fields(value["configuration_files"], names, "configuration inventory")
     for checksum in value["configuration_files"].values():
         sha256(checksum)
+    hashes = {
+        name: value["configuration_files"][
+            installed_path(value["release_id"], value["configuration_id"], name).as_posix()
+            if installed
+            else name
+        ]
+        for name in CONFIG_FILES
+    }
+    if value["configuration_id"] != configuration_id(
+        value["source_sha"], value["manifest_sha256"], hashes
+    ):
+        raise DeliveryError("configuration batch identity mismatch")
     return value
 
 
-def installed_path(release_id: str, name: str) -> Path:
+def configuration_id(source_sha: str, manifest_sha: str, hashes: dict) -> str:
+    return "cfg-" + hashlib.sha256(canonical([source_sha, manifest_sha, hashes])).hexdigest()[:24]
+
+
+def installed_receipt_path(release_id: str, batch: str) -> Path:
+    return Path("/etc/kf-onlinejudge") / (release_id + "." + batch + ".configuration.json")
+
+
+def installed_path(release_id: str, batch: str, name: str) -> Path:
     base = "/etc/kf-judge" if name == "runtime.json" else "/etc/kf-onlinejudge"
-    return Path(base) / (release_id + "." + name)
+    return Path(base) / (release_id + "." + batch + "." + name)
 
 
 def environment_read(contents: bytes) -> dict:
@@ -491,7 +517,7 @@ def check_installed(receipt_path: Path) -> dict:
         raise DeliveryError("configuration source differs from release")
     paths = {}
     for name in CONFIG_FILES:
-        path = installed_path(receipt["release_id"], name)
+        path = installed_path(receipt["release_id"], receipt["configuration_id"], name)
         preflight.protected(path)
         if digest(path) != receipt["configuration_files"][path.as_posix()]:
             raise DeliveryError("installed configuration fingerprint differs")
@@ -527,6 +553,7 @@ def generate(
         "schema_version": 1,
         "source_sha": data["source_sha"],
         "release_id": data["release_id"],
+        "configuration_id": configuration_id(data["source_sha"], expected, hashes),
         "manifest_sha256": expected,
         "configuration_files": hashes,
         "operator_attested_measurement": attest,
@@ -538,6 +565,7 @@ def generate(
     return {
         "configuration_generated": True,
         "source_sha": data["source_sha"],
+        "configuration_id": receipt["configuration_id"],
         "receipt_sha256": digest(output / "receipt.json"),
         "operator_attested_measurement": attest,
         "installed": False,
@@ -583,15 +611,16 @@ def install_configuration(source: Path, expected_receipt: str) -> dict:
         private(member)
         if digest(member) != sha256(checksum):
             raise DeliveryError("configuration bytes differ")
-        target = installed_path(data["release_id"], name)
+        target = installed_path(data["release_id"], receipt["configuration_id"], name)
         exclusive_file(target, member.read_bytes(), 0o600)
         installed[str(target)] = checksum
     receipt = {**receipt, "configuration_files": installed, "installed": True}
-    target = Path("/etc/kf-onlinejudge") / (data["release_id"] + ".configuration.json")
+    target = installed_receipt_path(data["release_id"], receipt["configuration_id"])
     exclusive_file(target, canonical(receipt), 0o600)
     return {
         "configuration_installed": True,
         "source_sha": data["source_sha"],
+        "configuration_id": receipt["configuration_id"],
         "receipt_sha256": digest(target),
         "execution_verified": False,
     }

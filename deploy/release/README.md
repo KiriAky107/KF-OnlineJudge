@@ -84,6 +84,18 @@ those values change; it does not manufacture replacement metrics for old reports
 Before any service resume after such a change, drain execution, generate/install
 a new complete private group with a new nonce and independently revalidate the
 environment. Raw configuration checks are not performance or isolation evidence.
+Configuration batches have independent hash-bound `cfg-...` identities; files
+and receipts contain both the source release and batch identifier. A fresh
+nonce/identity can therefore be installed for the same source without replacing
+an old configuration. Preparation never selects the new batch automatically.
+`activate` requires an explicit `--configuration-id`, a fully validated group,
+all application units inactive, stopped control ports and no retained task
+resources. Root journals and all old batches remain intact. It binds the code
+pointer and private batch in `/etc/kf-onlinejudge/active.json`; `check-active`
+refuses inconsistent pointers, stale hardware bindings or changed bytes.
+Interruption between the two atomic pointer writes requires operator review;
+no service starts or claims readiness during that mismatch. A stopped stale
+batch can be retired without accepting it for execution under a changed kernel.
 
 The installation entry points are available with `python3.13 -m scripts.release
 --help`. Use them in order: verify/preflight, install-files, generate-configuration,

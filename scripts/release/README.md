@@ -51,6 +51,12 @@ stopped control ports, no factory socket and no retained task/identity/capture
 resources. It atomically selects an installed directory and starts no process;
 draining, migrations and actual health remain separate operations. It does not
 erase retained journals or release resources lacking cleanup proof.
+Every private group also has a content-bound `configuration_id`. Installing a
+second group for the same source preserves the first group byte-for-byte.
+`activate RELEASE --manifest-sha256 SHA --configuration-id BATCH` selects an
+explicit validated batch only after ordinary application units and independent
+task resources are stopped. `check-active` checks the protected batch/code
+binding and current measurement snapshot, with no liveness/readiness claim.
 
 `provision-database-identities` is an explicit local database operator step.
 It uses the locked asyncpg dependency, bounded connections/statements and a

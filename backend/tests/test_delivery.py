@@ -224,18 +224,54 @@ def test_unattested_configuration_has_no_comparable_epoch(delivery_configuration
 
 
 def test_configuration_receipt_is_bound_before_path_use():
+    source = "123456789abc" + "d" * 28
+    hashes = {name: "b" * 64 for name in configuration.CONFIG_FILES}
     receipt = {
         "schema_version": 1,
-        "source_sha": "123456789abc" + "d" * 28,
+        "source_sha": source,
         "release_id": "sd-123456789abc",
+        "configuration_id": configuration.configuration_id(source, "f" * 64, hashes),
         "manifest_sha256": "f" * 64,
-        "configuration_files": {name: "b" * 64 for name in configuration.CONFIG_FILES},
+        "configuration_files": hashes,
         "operator_attested_measurement": False,
         "installed": False,
         "execution_verified": False,
     }
     configuration.validate_receipt(receipt, installed=False)
     receipt["installed"] = 0
+    with pytest.raises(policy.DeliveryError, match="configuration binding"):
+        configuration.validate_receipt(receipt, installed=False)
+
+
+def test_same_source_can_have_distinct_immutable_configuration_batches():
+    source, manifest_sha = "123456789abc" + "d" * 28, "f" * 64
+    hashes = {name: "b" * 64 for name in configuration.CONFIG_FILES}
+    before = configuration.configuration_id(source, manifest_sha, hashes)
+    changed = {**hashes, "measurement.json": "c" * 64}
+    after = configuration.configuration_id(source, manifest_sha, changed)
+    assert before != after
+    assert configuration.installed_path("sd-123456789abc", before, "runtime.json") != (
+        configuration.installed_path("sd-123456789abc", after, "runtime.json")
+    )
+
+
+def test_configuration_batch_hash_covers_all_members():
+    source, manifest_sha = "123456789abc" + "d" * 28, "f" * 64
+    hashes = {name: "b" * 64 for name in configuration.CONFIG_FILES}
+    receipt = {
+        "schema_version": 1,
+        "source_sha": source,
+        "release_id": "sd-123456789abc",
+        "configuration_id": configuration.configuration_id(source, manifest_sha, hashes),
+        "manifest_sha256": manifest_sha,
+        "configuration_files": {**hashes, "worker.json": "c" * 64},
+        "operator_attested_measurement": False,
+        "installed": False,
+        "execution_verified": False,
+    }
+    with pytest.raises(policy.DeliveryError, match="batch identity mismatch"):
+        configuration.validate_receipt(receipt, installed=False)
+    receipt["configuration_id"] = "cfg-../../private"
     with pytest.raises(policy.DeliveryError, match="configuration binding"):
         configuration.validate_receipt(receipt, installed=False)
 
