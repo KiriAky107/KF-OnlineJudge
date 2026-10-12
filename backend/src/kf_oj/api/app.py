@@ -39,7 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        configure_logging(settings.log_level)
+        configure_logging(settings.log_level, production=settings.environment == "production")
         logger = logging.getLogger("kf_oj.api")
         logger.info("Platform API started")
         engine = None

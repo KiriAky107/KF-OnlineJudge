@@ -322,3 +322,10 @@ work; installing the profile alone does not route existing service logs or verif
 their privacy. The profile relies on the pinned systemd 262
 [namespace interface](https://github.com/systemd/systemd/blob/v262/man/systemd.exec.xml)
 and [journal configuration](https://github.com/systemd/systemd/blob/v262/man/journald.conf.xml).
+
+Production API logging uses a closed event vocabulary and omits arbitrary library
+messages, arguments, paths and exception text. Uvicorn's separate error handlers
+are redirected through that formatter; installed API launchers disable access
+logging so request query strings are not copied into service logs. Development
+diagnostics remain separate. These ordinary formatting checks are not evidence
+of actual daemon, HTTP or upload log privacy; that is still a VM acceptance case.

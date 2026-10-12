@@ -16,7 +16,7 @@ ENTRYPOINTS = {
     "kf-delivery": "scripts.release",
     "kf-api": (
         "uvicorn kf_oj.api.app:create_app --factory --host 127.0.0.1 --port 8000 "
-        "--no-proxy-headers --limit-concurrency 32 --backlog 64"
+        "--no-proxy-headers --no-access-log --limit-concurrency 32 --backlog 64"
     ),
     "kf-outbox-publisher": "kf_oj.workers.outbox",
     "kf-problem-import-worker": "kf_oj.workers.problem_import",

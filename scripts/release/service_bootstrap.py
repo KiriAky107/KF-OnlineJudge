@@ -31,6 +31,7 @@ PYTHON_MODULES = {
         "--port",
         "8000",
         "--no-proxy-headers",
+        "--no-access-log",
         "--limit-concurrency",
         "32",
         "--backlog",
