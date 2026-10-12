@@ -105,6 +105,10 @@ def dependency_records(site: Path) -> None:
             name, checksum, size = row
             if name.startswith("../../../bin/"):
                 continue
+            if name.startswith("../../../include/site/python3.13/"):
+                # Wheel development headers, like console scripts, are not
+                # needed in the read-only service runtime.
+                continue
             if "__pycache__" in Path(name).parts or name.endswith((".pyc", ".pyo")):
                 continue
             relative_name("site/" + name)
