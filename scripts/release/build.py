@@ -308,6 +308,18 @@ def build(repo: Path, inputs: Path, output: Path, work: Path) -> dict:
         images[name] = image(
             Path(entry["root"]), entry["catalog_sha256"], payload / "images" / name
         )
+    # The service inventory is an adjunct to the base GNU userland. Bind the
+    # latter's libc/loader/compiler runtime closure too, rather than relying on
+    # undeclared build-host libraries. The image was byte-verified above.
+    for library in sorted((payload / "images/gnu/usr/lib").iterdir()):
+        if not library.is_file() or ".so" not in library.name:
+            continue
+        target = payload / "lib" / library.name
+        if target.exists():
+            if digest(target) != digest(library):
+                raise DeliveryError("conflicting verified service library")
+        else:
+            copy(library, target)
     for name, module in ENTRYPOINTS.items():
         wrapper = (
             "#!/bin/sh\nset -eu\n"
