@@ -159,6 +159,11 @@ def image(source: Path, expected: str, target: Path) -> dict:
 
 def build(repo: Path, inputs: Path, output: Path, work: Path) -> dict:
     repo = repo.resolve(strict=True)
+    inputs = inputs.resolve(strict=True)
+    output = output.resolve()
+    work = work.resolve()
+    if output == work or output.is_relative_to(work) or work.is_relative_to(output):
+        raise DeliveryError("build output and work must be separate")
     if subprocess.check_output(["git", "status", "--porcelain"], cwd=repo):
         raise DeliveryError("build requires a clean committed checkout")
     source_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
