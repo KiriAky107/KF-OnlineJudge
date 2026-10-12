@@ -66,7 +66,11 @@ refuses unexpected existing authority. There is no application table DDL or
 automatic account bootstrap: the migration login owns the database without
 global superuser/create-role/create-db/bypass-RLS rights; Backend Alembic remains
 the only schema/grant migration entry. Runtime logins cannot grant/set group
-authority. See [PostgreSQL role membership](https://www.postgresql.org/docs/18/role-membership.html)
+authority. The migration login inherits the narrow NOLOGIN function-owner role
+and can SET that role, so unchanged Alembic can grant/rename its functions after
+ownership transfer. Membership has no ADMIN option, adds no global role-creation
+privilege, and is never given to runtime logins. See
+[PostgreSQL role membership](https://www.postgresql.org/docs/18/role-membership.html)
 and [function ownership](https://www.postgresql.org/docs/18/sql-alterfunction.html).
 
 Always bootstrap validation from a separately trusted tool copy and an out-of-band

@@ -114,16 +114,13 @@ async def _provision(operator: Path, endpoint_path: Path) -> dict:
                     )
                 ]
                 expected = (
-                    []
-                    if not login
-                    else [(MEMBERSHIP[name], False, name != "kf_migrator", name == "kf_migrator")]
+                    [] if not login else [(MEMBERSHIP[name], False, True, name == "kf_migrator")]
                 )
                 if memberships and memberships != expected:
                     raise DeliveryError("existing DB role membership differs")
             for login, group in MEMBERSHIP.items():
-                inherit = "FALSE" if login == "kf_migrator" else "TRUE"
                 set_role = "TRUE" if login == "kf_migrator" else "FALSE"
-                for option, value in (("ADMIN", "FALSE"), ("INHERIT", inherit), ("SET", set_role)):
+                for option, value in (("ADMIN", "FALSE"), ("INHERIT", "TRUE"), ("SET", set_role)):
                     # Each command uses the documented single membership-option
                     # form; all three changes are in the same transaction.
                     await db.execute(f"GRANT {group} TO {login} WITH {option} {value}")
@@ -164,7 +161,9 @@ def provision(operator: Path, endpoint_path: Path) -> dict:
 
     Pre-created NOLOGIN groups allow the unchanged Backend Alembic migrations
     to run under a separate non-superuser database owner. Only this migration
-    login can SET the authority-function owner; ordinary logins inherit their
+    login inherits and can SET the narrow authority-function owner, allowing
+    unchanged Alembic to grant/rename its already owned functions without global
+    superuser/create-role privileges. Ordinary logins inherit their
     own one group and cannot grant it. Unexpected existing authority is refused.
     """
     if os.geteuid() != 0:
