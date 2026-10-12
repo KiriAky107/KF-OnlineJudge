@@ -132,6 +132,29 @@ async fn ready(State(app): State<App>) -> ApiResult<Json<Value>> {
     app.repository.database.ready().await?;
     Ok(Json(json!({"status":"ready"})))
 }
+async fn operations(State(app): State<App>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    // The general internal guard also recognizes Workers; this projection is
+    // separately restricted to platform/operator authority, never worker tokens.
+    platform(&app, &headers)?;
+    let counters = crate::operations::snapshot(&app.repository.database).await?;
+    Ok(Json(json!({
+        "schema_version": 1,
+        "admission": app.config.admission,
+        "configured_workers": app.config.workers.len(),
+        "lease_seconds": app.config.lease_seconds,
+        "counters": counters,
+    })))
+}
+async fn notification_probe_id(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    platform(&app, &headers)?;
+    let id = crate::operations::absent_notification_id(&app.repository.database).await?;
+    Ok(Json(
+        json!({"schema_version":1,"evaluation_id":id,"absent":true}),
+    ))
+}
 async fn claim(State(app): State<App>, h: HeaderMap, b: Bytes) -> ApiResult<Response> {
     let w = worker(&app, &h)?;
     let n: JudgeTaskNotification = decode(&b)?;
@@ -198,6 +221,8 @@ pub fn application(app: App) -> Router {
     Router::new()
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
+        .route("/internal/operations/status", get(operations))
+        .route("/internal/operations/probe-id", get(notification_probe_id))
         .route("/internal/claim", post(claim))
         .route("/internal/renew", post(renew))
         .route("/internal/stage", post(stage))

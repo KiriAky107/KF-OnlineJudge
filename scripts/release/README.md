@@ -243,3 +243,37 @@ reads the transient unit result and confirms stop; foreign/residual units and
 unrecorded/partial targets are refused. These are implementation interfaces, not
 actual VM acceptance. See [PostgreSQL initdb](https://www.postgresql.org/docs/18/app-initdb.html)
 and [systemd credentials](https://systemd.io/CREDENTIALS/) for the underlying interfaces.
+
+`python3.13 -m scripts.release.node_health` performs the installed service
+admission-precondition checks in a fixed root operator unit. It uses bounded
+ordinary broker/factory/import observer units and accepts no executable, account,
+port or command override. Each helper checks its effective node/service/process
+budgets, identity and no-new-privileges/capability boundary. Unknown or concurrent
+units are refused; transient helper stop is read back. This is an operator CLI,
+not an additional public HTTP control endpoint, and has no schema/state writer.
+
+The projection checks selected unit pointers and effective identities/limits,
+actual DB-role/column privileges, the import owner's fresh policy-bound heartbeat
+through its Unix socket, and broker queue semantics/permissions/vhost limits via
+ordinary-cookie read-only CLI queries. Coordinator owns the authenticated bounded
+execution/cleanup counters; truncated or unconfirmed data never proves a drain.
+Its `/internal/operations/` routes require platform authority and are not proxied
+publicly. Counters contain no submission IDs, source, archives or credential bytes.
+
+Factory health is a separate version-1 authenticated observation, rate/call-count
+bounded for the finite factory lifetime. It reads current supervisor/delegation
+authorization, the exact runtime-config digest, live helpers, remaining requests
+and lifetime, without recovery, task allocation, ledger writes or limit repair.
+The old allocation request bytes are unchanged. Health explicitly reports
+`isolation_verified=false` and `execution_gate=required_per_execution`: every real
+execution still needs its namespace/root/identity/seccomp/exec acknowledgements.
+Admission readiness requires confirmed empty execution/cleanup state and enough
+factory requests/lifetime for the configured maximum job. It does not certify
+TLS/browser behavior or replace the independent VM's execution acceptance.
+
+The optional explicit `--probe-notification` sends one small confirmed notification
+for a fresh identifier checked absent by Coordinator. It reads no message body,
+creates no evaluation/grade and starts no program; ordinary periodic observation
+does not publish messages. Probe failure is reported separately. Underlying
+interfaces: [RabbitMQ CLI](https://www.rabbitmq.com/docs/man/rabbitmqctl.8),
+[PostgreSQL privilege functions](https://www.postgresql.org/docs/18/functions-info.html).

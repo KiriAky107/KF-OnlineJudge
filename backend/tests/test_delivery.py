@@ -23,6 +23,8 @@ factory_service = importlib.import_module("scripts.release.factory_service")
 dependencies = importlib.import_module("scripts.release.dependencies")
 dependency_install = importlib.import_module("scripts.release.dependency_install")
 dependency_initialize = importlib.import_module("scripts.release.dependency_initialize")
+node_health = importlib.import_module("scripts.release.node_health")
+broker_health = importlib.import_module("scripts.release.broker_health")
 
 
 def test_delivery_authorities_and_layout():
@@ -725,3 +727,119 @@ def test_database_initialization_receipt_does_not_prove_migration_or_authenticat
     receipt["cluster_identity"]["uid"] = 0
     with pytest.raises(policy.DeliveryError, match="cluster identity"):
         dependency_initialize.validate_receipt(receipt)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("superuser", True),
+        ("set_role", True),
+        ("connection_limit", -1),
+        ("login", "postgres"),
+        ("inherited", False),
+    ],
+)
+def test_readiness_rejects_wrong_or_excess_database_authority(field, value):
+    observed = {
+        "login": "kf_coordinator",
+        "database": "kf_onlinejudge",
+        "canlogin": True,
+        "superuser": False,
+        "createdb": False,
+        "createrole": False,
+        "replication": False,
+        "bypassrls": False,
+        "member": True,
+        "inherited": True,
+        "set_role": False,
+        "connection_limit": 8,
+        "privileges": node_health.PRIVILEGES["coordinator"].copy(),
+    }
+    node_health.validate_role("coordinator", observed)
+    observed[field] = value
+    with pytest.raises(policy.DeliveryError, match="role authority"):
+        node_health.validate_role("coordinator", observed)
+
+
+def test_readiness_refuses_context_swap_or_claimed_isolation_certificate():
+    value = {
+        "schema_version": 1,
+        "configuration_sha256": "b" * 64,
+        "supervisor_authorized": True,
+        "execution_gate": "required_per_execution",
+        "isolation_verified": False,
+        "max_concurrent_runs": 1,
+        "active_helpers": 0,
+        "cleanup_complete": True,
+        "remaining_requests": 4096,
+        "remaining_lifetime_seconds": 3600,
+    }
+    node_health.validate_factory(value, "b" * 64)
+    with pytest.raises(policy.DeliveryError, match="factory"):
+        node_health.validate_factory(value, "c" * 64)
+    value["isolation_verified"] = True
+    with pytest.raises(policy.DeliveryError, match="factory"):
+        node_health.validate_factory(value, "b" * 64)
+
+
+def test_busy_unknown_cleanup_or_expiring_factory_never_admits_new_work():
+    root = {
+        "cleanup_complete": True,
+        "active_helpers": 0,
+        "remaining_requests": 4096,
+        "remaining_lifetime_seconds": 3600,
+    }
+    counters = {
+        "in_flight": {"count_capped": 0, "truncated": False},
+        "cleanup_unconfirmed": {"count_capped": 0, "truncated": False},
+    }
+    admission = {
+        "legacy": {"max_job_wall_time_us": 60000000},
+        "multi_runtime": {"max_job_wall_time_us": 60000000},
+    }
+    assert node_health.admission_ready(root, counters, {"consumers": 1}, admission)
+    root["remaining_requests"] = 256
+    assert not node_health.admission_ready(root, counters, {"consumers": 1}, admission)
+    root["remaining_requests"] = 4096
+    root["remaining_lifetime_seconds"] = 119
+    assert not node_health.admission_ready(root, counters, {"consumers": 1}, admission)
+    root["remaining_lifetime_seconds"] = 3600
+    root["cleanup_complete"] = False
+    assert not node_health.admission_ready(root, counters, {"consumers": 1}, admission)
+    root["cleanup_complete"] = True
+    counters["cleanup_unconfirmed"]["count_capped"] = 1
+    assert not node_health.admission_ready(root, counters, {"consumers": 1}, admission)
+
+
+def test_actual_broker_argument_parser_keeps_typed_budgets_and_rejects_duplicates():
+    value = [
+        [key, "longstr" if key == "x-overflow" else "long", val]
+        for key, val in dependencies.QUEUE_ARGUMENTS.items()
+    ]
+    assert broker_health.queue_arguments(value) == dependencies.QUEUE_ARGUMENTS
+    value[-1] = value[0].copy()
+    with pytest.raises(policy.DeliveryError, match="duplicate"):
+        broker_health.queue_arguments(value)
+    with pytest.raises(policy.DeliveryError, match="budgets"):
+        broker_health.queue_arguments({**dependencies.QUEUE_ARGUMENTS, "x-max-length": 1024})
+
+
+def test_counter_projection_rejects_truncated_empty_and_source_admission_mismatch():
+    value = {
+        "schema_version": 1,
+        "admission": {"fixture": True},
+        "configured_workers": 1,
+        "lease_seconds": 120,
+        "counters": {
+            "queued": {"count_capped": 0, "truncated": False},
+            "in_flight": {"count_capped": 0, "truncated": False},
+            "cleanup_unconfirmed": {"count_capped": 0, "truncated": False},
+            "database_clock_unix_ms": 1791830000000,
+        },
+    }
+    node_health.validate_execution(value, value["admission"])
+    with pytest.raises(policy.DeliveryError, match="admission"):
+        node_health.validate_execution(value, {"fixture": False})
+    value["counters"]["cleanup_unconfirmed"]["truncated"] = True
+    with pytest.raises(policy.DeliveryError, match="bound"):
+        node_health.validate_execution(value, value["admission"])

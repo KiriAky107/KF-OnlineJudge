@@ -16,6 +16,11 @@ struct Cli {
 enum Command {
     /// Observe the current Linux environment without changing it.
     Probe,
+    /// Ordinary authenticated, read-only factory status; never certifies isolation.
+    FactoryHealth {
+        #[arg(long)]
+        socket: PathBuf,
+    },
     #[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
     #[command(hide = true)]
     VmCase { case: String },
@@ -107,6 +112,24 @@ enum Command {
 
 fn main() -> ExitCode {
     match Cli::parse().command {
+        Command::FactoryHealth { socket } => {
+            #[cfg(target_os = "linux")]
+            match kf_sandbox::factory::FactoryClient::new(socket).health() {
+                Ok(status) => {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&status).expect("bounded health")
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(_) => spec_error("factory_health_unavailable", None),
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = socket;
+                spec_error("unsupported_platform", None)
+            }
+        }
         Command::Probe => match serde_json::to_string_pretty(&kf_sandbox::probe::observe()) {
             Ok(report) => {
                 println!("{report}");

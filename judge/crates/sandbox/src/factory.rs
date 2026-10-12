@@ -10,6 +10,7 @@ use rustix::{
     fs::{Mode, OFlags},
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use std::{
     fs::File,
     io::{self, Write},
@@ -30,6 +31,17 @@ struct Acquire {
     run_id: String,
     #[serde(default, skip_serializing_if = "is_false")]
     check_stopped: bool,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "health_version"
+    )]
+    health_version: Option<u8>,
+}
+fn health_version<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u8>, D::Error> {
+    u8::deserialize(deserializer).map(Some)
 }
 fn is_false(v: &bool) -> bool {
     !v
@@ -37,16 +49,29 @@ fn is_false(v: &bool) -> bool {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 enum Allocation {
-    Ready { run_id: String, helper_pid: u32 },
+    Ready {
+        run_id: String,
+        helper_pid: u32,
+    },
     Refused {},
     Busy {},
-    Stopped { cleanup_complete: bool },
+    Stopped {
+        cleanup_complete: bool,
+    },
+    Health {
+        status: crate::factory_health::FactoryHealth,
+    },
 }
 impl crate::launcher::protocol::sealed::Sealed for Acquire {}
 impl crate::launcher::protocol::sealed::Sealed for Allocation {}
 impl WireMessage for Acquire {
     fn valid(&self) -> bool {
         crate::spec::identifier(&self.run_id, "run_id").is_ok()
+            && match self.health_version {
+                None => true,
+                Some(1) => self.run_id == "health-check" && !self.check_stopped,
+                Some(_) => false,
+            }
     }
 }
 impl WireMessage for Allocation {
@@ -56,6 +81,7 @@ impl WireMessage for Allocation {
                 *helper_pid > 1 && crate::spec::identifier(run_id, "run_id").is_ok()
             }
             Self::Refused {} | Self::Busy {} | Self::Stopped { .. } => true,
+            Self::Health { status } => status.valid(),
         }
     }
 }
@@ -86,9 +112,27 @@ impl FactoryClient {
         channel.send(&Acquire {
             run_id: "stop-check".into(),
             check_stopped: true,
+            health_version: None,
         })?;
         match channel.receive::<Allocation>()? {
             Allocation::Stopped { cleanup_complete } => Ok(cleanup_complete),
+            _ => Err(denied()),
+        }
+    }
+    /// Root-authenticated status; does not recover, allocate or execute a task.
+    pub fn health(&self) -> io::Result<crate::factory_health::FactoryHealth> {
+        if rustix::process::geteuid().as_raw() < 1000 || rustix::process::getegid().as_raw() < 1000
+        {
+            return Err(denied());
+        }
+        let mut channel = rpc::channel(UnixStream::connect(&self.socket)?, 0, 0)?;
+        channel.send(&Acquire {
+            run_id: "health-check".into(),
+            check_stopped: false,
+            health_version: Some(1),
+        })?;
+        match channel.receive::<Allocation>()? {
+            Allocation::Health { status } => Ok(status),
             _ => Err(denied()),
         }
     }
@@ -177,6 +221,7 @@ impl FactoryClient {
                 channel.send(&Acquire {
                     run_id: spec.run_id.clone(),
                     check_stopped: false,
+                    health_version: None,
                 })?;
                 let pid = match channel.receive::<Allocation>()? {
                     Allocation::Ready { run_id, helper_pid } if run_id == spec.run_id => helper_pid,
@@ -334,6 +379,13 @@ pub fn serve_with_limit(
     }
     clean_environment()?;
     let config = execution::load_config(config_path)?;
+    let configuration_sha256 = format!(
+        "{:x}",
+        Sha256::digest(execution::read_bounded_file(
+            config_path,
+            crate::runtime::MAX_CONFIG_BYTES
+        )?)
+    );
     execution::authorize_registry(&config)?;
     let policy = config.config();
     if policy.aggregate.supervisor_processes < 4 + 8 * policy.max_concurrent_runs {
@@ -417,6 +469,8 @@ pub fn serve_with_limit(
     let _delegated = crate::cgroup::DelegatedCgroup::open(&config).map_err(|_| denied())?;
     let mut active: Vec<Active> = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(lifetime_seconds);
+    let mut health_checks = 0_usize;
+    let mut last_health = None;
     let result = (|| {
         while Instant::now() < deadline {
             let mut i = 0;
@@ -451,6 +505,47 @@ pub fn serve_with_limit(
             let Ok(request) = channel.receive::<Acquire>() else {
                 continue;
             };
+            if request.health_version == Some(1) {
+                if health_checks >= MAX_IDS
+                    || last_health
+                        .is_some_and(|last: Instant| last.elapsed() < Duration::from_secs(1))
+                {
+                    let _ = channel.send(&Allocation::Busy {});
+                    continue;
+                }
+                health_checks += 1;
+                last_health = Some(Instant::now());
+                // The fixed root supervisor context and delegation must still
+                // be authorized. Namespace/root/seccomp/exec acknowledgements
+                // remain mandatory for every actual execution, not inferred.
+                let current =
+                    execution::read_bounded_file(config_path, crate::runtime::MAX_CONFIG_BYTES)?;
+                if format!("{:x}", Sha256::digest(current)) != configuration_sha256
+                    || execution::authorize(&config).is_err()
+                    || crate::cgroup::DelegatedCgroup::inspect(&config).is_err()
+                {
+                    let _ = channel.send(&Allocation::Refused {});
+                    continue;
+                }
+                let cleanup_complete = active.is_empty() && drained(&config)?;
+                channel.send(&Allocation::Health {
+                    status: crate::factory_health::FactoryHealth {
+                        schema_version: 1,
+                        configuration_sha256: configuration_sha256.clone(),
+                        supervisor_authorized: true,
+                        execution_gate: "required_per_execution".into(),
+                        isolation_verified: false,
+                        max_concurrent_runs: policy.max_concurrent_runs,
+                        active_helpers: active.len() as u32,
+                        cleanup_complete,
+                        remaining_requests: (max_requests - used) as u32,
+                        remaining_lifetime_seconds: deadline
+                            .saturating_duration_since(Instant::now())
+                            .as_secs(),
+                    },
+                })?;
+                continue;
+            }
             if request.check_stopped {
                 if !active.is_empty() {
                     let _ = channel.send(&Allocation::Stopped {
@@ -574,6 +669,31 @@ mod tests {
         }
         assert!(
             serde_json::from_str::<Acquire>(r#"{"run_id":"a-1"}"#)
+                .unwrap()
+                .valid()
+        );
+    }
+    #[test]
+    fn health_is_explicitly_versioned_and_old_allocation_bytes_are_unchanged() {
+        let allocation = Acquire {
+            run_id: "a-1".into(),
+            check_stopped: false,
+            health_version: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&allocation).unwrap(),
+            r#"{"run_id":"a-1"}"#
+        );
+        for data in [
+            r#"{"run_id":"health-check","health_version":2}"#,
+            r#"{"run_id":"work-id","health_version":1}"#,
+            r#"{"run_id":"health-check","health_version":1,"check_stopped":true}"#,
+        ] {
+            let request = serde_json::from_str::<Acquire>(data).unwrap();
+            assert!(!request.valid());
+        }
+        assert!(
+            serde_json::from_str::<Acquire>(r#"{"run_id":"health-check","health_version":1}"#)
                 .unwrap()
                 .valid()
         );
