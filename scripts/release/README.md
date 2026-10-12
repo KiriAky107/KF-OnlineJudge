@@ -165,3 +165,10 @@ same-boot loss or conflicting record refuses. New-boot recreation requires empty
 persistent resources. No journal/lease is deleted and preparation grants no
 execution permit. Neither composition nor lexical tests are Root/kernel/service
 acceptance; install, restart, failure recovery and actual execution remain VM-only.
+The separate operator step `factory_service --install DIRECTORY --receipt-sha256 SHA`
+requires that generated receipt, the selected protected configuration and matching
+installer bytes. It keeps immutable Root-unit batches under `/etc/kf-judge/units/`,
+updates only recorded Root-owned pointers with all app units stopped, and checks
+loaded/inactive systemd metadata. Foreign files/links and partial unknown batches
+are refused, old batches remain retained. This step neither starts the factory nor
+prepares its cgroup; only the later bounded startup invokes Sandbox preparation.

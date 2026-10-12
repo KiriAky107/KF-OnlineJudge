@@ -518,3 +518,27 @@ def test_factory_composition_keeps_privileged_boundary_and_finite_lifetime():
     assert "EnvironmentFile" not in contents and "LoadCredential" not in contents
     assert "env -i" in contents and "MemorySwapMax=0" in contents
     assert receipt["configuration_id"] in contents
+
+
+def test_factory_install_receipt_cannot_claim_execution_or_move_outside_root_batch():
+    receipt = {
+        "schema_version": 1,
+        "source_sha": "123456789abc" + "d" * 28,
+        "configuration_id": "cfg-" + "e" * 24,
+        "configuration_receipt_sha256": "f" * 64,
+        "unit_sha256": "b" * 64,
+        "installed": False,
+        "services_started": False,
+        "execution_verified": False,
+    }
+    factory_service.validate_receipt(receipt)
+    assert str(factory_service.batch_directory(receipt)) == (
+        "/etc/kf-judge/units/sd-123456789abc.cfg-" + "e" * 24
+    )
+    receipt["execution_verified"] = True
+    with pytest.raises(policy.DeliveryError, match="factory unit binding"):
+        factory_service.validate_receipt(receipt)
+    receipt["execution_verified"] = False
+    receipt["configuration_id"] = "../foreign"
+    with pytest.raises(policy.DeliveryError, match="factory unit binding"):
+        factory_service.validate_receipt(receipt)
