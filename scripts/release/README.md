@@ -172,3 +172,32 @@ updates only recorded Root-owned pointers with all app units stopped, and checks
 loaded/inactive systemd metadata. Foreign files/links and partial unknown batches
 are refused, old batches remain retained. This step neither starts the factory nor
 prepares its cgroup; only the later bounded startup invokes Sandbox preparation.
+
+`python3.13 -m scripts.release.dependencies --connections PRIVATE_JSON --output DIRECTORY`
+composes the fixed loopback PostgreSQL/RabbitMQ configurations and ordinary units
+from the selected release. Broker passwords must be identical to the selected
+outbox/Worker batch. The private definition file contains salted password hashes,
+two users without management tags, one vhost/queue and separate publish/consume
+permissions. Definitions import is required on a blank broker; no guest account
+or default password is configured. The management plugin remains disabled.
+PostgreSQL local/loopback paths both use SCRAM, including the Unix import socket.
+Configuration includes bounded connections, query/temp budgets and log controls.
+
+Both dependency units reserve 512 MiB, zero swap and bounded CPU/PIDs/files,
+restart and lifetime. The receipt requires separate 2-GiB PostgreSQL and 512-MiB
+broker storage mounts. These mounts are not created or checked by composition.
+RabbitMQ memory/disk alarms and PostgreSQL WAL/temp settings are not total hard
+storage/memory guarantees. Required real filesystem/cgroup/queue/auth readbacks,
+account ownership, cluster initialization, cookie/definition permissions and
+startup/restart are still explicit installation/VM steps; no service is started.
+Dependency pre-start checks require the selected release/batch and read back the
+ordinary UID, zero capabilities, no-new-privileges, process/cgroup/node budgets,
+private data ownership, a separate data filesystem mount and its actual size.
+A parent filesystem or an alarm setting therefore cannot silently pass as the
+required dedicated hard storage capacity. Config parsing alone does not verify
+these conditions or broker semantics on an already-initialized node.
+
+Dependency directive references: [PostgreSQL resources](https://www.postgresql.org/docs/18/runtime-config-resource.html),
+[RabbitMQ limits](https://www.rabbitmq.com/docs/limits),
+[definition import](https://www.rabbitmq.com/docs/definitions),
+and [RabbitMQ access control](https://www.rabbitmq.com/docs/access-control).

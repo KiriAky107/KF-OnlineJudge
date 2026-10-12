@@ -20,6 +20,7 @@ services = importlib.import_module("scripts.release.services")
 service_bootstrap = importlib.import_module("scripts.release.service_bootstrap")
 service_install = importlib.import_module("scripts.release.service_install")
 factory_service = importlib.import_module("scripts.release.factory_service")
+dependencies = importlib.import_module("scripts.release.dependencies")
 
 
 def test_delivery_authorities_and_layout():
@@ -542,3 +543,50 @@ def test_factory_install_receipt_cannot_claim_execution_or_move_outside_root_bat
     receipt["configuration_id"] = "../foreign"
     with pytest.raises(policy.DeliveryError, match="factory unit binding"):
         factory_service.validate_receipt(receipt)
+
+
+def test_dependency_definitions_are_bound_to_two_non_admin_users_and_existing_queue(
+    delivery_configuration,
+):
+    import base64
+    import hashlib
+    from urllib.parse import urlsplit
+
+    from kf_oj.infra.messaging.publisher import QUEUE_ARGUMENTS
+
+    _, _, _, _, endpoints, _ = delivery_configuration
+    definition = dependencies.broker_definitions(endpoints)
+    assert {u["name"] for u in definition["users"]} == {"kf_outbox", "kf_worker"}
+    assert all(not u["tags"] for u in definition["users"])
+    for user in definition["users"]:
+        role = user["name"].removeprefix("kf_")
+        packed = base64.b64decode(user["password_hash"])
+        password = urlsplit(endpoints["amqp"][role]).password
+        assert (
+            len(packed) == 36
+            and packed[4:] == hashlib.sha256(packed[:4] + password.encode()).digest()
+        )
+        assert "password" not in user
+    assert definition["queues"][0]["arguments"] == QUEUE_ARGUMENTS
+    permissions = {p["user"]: p for p in definition["permissions"]}
+    assert permissions["kf_outbox"]["read"] == "^$"
+    assert permissions["kf_worker"]["write"] == "^$"
+    assert definition["vhosts"] == [{"name": "kf", "metadata": {"default_queue_type": "classic"}}]
+
+
+def test_dependency_templates_keep_socket_auth_network_and_actual_limit_scope():
+    files = dependencies.render("sd-123456789abc", "cfg-" + "e" * 24)
+    hba = files["pg_hba.conf"].decode()
+    assert "trust" not in hba and "scram-sha-256" in hba
+    broker = files["rabbitmq.conf"].decode()
+    assert "definitions.import_backend = local_filesystem" in broker
+    assert "listeners.tcp.1 = 127.0.0.1:5672" in broker
+    assert "default_pass" not in broker and "guest" not in broker
+    assert "default_limits.vhosts.1.max_connections = 4" in broker
+    assert "default_limits.vhosts.1.max_queues = 1" in broker
+    assert files["enabled_plugins"] == b"[].\n"
+    for name in ("postgres", "rabbitmq"):
+        unit = files["kf-" + name + ".service"].decode()
+        assert "User=root" not in unit and "MemoryMax=512M" in unit
+        assert "MemorySwapMax=0" in unit and "RestartSec=30" in unit
+        assert "RequiresMountsFor=" + dependencies.STORAGE[name]["path"] in unit
