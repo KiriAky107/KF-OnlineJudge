@@ -185,9 +185,12 @@ def admission_runtime(payload: Path, data: dict) -> tuple[dict, dict]:
     admission = read_json(payload / "deploy/judge.admission.example.json", 16384)
     root = read_json(payload / "deploy/sandbox.managed.runtime.example.json", 16384)
     for cap in admission["multi_runtime"]["capabilities"]:
-        image = {"c17": "gnu", "cpp20": "gnu", "python313": "python313", "java21": "java21"}[
-            cap["language"]
-        ]
+        image = {
+            "c17": "gnu",
+            "cpp20": "gnu",
+            "python313": "python313",
+            "java21": "java21",
+        }[cap["language"]]
         cap["toolchain"] = data["images"][image]
     admission = AdmissionRegistry.model_validate(admission).model_dump(mode="json")
     state = "/var/lib/kf-judge/images/" + data["release_id"]
@@ -234,7 +237,10 @@ def compose(
         if node["measurement_nonce"] is None:
             raise DeliveryError("explicit fresh measurement nonce required for attestation")
         epoch = hashlib.sha256(canonical(measurement)).hexdigest()
-    worker_token, platform_token = service_tokens or (secrets.token_hex(32), secrets.token_hex(32))
+    worker_token, platform_token = service_tokens or (
+        secrets.token_hex(32),
+        secrets.token_hex(32),
+    )
     coordinator = {
         "listen": "127.0.0.1:8100",
         "database_url": endpoints["database"]["coordinator"],
@@ -289,6 +295,7 @@ def compose(
                 **common,
                 "KF_OJ_DATABASE_URL": backend_url("import"),
                 "KF_OJ_IMPORT_WORKER_CGROUP": IMPORT_CGROUP,
+                "KF_OJ_JUDGE_ADMISSION": canonical(admission).decode().strip(),
             }
         ),
         "identity.env": environmental(
@@ -491,7 +498,12 @@ def validate_contents(paths: dict[str, Path], payload: Path, data: dict, *, atte
     if worker_token == platform_token:
         raise DeliveryError("service identities overlap")
     expected = compose(
-        payload, data, node, endpoints, attest=attest, service_tokens=(worker_token, platform_token)
+        payload,
+        data,
+        node,
+        endpoints,
+        attest=attest,
+        service_tokens=(worker_token, platform_token),
     )
     for name in CONFIG_FILES:
         # JSON comparisons via canonical bytes distinguish true/1 and null/[];
@@ -523,7 +535,10 @@ def check_installed(receipt_path: Path) -> dict:
             raise DeliveryError("installed configuration fingerprint differs")
         paths[name] = path
     validate_contents(
-        paths, release / "payload", data, attest=receipt["operator_attested_measurement"]
+        paths,
+        release / "payload",
+        data,
+        attest=receipt["operator_attested_measurement"],
     )
     return receipt
 

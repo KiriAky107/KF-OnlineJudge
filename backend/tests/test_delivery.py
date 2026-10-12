@@ -365,7 +365,8 @@ def test_ordinary_units_bind_exact_batch_without_inline_secrets():
     assert "PrivateNetwork=yes" in units["kf-problem-import.service"].decode()
     assert "PrivatePIDs=yes" in units["kf-problem-import.service"].decode()
     assert "RestrictAddressFamilies=AF_UNIX\n" in units["kf-problem-import.service"].decode()
-    assert "-m kf_oj.infra.messaging.publisher" in units["kf-outbox.service"].decode()
+    assert "-m scripts.release.service_bootstrap outbox" in units["kf-outbox.service"].decode()
+    assert service_bootstrap.PYTHON_MODULES["outbox"] == ["kf_oj.infra.messaging.publisher"]
     assert "LoadCredential=worker.json:" in units["kf-worker.service"].decode()
 
 
@@ -385,3 +386,71 @@ def test_systemd_credential_bytes_are_checked_before_private_copy(tmp_path):
     path.write_bytes(b"x" * 32769)
     with pytest.raises(policy.DeliveryError, match="bounded systemd credential"):
         service_bootstrap.read_credential(path, expected, os.getuid())
+
+
+def test_import_configuration_has_the_same_required_admission(delivery_configuration):
+    _, _, data, node, endpoints, _ = delivery_configuration
+    raw = configuration.compose(ROOT, data, node, endpoints, attest=False)
+    api = configuration.environment_read(raw["api.env"])
+    importer = configuration.environment_read(raw["import.env"])
+    assert importer["KF_OJ_JUDGE_ADMISSION"] == api["KF_OJ_JUDGE_ADMISSION"]
+    assert set(importer) == service_bootstrap.ROLE_ENVIRONMENT["problem-import"]
+
+
+def ordinary_observation(role):
+    user, memory, pids, _, _, _ = services.PROFILES[role]
+    uid = str(service_bootstrap.preflight.ACCOUNTS[user])
+    return {
+        "cgroup": "/sys/fs/cgroup/kfonlinejudge.slice/kf-" + role + ".service",
+        "uids": [uid] * 4,
+        "gids": [uid] * 4,
+        "groups": [uid],
+        "no_new_privileges": "1",
+        "capabilities": ["0000000000000000"] * 5,
+        "pid": 1,
+        "service_limits": {
+            "memory.max": str(memory * 1024**2),
+            "memory.swap.max": "0",
+            "pids.max": str(pids),
+            "cpu.max": "100000 100000",
+        },
+        "node_limits": {
+            "memory.max": str(3840 * 1024**2),
+            "memory.swap.max": "0",
+            "pids.max": "384",
+            "cpu.max": "200000 100000",
+        },
+        "process_limits": {
+            "core": [0, 0],
+            "file": [64 * 1024**2] * 2,
+            "files": [64 if role == "problem-import" else 256] * 2,
+            "stack": [16 * 1024**2] * 2,
+        },
+        "interfaces": ["lo"] if role == "problem-import" else None,
+    }
+
+
+@pytest.mark.parametrize("role", services.PROFILES)
+def test_ordinary_guard_parser_requires_effective_bounds(role):
+    observed = ordinary_observation(role)
+    service_bootstrap.validate_runtime(role, observed)
+    observed["node_limits"]["memory.max"] = "max"
+    with pytest.raises(policy.DeliveryError, match="effective ordinary/node"):
+        service_bootstrap.validate_runtime(role, observed)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("pid", 43),
+        ("no_new_privileges", "0"),
+        ("groups", ["1200", "0"]),
+        ("capabilities", ["0000000000000001"] * 5),
+        ("interfaces", ["lo", "eth0"]),
+    ],
+)
+def test_import_guard_refuses_missing_pid_privilege_or_network_boundary(field, value):
+    observed = ordinary_observation("problem-import")
+    observed[field] = value
+    with pytest.raises(policy.DeliveryError):
+        service_bootstrap.validate_runtime("problem-import", observed)

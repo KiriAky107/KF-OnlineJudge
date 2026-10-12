@@ -121,9 +121,19 @@ API/outbox/import share the established content-storage identity; individual PID
 namespaces prevent same-UID inspection of another service's environment. This
 requires the fixed systemd profile and verified kernel namespace support. Rust
 Coordinator/Worker use distinct ordinary identities and systemd credentials.
-`service_bootstrap` verifies those bounded credential bytes, copies them to a
+Every ordinary launch checks effective service/node cgroup memory, swap, CPU and
+PID limits, file/descriptor/stack limits, UID/GID and absence of capabilities
+before exec. The three Python services also require PID 1 in their private PID
+namespace; import requires a loopback-only network view. Ignored namespace
+directives therefore refuse startup. These checks still require actual VM
+verification; they do not attest Sandbox isolation or service readiness.
+The import environment includes the same validated admission policy as API.
+
+`service_bootstrap` verifies bounded Rust credential bytes, copies them to a
 private service runtime directory with the existing required 0600 mode and then
 launches only the fixed ordinary binary. It accepts no student executable,
 command override or privileged Sandbox operation. Tokens/URLs are not command
 arguments or unit text. The outbox unit uses the existing actual confirmed
 publisher module; the old scaffold check entry is not treated as a delivery loop.
+Python launches use a fixed module/argument list and only the generated service
+environment fields; inherited debugging/proxy/provider credentials are omitted.

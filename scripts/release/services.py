@@ -110,13 +110,14 @@ def render(receipt: dict) -> dict[str, bytes]:
                 "UnsetEnvironment=KF_OJ_DATABASE_URL KF_OJ_IDENTITY_OPERATOR_DATABASE_URL"
                 " KF_OJ_COORDINATOR_TOKEN KF_OJ_AMQP_URL",
             ]
-        elif name == "api":
-            values += ["ExecStart=" + str(payload / "bin/kf-api")]
-        elif name == "outbox":
-            # The original scaffold console module is not a publisher loop.
-            values += ["ExecStart=" + python + " -s -P -m kf_oj.infra.messaging.publisher"]
         else:
-            values += ["ExecStart=" + str(payload / "bin/kf-problem-import-worker")]
+            values += [
+                "ExecStart="
+                + python
+                + " -s -P -m scripts.release.service_bootstrap "
+                + name
+                + f" --release-id {release} --configuration-id {batch}"
+            ]
         if name in {"api", "problem-import"}:
             values += [
                 "ReadWritePaths=/var/lib/kf-onlinejudge/artifacts /var/lib/kf-onlinejudge/imports"
