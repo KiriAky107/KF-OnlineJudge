@@ -1,6 +1,7 @@
 """Ordinary import service composition. Provision its dedicated DB role and cgroup separately."""
 
 import asyncio
+import signal
 import sys
 
 from sqlalchemy.exc import DBAPIError
@@ -16,6 +17,10 @@ from kf_oj.modules.problems.import_worker import ImportWorker, verify_worker_lim
 
 
 async def run():
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for event in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(event, stop.set)
     settings = Settings()
     if (
         settings.import_staging_root is None
@@ -42,9 +47,12 @@ async def run():
             settings.judge_admission,
             settings.import_worker_cgroup,
         )
-        while True:
+        while not stop.is_set():
             if not await worker.once():
-                await asyncio.sleep(1)
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=1)
+                except TimeoutError:
+                    pass
     finally:
         staging.close()
         store.close()

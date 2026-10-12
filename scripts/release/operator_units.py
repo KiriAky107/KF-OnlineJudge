@@ -15,6 +15,8 @@ PROFILES = {
     "broker-health": ("rabbitmq", 1204, 256, 64, 50, 45),
     "factory-health": ("kf-worker", 1202, 32, 4, 10, 10),
     "import-health": ("kf-oj", 1200, 128, 16, 25, 10),
+    "outbox-health": ("kf-oj", 1200, 128, 16, 25, 10),
+    "node-maintenance": ("root", 0, 256, 32, 50, 900),
 }
 
 
@@ -73,9 +75,20 @@ def decode(contents: bytes, maximum: int = 32768):
     )
 
 
-def run(name: str, payload: Path, *, notification_probe: bool = False) -> dict:
+def run(
+    name: str,
+    payload: Path,
+    *,
+    notification_probe: bool = False,
+    action: str | None = None,
+) -> dict:
     if os.getuid() != 0 or os.geteuid() != 0 or name not in PROFILES:
         raise DeliveryError("fixed root operator helper required")
+    if name == "node-maintenance":
+        if action not in {"start", "resume", "drain", "stop", "restart"} or notification_probe:
+            raise DeliveryError("explicit fixed maintenance action required")
+    elif action is not None:
+        raise DeliveryError("unexpected operator action override")
     user, _, memory, pids, cpu, seconds = PROFILES[name]
     unit = "kf-" + name + ".service"
     current = dict(
@@ -140,17 +153,26 @@ def run(name: str, payload: Path, *, notification_probe: bool = False) -> dict:
     }
     for key, value in properties.items():
         command.append("--property=" + key + "=" + value)
-    if name == "import-health":
+    if name in {"import-health", "outbox-health"}:
         path = configuration.installed_path(
-            selected["release_id"], selected["configuration_id"], "import.env"
+            selected["release_id"],
+            selected["configuration_id"],
+            "import.env" if name == "import-health" else "outbox.env",
         )
         command += [
             "--property=EnvironmentFile=" + str(path),
             "--property=PrivatePIDs=yes",
-            "--property=PrivateNetwork=yes",
-            "--property=RestrictAddressFamilies=AF_UNIX",
         ]
-    if name == "import-health":
+        if name == "import-health":
+            command += [
+                "--property=PrivateNetwork=yes",
+                "--property=RestrictAddressFamilies=AF_UNIX",
+            ]
+    if name == "node-maintenance":
+        command += [
+            "--property=ReadWritePaths=/etc/kf-admission /var/lib/kf-onlinejudge/operations"
+        ]
+    if name in {"import-health", "outbox-health"}:
         if notification_probe:
             raise DeliveryError("unexpected import probe override")
         command += [
@@ -162,7 +184,7 @@ def run(name: str, payload: Path, *, notification_probe: bool = False) -> dict:
             "-s",
             "-P",
             "-m",
-            "scripts.release.import_health",
+            "scripts.release." + name.replace("-", "_"),
             "--inside",
         ]
     else:
@@ -179,16 +201,20 @@ def run(name: str, payload: Path, *, notification_probe: bool = False) -> dict:
             "scripts.release.factory_health",
             "--inside",
         ]
-    elif name != "import-health":
+    elif name not in {"import-health", "outbox-health"}:
         command += [
             *python_environment(payload).split(),
             str(payload / "python/bin/python3.13"),
             "-s",
             "-P",
             "-m",
-            "scripts.release." + name.replace("-", "_"),
+            "scripts.release.lifecycle"
+            if name == "node-maintenance"
+            else "scripts.release." + name.replace("-", "_"),
             "--inside",
         ]
+        if name == "node-maintenance":
+            command += ["--action", action]
         if notification_probe and name == "node-health":
             command.append("--probe-notification")
         elif notification_probe:
@@ -211,7 +237,9 @@ def run(name: str, payload: Path, *, notification_probe: bool = False) -> dict:
         actual = dict(
             line.split("=", 1)
             for line in service_install.systemctl(
-                "show", unit, "--property=LoadState,ActiveState,MainPID,Transient,Description"
+                "show",
+                unit,
+                "--property=LoadState,ActiveState,MainPID,Transient,Description",
             ).splitlines()
             if "=" in line
         )

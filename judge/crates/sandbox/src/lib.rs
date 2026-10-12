@@ -45,3 +45,5 @@ pub mod factory_cycles;
 pub mod factory_health;
 #[cfg(target_os = "linux")]
 pub mod factory_preparation;
+#[cfg(target_os = "linux")]
+mod factory_signals;

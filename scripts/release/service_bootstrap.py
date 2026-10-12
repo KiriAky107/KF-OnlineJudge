@@ -273,6 +273,11 @@ def main() -> None:
             if args.credential_directory is not None or args.sha256 is not None:
                 raise DeliveryError("unexpected ordinary credential override")
             command, environment = python_command(args.role, args.release_id)
+            if args.role == "api":
+                # Added only after fixed argument and environment-file checks;
+                # the batch ID cannot be embedded in its own hashed env file.
+                environment["KF_OJ_DELIVERY_RELEASE_ID"] = args.release_id
+                environment["KF_OJ_DELIVERY_CONFIGURATION_ID"] = args.configuration_id
         else:
             if args.credential_directory is None or args.sha256 is None:
                 raise DeliveryError("fixed ordinary credential required")

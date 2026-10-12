@@ -145,7 +145,7 @@ def render(receipt: dict) -> bytes:
         "LimitSTACK=16M",
         "TimeoutStartSec=1800",
         "RuntimeMaxSec=3700",
-        "TimeoutStopSec=30",
+        "TimeoutStopSec=40",
         "KillMode=mixed",
         "Restart=no",
         "StandardOutput=journal",

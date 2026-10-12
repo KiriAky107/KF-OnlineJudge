@@ -277,3 +277,30 @@ creates no evaluation/grade and starts no program; ordinary periodic observation
 does not publish messages. Probe failure is reported separately. Underlying
 interfaces: [RabbitMQ CLI](https://www.rabbitmq.com/docs/man/rabbitmqctl.8),
 [PostgreSQL privilege functions](https://www.postgresql.org/docs/18/functions-info.html).
+
+`python3.13 -m scripts.release.lifecycle --action start|resume|drain|stop|restart`
+is the explicit fixed-unit maintenance entry. Root publishes a protected, versioned
+availability record bound to the selected release/configuration. The installed API
+checks that record before accepting mutations; an absent, unknown, closed or wrong
+binding returns 503. Existing reads, logout, cancellation and receipt-bound archive
+uploads retain their ordinary identity/lease checks. Health alone cannot open this
+barrier, and service startup does not create schemas, accounts or credentials.
+
+Drain first closes new mutations, keeps the API available to already accepted
+work, and polls the Coordinator, outbox, import, broker and factory owners within
+a finite deadline. Only their untruncated empty projections permit ordinary
+service shutdown. Final owner counts, actual stopped process groups, delegated
+tasks/identity/capture resources and absent factory socket must all agree before
+quiescence is published. Timeout preserves unfinished rows, leases, queues and
+replay journals; no forced grade or cleanup proof is written. `drain` leaves DB/MQ
+running, `stop` additionally stops them, and `restart` drains before a fresh start.
+
+Fresh start requires stopped known application units. `resume` explicitly checks
+known units that are already running after an interrupted operation; it does not
+adopt foreign units or repair unknown resources. Both keep admission closed until
+full service preconditions pass and opening is read back. Failed final readiness
+closes the barrier again. A bounded Root maintenance receipt records manager
+operations and cleanup results. Root factory termination uses a signal notice and
+the existing bounded guardian/recovery path; ordinary import termination finishes
+its current authorized operation before claiming another. These interfaces require
+actual independent-VM lifecycle acceptance and are not installation/safety proof.

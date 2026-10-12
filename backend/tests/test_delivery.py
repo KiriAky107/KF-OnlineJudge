@@ -25,6 +25,7 @@ dependency_install = importlib.import_module("scripts.release.dependency_install
 dependency_initialize = importlib.import_module("scripts.release.dependency_initialize")
 node_health = importlib.import_module("scripts.release.node_health")
 broker_health = importlib.import_module("scripts.release.broker_health")
+lifecycle = importlib.import_module("scripts.release.lifecycle")
 
 
 def test_delivery_authorities_and_layout():
@@ -843,3 +844,101 @@ def test_counter_projection_rejects_truncated_empty_and_source_admission_mismatc
     value["counters"]["cleanup_unconfirmed"]["truncated"] = True
     with pytest.raises(policy.DeliveryError, match="bound"):
         node_health.validate_execution(value, value["admission"])
+
+
+def empty_drain_projection():
+    return {
+        "execution": {
+            "database_clock_unix_ms": 1791830000000,
+            **{
+                name: {"count_capped": 0, "truncated": False}
+                for name in ("queued", "in_flight", "cleanup_unconfirmed")
+            },
+        },
+        "outbox": {
+            "schema_version": 1,
+            "pending_capped": 0,
+            "locked_capped": 0,
+            "truncated": False,
+        },
+        "imports": {
+            "schema_version": 1,
+            "worker_ready": True,
+            "reserved_bytes": 0,
+            "uploaded_capped": 0,
+            "validating_capped": 0,
+            "truncated": False,
+        },
+        "broker": {
+            "schema_version": 1,
+            "metadata_verified": True,
+            "messages_ready": 0,
+            "messages_unacknowledged": 0,
+            "message_bytes": 0,
+            "consumers": 1,
+        },
+        "factory": {
+            "schema_version": 1,
+            "configuration_sha256": "b" * 64,
+            "supervisor_authorized": True,
+            "execution_gate": "required_per_execution",
+            "isolation_verified": False,
+            "max_concurrent_runs": 1,
+            "active_helpers": 0,
+            "cleanup_complete": True,
+            "remaining_requests": 4096,
+            "remaining_lifetime_seconds": 3600,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "component,key,value",
+    [
+        ("outbox", "pending_capped", 1),
+        ("imports", "uploaded_capped", 1),
+        ("imports", "validating_capped", 1),
+        ("imports", "truncated", True),
+        ("broker", "messages_unacknowledged", 1),
+        ("factory", "cleanup_complete", False),
+        ("factory", "active_helpers", 1),
+    ],
+)
+def test_drain_cannot_release_with_pending_owner_work_or_unconfirmed_cleanup(component, key, value):
+    snapshot = empty_drain_projection()
+    assert lifecycle.projection_empty(snapshot)
+    snapshot[component][key] = value
+    if component == "factory" and key == "active_helpers":
+        snapshot["factory"]["cleanup_complete"] = False
+    assert not lifecycle.projection_empty(snapshot)
+
+
+@pytest.mark.parametrize("counter", ["queued", "in_flight", "cleanup_unconfirmed"])
+def test_drain_rejects_unknown_or_truncated_execution_counters(counter):
+    snapshot = empty_drain_projection()
+    snapshot["execution"][counter]["count_capped"] = False
+    with pytest.raises(policy.DeliveryError):
+        lifecycle.projection_empty(snapshot)
+    snapshot["execution"][counter] = {"count_capped": 0, "truncated": True}
+    assert not lifecycle.projection_empty(snapshot)
+
+
+def test_maintenance_receipt_cannot_silently_adopt_unknown_history_or_release_proof():
+    value = {
+        "schema_version": 1,
+        "source_sha": "b" * 40,
+        "configuration_id": "cfg-" + "c" * 24,
+        "action": "drain",
+        "phase": "quiescent",
+        "success": False,
+        "events": [],
+        "root_cleanup_confirmed": True,
+        "boot_id": "11111111-1111-4111-8111-111111111111",
+        "drain_projection": empty_drain_projection(),
+    }
+    lifecycle.validate_record(value)
+    with pytest.raises(policy.DeliveryError):
+        lifecycle.validate_record({**value, "clear_lease": True})
+    value["drain_projection"]["factory"]["cleanup_complete"] = False
+    with pytest.raises(policy.DeliveryError):
+        lifecycle.validate_record(value)

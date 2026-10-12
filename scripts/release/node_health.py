@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import UUID
 
 from . import (
+    availability,
     configuration,
     database,
     dependencies,
@@ -58,11 +59,13 @@ def binding() -> tuple[dict, dict, Path]:
     selected = install.selection(check_configuration=False)
     payload = install.RELEASES / selected["release_id"] / "payload"
     for name in (
+        "availability.py",
         "node_health.py",
         "broker_health.py",
         "factory_health.py",
         "import_health.py",
         "operator_units.py",
+        "outbox_health.py",
     ):
         shipped = payload / "delivery/scripts/release" / name
         preflight.protected(shipped)
@@ -345,7 +348,13 @@ def validate_factory(value: dict, expected: str) -> None:
 def validate_execution(value: dict, admission: dict) -> dict:
     fields(
         value,
-        {"schema_version", "admission", "configured_workers", "lease_seconds", "counters"},
+        {
+            "schema_version",
+            "admission",
+            "configured_workers",
+            "lease_seconds",
+            "counters",
+        },
         "execution snapshot",
     )
     if (
@@ -412,7 +421,11 @@ async def notification_probe(url: str, identifier: str) -> None:
         # A synthetically absent evaluation notification cannot create a grade or
         # execute a program: Coordinator must find and lease an existing row.
         body = canonical(
-            {"schema_version": 1, "kind": "judge.evaluation", "evaluation_id": identifier}
+            {
+                "schema_version": 1,
+                "kind": "judge.evaluation",
+                "evaluation_id": identifier,
+            }
         ).strip()
         reply = await channel.default_exchange.publish(
             aio_pika.Message(
@@ -438,6 +451,7 @@ def observe(*, probe: bool) -> dict:
         "source_sha": read_json(payload.parent / "manifest.json")["source_sha"],
         "configuration_id": selected["configuration_id"],
         "ready_for_admission": False,
+        "service_preconditions_met": False,
         "isolation_verified": False,
         "components": {},
         "errors": [],
@@ -476,6 +490,12 @@ def observe(*, probe: bool) -> dict:
         components["broker"] = operator_units.run("broker-health", payload)
     except (OSError, ValueError, subprocess.SubprocessError):
         errors.append("broker_metadata_unavailable")
+    try:
+        state = operator_units.run("outbox-health", payload)
+        validate_outbox(state)
+        components["outbox_pipeline"] = state
+    except (OSError, ValueError, subprocess.SubprocessError):
+        errors.append("outbox_pipeline_unavailable")
     try:
         state = operator_units.run("import-health", payload)
         fields(
@@ -534,7 +554,8 @@ def observe(*, probe: bool) -> dict:
                 raise DeliveryError("notification probe authority unavailable")
             asyncio.run(
                 asyncio.wait_for(
-                    notification_probe(endpoints["amqp"]["outbox"], str(identifier)), timeout=6
+                    notification_probe(endpoints["amqp"]["outbox"], str(identifier)),
+                    timeout=6,
                 )
             )
             components["notification_delivery_confirmed"] = True
@@ -545,10 +566,39 @@ def observe(*, probe: bool) -> dict:
     if not errors:
         root = components["factory_status"]
         counters = components["execution"]
-        result["ready_for_admission"] = admission_ready(
+        result["service_preconditions_met"] = admission_ready(
             root, counters, components["broker"], coordinator["admission"]
         )
+        record = availability.read()
+        result["ready_for_admission"] = bool(
+            result["service_preconditions_met"]
+            and record is not None
+            and record.release_id == selected["release_id"]
+            and record.configuration_id == selected["configuration_id"]
+            and record.state == "open"
+        )
     return result
+
+
+def validate_outbox(state: dict) -> None:
+    fields(
+        state,
+        {"schema_version", "pending_capped", "locked_capped", "truncated"},
+        "outbox status",
+    )
+    if (
+        type(state["schema_version"]) is not int
+        or state["schema_version"] != 1
+        or type(state["truncated"]) is not bool
+    ):
+        raise DeliveryError("outbox projection binding differs")
+    for name in ("pending_capped", "locked_capped"):
+        if type(state[name]) is not int or not 0 <= state[name] <= 128:
+            raise DeliveryError("outbox projection bound differs")
+    if state["locked_capped"] > state["pending_capped"] or (
+        state["truncated"] and state["pending_capped"] != 128
+    ):
+        raise DeliveryError("outbox projection counters inconsistent")
 
 
 def main() -> None:

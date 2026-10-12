@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.responses import JSONResponse
 
 from kf_oj import __version__
+from kf_oj.api.availability import AvailabilityMiddleware
 from kf_oj.api.body_limits import BodyLimitMiddleware
 from kf_oj.api.v1.admin_imports import router as import_router
 from kf_oj.api.v1.admin_problems import router as maintenance_router
@@ -132,6 +133,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.add_middleware(BodyLimitMiddleware)
+    app.add_middleware(AvailabilityMiddleware, settings=settings)
 
     @app.middleware("http")
     async def private_responses(request, call_next):

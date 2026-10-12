@@ -387,6 +387,7 @@ pub fn serve_with_limit(
         )?)
     );
     execution::authorize_registry(&config)?;
+    let stop_signals = crate::factory_signals::StopSignals::install()?;
     let policy = config.config();
     if policy.aggregate.supervisor_processes < 4 + 8 * policy.max_concurrent_runs {
         return Err(denied());
@@ -472,7 +473,7 @@ pub fn serve_with_limit(
     let mut health_checks = 0_usize;
     let mut last_health = None;
     let result = (|| {
-        while Instant::now() < deadline {
+        while Instant::now() < deadline && !stop_signals.requested() {
             let mut i = 0;
             while i < active.len() {
                 if let Some(status) = active[i].child.try_wait()? {
