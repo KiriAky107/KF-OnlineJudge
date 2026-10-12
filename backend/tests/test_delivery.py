@@ -27,6 +27,9 @@ node_health = importlib.import_module("scripts.release.node_health")
 broker_health = importlib.import_module("scripts.release.broker_health")
 lifecycle = importlib.import_module("scripts.release.lifecycle")
 journal = importlib.import_module("scripts.release.journal")
+proxy_runtime = importlib.import_module("scripts.release.proxy_runtime")
+proxy_service = importlib.import_module("scripts.release.proxy_service")
+proxy_guard = importlib.import_module("scripts.release.proxy_guard")
 
 
 def test_delivery_authorities_and_layout():
@@ -1044,3 +1047,109 @@ def test_failed_gate_closure_requires_known_api_stop_without_forging_owner_clean
     )
     maintenance.close_failed_admission()
     assert calls == [("--no-block", "stop", "kf-api.service"), ("prove_empty", "api")]
+
+
+def proxy_catalog_shape():
+    # Structural example, not trusted executable bytes or ELF/version evidence.
+    names = ["bin/nginx", "lib/libc.so.6", "lib/ld-linux-x86-64.so.2"]
+    return {
+        "schema_version": 1,
+        "format": "kf.nginx.runtime.v1",
+        "version": "1.30.5",
+        "architecture": "x86_64",
+        "package_sha256": "b" * 64,
+        "directories": ["bin", "lib"],
+        "files": [
+            {
+                "path": name,
+                "bytes": 1,
+                "sha256": "b" * 64,
+                "mode": "0555" if name == "bin/nginx" else "0444",
+            }
+            for name in names
+        ],
+        "payload_bytes": 3,
+    }
+
+
+@pytest.mark.parametrize(
+    "field,value", [("version", "latest"), ("schema_version", True), ("architecture", "arm64")]
+)
+def test_proxy_runtime_cannot_silently_select_another_binary_profile(field, value):
+    value0 = proxy_catalog_shape()
+    proxy_runtime.validate(value0)
+    value0[field] = value
+    with pytest.raises(policy.DeliveryError):
+        proxy_runtime.validate(value0)
+
+
+def test_proxy_runtime_cannot_smuggle_tls_or_configuration_into_public_binary_bundle():
+    value = proxy_catalog_shape()
+    value["files"].append({"path": "lib/key.pem", "bytes": 1, "sha256": "b" * 64, "mode": "0444"})
+    value["payload_bytes"] += 1
+    with pytest.raises(policy.DeliveryError):
+        proxy_runtime.validate(value)
+    value = proxy_catalog_shape()
+    value["files"][1]["mode"] = "0555"
+    with pytest.raises(policy.DeliveryError):
+        proxy_runtime.validate(value)
+
+
+def proxy_process_shape():
+    return {
+        "uids": ["1205"] * 4,
+        "gids": ["1205"] * 4,
+        "groups": ["1205"],
+        "no_new_privileges": "1",
+        "capabilities": ["0000000000000400"] * 5,
+        "pid": 1,
+        "cgroup": "/sys/fs/cgroup/kfonlinejudge.slice/kf-proxy.service",
+        "limits": {
+            "memory.max": str(128 * 1024**2),
+            "memory.swap.max": "0",
+            "pids.max": "16",
+            "cpu.max": "50000 100000",
+        },
+        "node_limits": {
+            "memory.max": str(3840 * 1024**2),
+            "memory.swap.max": "0",
+            "pids.max": "384",
+            "cpu.max": "200000 100000",
+        },
+        "process_limits": {
+            "core": [0, 0],
+            "file": [8 * 1024**2] * 2,
+            "files": [256] * 2,
+            "stack": [16 * 1024**2] * 2,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("pid", True),
+        ("pid", 2),
+        ("uids", ["0"] * 4),
+        ("groups", ["1205", "0"]),
+        ("capabilities", ["0000000000200400"] * 5),
+    ],
+)
+def test_proxy_cannot_trade_the_listener_capability_for_other_authority(field, value):
+    observed = proxy_process_shape()
+    proxy_guard.validate_runtime(observed)
+    observed[field] = value
+    with pytest.raises(policy.DeliveryError):
+        proxy_guard.validate_runtime(observed)
+
+
+def test_proxy_render_is_fixed_to_a_selected_snapshot_without_business_credentials():
+    selected = {
+        "release_id": "sd-" + "b" * 12,
+        "configuration_id": "cfg-" + "c" * 24,
+        "manifest_sha256": "d" * 64,
+    }
+    text = proxy_service.render(selected).decode()
+    assert "User=kf-proxy" in text and "CapabilityBoundingSet=CAP_NET_BIND_SERVICE" in text
+    assert "PrivatePIDs=yes" in text and "LogNamespace=kf-onlinejudge" in text
+    assert "EnvironmentFile=" not in text and "LoadCredential=" not in text

@@ -23,6 +23,7 @@ ROOTS = (
     "images/",
     "deploy/",
     "delivery/",
+    "proxy/",
 )
 FORBIDDEN = {".git", ".localplan", "docs", "__pycache__", ".env", ".ssh"}
 

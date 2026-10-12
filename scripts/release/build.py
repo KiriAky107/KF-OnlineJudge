@@ -9,7 +9,7 @@ import stat
 import subprocess
 from pathlib import Path
 
-from . import manifest
+from . import manifest, proxy_runtime
 from .policy import DeliveryError, contract, digest, fields, read_json, relative_name, sha256
 
 ENTRYPOINTS = {
@@ -227,9 +227,19 @@ def build(repo: Path, inputs: Path, output: Path, work: Path) -> dict:
         "runtime_manifest_sha256",
         "images",
     }
-    spec = fields(read_json(inputs, 16384), fields_spec, "build inputs")
-    if type(spec["schema_version"]) is not int or spec["schema_version"] != 1:
+    spec = read_json(inputs, 16384)
+    if (
+        not isinstance(spec, dict)
+        or type(spec.get("schema_version")) is not int
+        or spec["schema_version"] not in (1, 2)
+    ):
         raise DeliveryError("unsupported build inputs")
+    if spec["schema_version"] == 2:
+        fields_spec.add("proxy")
+    fields(spec, fields_spec, "build inputs")
+    if spec["schema_version"] == 2:
+        fields(spec["proxy"], {"root", "catalog_sha256"}, "proxy build input")
+        proxy_runtime.verify(Path(spec["proxy"]["root"]), spec["proxy"]["catalog_sha256"])
     root = Path(spec["runtime_root"]).resolve(strict=True)
     trusted_manifest = Path(spec["runtime_manifest"])
     if digest(trusted_manifest) != sha256(spec["runtime_manifest_sha256"]):
@@ -391,6 +401,11 @@ def build(repo: Path, inputs: Path, output: Path, work: Path) -> dict:
         target = payload / "bin" / name
         target.write_text(wrapper)
         target.chmod(0o555)
+    if spec["schema_version"] == 2:
+        fields(spec["proxy"], {"root", "catalog_sha256"}, "proxy build input")
+        proxy_runtime.copy_to_payload(
+            Path(spec["proxy"]["root"]), spec["proxy"]["catalog_sha256"], payload / "proxy"
+        )
     for directory, directories, _ in os.walk(payload, topdown=False):
         for name in directories:
             (Path(directory) / name).chmod(0o555)

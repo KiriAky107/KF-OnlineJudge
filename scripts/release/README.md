@@ -83,7 +83,7 @@ these require the recorded independent VM evidence.
 `generate-proxy` is a separate, offline composition entry. Its private 0600
 profile has exactly `schema_version: 1`, one canonical HTTPS DNS `origin`,
 `certificate_sha256` and `key_sha256`. TLS inputs are independently supplied
-later at `/etc/kf-onlinejudge/tls/fullchain.pem` and `key.pem`; the generator
+later at `/etc/kf-proxy/tls/fullchain.pem` and `key.pem`; the generator
 does not read, create or verify a private key. It emits a new private NGINX
 configuration and receipt tied to the verified release. No arbitrary upstream,
 include, path, credentials or resource overrides are accepted. Only browser API
@@ -340,3 +340,34 @@ are redirected through that formatter; installed API launchers disable access
 logging so request query strings are not copied into service logs. Development
 diagnostics remain separate. These ordinary formatting checks are not evidence
 of actual daemon, HTTP or upload log privacy; that is still a VM acceptance case.
+
+Build-input version 2 adds an explicitly fingerprinted public NGINX 1.30.5
+runtime catalog. Version 1 remains available for older engineering bundles without
+proxy support; there is no implicit proxy default. The separate `proxy_runtime`
+module permits only the binary and bounded shared libraries, excludes TLS and
+configuration files, verifies every byte/mode and ships them under `payload/proxy`.
+This separate library search tree avoids silently replacing existing application,
+database or language-image libraries. Binary version/signature/ELF-closure evidence
+is recorded by the operator; accepting a structural catalog is not TLS/server or
+Linux-safety acceptance. Actual proxy installation and execution remain separate.
+
+`python3.13 -m scripts.release.proxy_install --source DIRECTORY
+--receipt-sha256 SHA --certificate PRIVATE_CERTIFICATE --private-key PRIVATE_KEY`
+installs the explicitly supplied protected proxy snapshot and matching unencrypted
+TLS files. It requires the same release/API-origin batch, a distinct locked
+UID/GID 1205 (`kf-proxy`) without supplementary groups, and an already provisioned
+private 128-MiB ext4 volume at `/var/lib/kf-onlinejudge/proxy`. Provision that
+volume's ownership/mode explicitly; the installer does not format, mount or
+recursively reassign unknown data. Existing TLS material must match its fingerprint;
+this entry does not silently rotate keys or claim DNS/public-browser trust.
+
+Proxy modules separate public runtime verification, fixed service rendering,
+Root installation, ordinary launch guarding and read-only HTTPS observation.
+The ordinary process retains only `CAP_NET_BIND_SERVICE` for 443, no-new-privileges,
+private PID visibility and actual CPU/memory/swap/PIDs/file bounds. It receives
+no application DB/MQ/control credentials. Installation preserves older snapshots,
+refuses foreign system-unit pointers, reads back loaded/inactive metadata and
+starts no server. Maintenance includes the proxy in start/drain/stop ordering.
+Readiness uses fixed loopback TLS with the supplied certificate as an explicit
+local trust anchor and checks hostname/leaf identity plus the API live response;
+it does not substitute for actual browser CA/HTTPS/security acceptance in the VM.

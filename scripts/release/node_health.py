@@ -21,6 +21,9 @@ from . import (
     journal,
     operator_units,
     preflight,
+    proxy_health,
+    proxy_install,
+    proxy_service,
     service_install,
     services,
 )
@@ -68,6 +71,11 @@ def binding() -> tuple[dict, dict, Path]:
         "operator_units.py",
         "outbox_health.py",
         "journal.py",
+        "proxy_service.py",
+        "proxy_install.py",
+        "proxy_guard.py",
+        "proxy_runtime.py",
+        "proxy_health.py",
     ):
         shipped = payload / "delivery/scripts/release" / name
         preflight.protected(shipped)
@@ -102,6 +110,8 @@ def binding() -> tuple[dict, dict, Path]:
 
 
 def service_profile(name: str) -> tuple[int, int, int, int, int]:
+    if name == "proxy":
+        return 1205, 128, 16, 50, 8
     if name in services.PROFILES:
         user, memory, pids, cpu, _, _ = services.PROFILES[name]
         return preflight.ACCOUNTS[user], memory, pids, cpu, 64
@@ -119,6 +129,11 @@ def inspect_unit(name: str, selected: dict) -> dict:
     if name in services.PROFILES:
         directory = service_install.known_link(link)
         expected = service_install.UNITS / (
+            selected["release_id"] + "." + selected["configuration_id"]
+        )
+    elif name == "proxy":
+        directory = proxy_install.known_link(link)
+        expected = proxy_service.UNITS / (
             selected["release_id"] + "." + selected["configuration_id"]
         )
     elif name == "sandbox-factory":
@@ -166,7 +181,7 @@ def inspect_unit(name: str, selected: dict) -> dict:
         raise DeliveryError("effective service identity differs")
     if not set(info.get("Groups", "").split()) <= {str(uid)}:
         raise DeliveryError("unexpected service supplementary authority")
-    if name != "sandbox-factory" and (
+    if name not in {"sandbox-factory", "proxy"} and (
         info.get("NoNewPrivs", "").strip() != "1"
         or any(
             not info.get(k, "").strip() or int(info[k].strip(), 16) != 0
@@ -174,11 +189,21 @@ def inspect_unit(name: str, selected: dict) -> dict:
         )
     ):
         raise DeliveryError("effective ordinary privilege boundary differs")
+    if name == "proxy" and (
+        info.get("NoNewPrivs", "").strip() != "1"
+        or any(
+            not info.get(k, "").strip() or int(info[k].strip(), 16) != proxy_service.CAPABILITY
+            for k in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb")
+        )
+    ):
+        raise DeliveryError("proxy acquired excess or missing listener capability")
     if name == "sandbox-factory" and (
         info.get("NoNewPrivs", "").strip() != "0" or info.get("Seccomp", "").strip() != "0"
     ):
         raise DeliveryError("factory inherited incompatible hardening")
-    if name in {"api", "outbox", "problem-import"} and info.get("NSpid", "").split()[-1:] != ["1"]:
+    if name in {"api", "outbox", "problem-import", "proxy"} and info.get("NSpid", "").split()[
+        -1:
+    ] != ["1"]:
         raise DeliveryError("Python service private PID namespace missing")
     group = Path("/sys/fs/cgroup" + value["ControlGroup"])
     actual = {
@@ -464,7 +489,12 @@ def observe(*, probe: bool) -> dict:
         components["journal"] = journal.check_ready()
     except (OSError, ValueError, subprocess.SubprocessError):
         errors.append("bounded_journal_unavailable")
-    for name in [*services.PROFILES, "postgres", "rabbitmq", "sandbox-factory"]:
+    try:
+        proxy_install.check_binding(selected["release_id"], selected["configuration_id"])
+        components["https_entry"] = proxy_health.observe(selected)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        errors.append("https_entry_unavailable")
+    for name in [*services.PROFILES, "postgres", "rabbitmq", "sandbox-factory", "proxy"]:
         try:
             components[name] = inspect_unit(name, selected)
         except (OSError, ValueError):

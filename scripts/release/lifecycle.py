@@ -21,6 +21,8 @@ from . import (
     node_health,
     operator_units,
     preflight,
+    proxy_install,
+    proxy_service,
     service_install,
     services,
 )
@@ -28,7 +30,7 @@ from .policy import DeliveryError, canonical, digest, fields, read_json, sha256
 
 STATE = Path("/var/lib/kf-onlinejudge/operations")
 LAST = STATE / "maintenance.last.json"
-APPS = ("api", "outbox", "worker", "problem-import", "coordinator", "sandbox-factory")
+APPS = ("proxy", "api", "outbox", "worker", "problem-import", "coordinator", "sandbox-factory")
 DEPENDENCIES = ("postgres", "rabbitmq")
 START_ORDER = (
     "sandbox-factory",
@@ -37,6 +39,7 @@ START_ORDER = (
     "outbox",
     "problem-import",
     "worker",
+    "proxy",
 )
 DRAIN_SECONDS = 360
 
@@ -263,6 +266,9 @@ class Maintenance:
         if name in services.PROFILES:
             directory = service_install.known_link(path)
             base = service_install.UNITS
+        elif name == "proxy":
+            directory = proxy_install.known_link(path)
+            base = proxy_service.UNITS
         elif name == "sandbox-factory":
             directory = factory_service.known_link(path)
             base = factory_service.UNITS
@@ -419,7 +425,7 @@ class Maintenance:
             time.sleep(2)
         # Every process/child and final Root resource proof remains required.
         # No row, notification, identity lease or replay journal is removed here.
-        for name in ("api", "outbox", "problem-import", "worker"):
+        for name in ("proxy", "api", "outbox", "problem-import", "worker"):
             self.change(name, "stop")
         final = self.snapshot()
         if not projection_empty(final):

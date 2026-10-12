@@ -75,8 +75,7 @@ def render(release_id: str, value: dict) -> bytes:
             add_header Cache-Control "no-store" always;
     """.replace("HOST", host)
     return (
-        """user kf-proxy;
-worker_processes 1;
+        """worker_processes 1;
 pid /run/kf-proxy/nginx.pid;
 error_log /dev/null crit;
 events { worker_connections 128; }
@@ -108,8 +107,8 @@ http {
     server {
         listen 443 ssl;
         server_name HOST;
-        ssl_certificate /etc/kf-onlinejudge/tls/fullchain.pem;
-        ssl_certificate_key /etc/kf-onlinejudge/tls/key.pem;
+        ssl_certificate /etc/kf-proxy/tls/fullchain.pem;
+        ssl_certificate_key /etc/kf-proxy/tls/key.pem;
         ssl_protocols TLSv1.2 TLSv1.3;
         ssl_session_cache shared:TLS:1m;
         ssl_session_timeout 5m;
