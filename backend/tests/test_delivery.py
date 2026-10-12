@@ -974,6 +974,21 @@ def test_journal_profile_never_substitutes_rotation_settings_for_a_dedicated_har
         journal.validate_storage(observed, path)
 
 
+def test_read_only_observer_mount_is_not_daemon_writability_proof():
+    path = Path("/var/log/journal/" + "b" * 32 + ".kf-onlinejudge")
+    observed = {
+        "path": str(path),
+        "root": "/",
+        "filesystem": "ext4",
+        "options": ["ro", "nosuid", "nodev", "noexec"],
+        "shared": False,
+        "capacity_bytes": 64 * 1024**2,
+    }
+    journal.validate_storage(observed, path, allow_read_only=True)
+    with pytest.raises(policy.DeliveryError):
+        journal.validate_storage(observed, path)
+
+
 @pytest.mark.parametrize("failure", ["publication", "receipt", "readback"])
 def test_maintenance_does_not_leave_admission_open_when_final_confirmation_fails(
     monkeypatch, failure

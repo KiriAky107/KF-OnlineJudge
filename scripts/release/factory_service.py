@@ -152,6 +152,7 @@ def render(receipt: dict) -> bytes:
         "StandardError=journal",
         "LogRateLimitIntervalSec=30s",
         "LogRateLimitBurst=100",
+        "LogNamespace=kf-onlinejudge",
         "[Install]",
         "WantedBy=multi-user.target",
     ]

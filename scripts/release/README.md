@@ -316,12 +316,23 @@ The profile fixes 32-MiB persistent/8-MiB runtime rotation budgets, bounded file
 lines and seven-day retention. Its namespaced daemon override limits CPU, memory,
 swap and PIDs. Rotation settings are not a hard filesystem guarantee; the dedicated
 volume must also be observed. The `check_ready` interface reads actual namespace
-service/process/cgroup state. Connecting service templates to this profile,
-redaction and real retention/capacity behavior remain C+D/F installation acceptance
-work; installing the profile alone does not route existing service logs or verify
-their privacy. The profile relies on the pinned systemd 262
+service/process/cgroup state. Ordinary application, DB/MQ and Root-factory
+templates now select this namespace. Their protected pre-start binding checks
+require its recorded configuration and physical hard volume, while retaining
+ordinary private PID views and the Root factory's existing permission context.
+Installing the profile does not start or replace running services. Real routing,
+privacy and retention/capacity behavior remain C+D/F VM acceptance work.
+The profile relies on the pinned systemd 262
 [namespace interface](https://github.com/systemd/systemd/blob/v262/man/systemd.exec.xml)
 and [journal configuration](https://github.com/systemd/systemd/blob/v262/man/journald.conf.xml).
+
+The read-only status observer may see a `ProtectSystem` mount as read-only. That
+does not prove the logger can write: readiness separately reads the fixed known
+daemon's kernel mountinfo, matches its mount device to the protected volume and
+requires both mount and superblock writability. Main PID, invocation and process
+start time are checked again to reject a changed process. No writable exception,
+ptrace/setns capability or wider Python PID visibility is added to observation.
+Underlying read interface: [Linux proc mountinfo implementation](https://github.com/torvalds/linux/blob/v6.18/fs/proc_namespace.c).
 
 Production API logging uses a closed event vocabulary and omits arbitrary library
 messages, arguments, paths and exception text. Uvicorn's separate error handlers

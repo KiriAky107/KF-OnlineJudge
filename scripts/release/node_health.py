@@ -18,6 +18,7 @@ from . import (
     dependency_install,
     factory_service,
     install,
+    journal,
     operator_units,
     preflight,
     service_install,
@@ -66,6 +67,7 @@ def binding() -> tuple[dict, dict, Path]:
         "import_health.py",
         "operator_units.py",
         "outbox_health.py",
+        "journal.py",
     ):
         shipped = payload / "delivery/scripts/release" / name
         preflight.protected(shipped)
@@ -136,7 +138,7 @@ def inspect_unit(name: str, selected: dict) -> dict:
         for line in service_install.systemctl(
             "show",
             unit,
-            "--property=LoadState,ActiveState,SubState,MainPID,FragmentPath,ControlGroup",
+            "--property=LoadState,ActiveState,SubState,MainPID,FragmentPath,ControlGroup,LogNamespace",
         ).splitlines()
         if "=" in line
     )
@@ -146,6 +148,7 @@ def inspect_unit(name: str, selected: dict) -> dict:
         or value.get("SubState") != "running"
         or value.get("FragmentPath") not in {str(link), str(directory / unit)}
         or value.get("ControlGroup") != "/kfonlinejudge.slice/" + unit
+        or value.get("LogNamespace") != journal.NAMESPACE
     ):
         raise DeliveryError("selected service is not running")
     pid = int(value.get("MainPID", "0"))
@@ -457,6 +460,10 @@ def observe(*, probe: bool) -> dict:
         "errors": [],
     }
     components, errors = result["components"], result["errors"]
+    try:
+        components["journal"] = journal.check_ready()
+    except (OSError, ValueError, subprocess.SubprocessError):
+        errors.append("bounded_journal_unavailable")
     for name in [*services.PROFILES, "postgres", "rabbitmq", "sandbox-factory"]:
         try:
             components[name] = inspect_unit(name, selected)

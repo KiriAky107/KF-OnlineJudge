@@ -81,7 +81,7 @@ def bounded_text(path: Path, maximum: int) -> str:
     return value
 
 
-def validate_storage(value: dict, path: Path) -> None:
+def validate_storage(value: dict, path: Path, *, allow_read_only: bool = False) -> None:
     fields(
         value,
         {"path", "root", "filesystem", "options", "shared", "capacity_bytes"},
@@ -94,24 +94,38 @@ def validate_storage(value: dict, path: Path) -> None:
         or value["shared"] is not False
         or not isinstance(value["options"], list)
         or not all(isinstance(option, str) for option in value["options"])
-        or not {"rw", "nosuid", "nodev", "noexec"} <= set(value["options"])
+        or not {"nosuid", "nodev", "noexec"} <= set(value["options"])
+        or set(value["options"]) & {"ro", "rw"}
+        not in (({"rw"}, {"ro"}) if allow_read_only else ({"rw"},))
         or type(value["capacity_bytes"]) is not int
         or not CAPACITY * 9 // 10 <= value["capacity_bytes"] <= CAPACITY
     ):
         raise DeliveryError("dedicated journal hard storage budget differs")
 
 
-def storage() -> dict:
+def storage(*, allow_read_only: bool = False, observed_pid: int | None = None) -> dict:
     path = Path("/var/log/journal") / (machine_id() + "." + NAMESPACE)
     preflight.protected(path, directory=True)
-    rows = [
-        line.split() for line in bounded_text(Path("/proc/self/mountinfo"), 1024**2).splitlines()
-    ]
+    if observed_pid is not None and (type(observed_pid) is not int or not 1 < observed_pid < 2**31):
+        raise DeliveryError("known journal process required")
+    mountinfo = (
+        Path("/proc/self/mountinfo")
+        if observed_pid is None
+        else Path(f"/proc/{observed_pid}/mountinfo")
+    )
+    rows = [line.split() for line in bounded_text(mountinfo, 1024**2).splitlines()]
     selected = [row for row in rows if len(row) > 6 and row[4] == str(path)]
     if len(selected) != 1:
         raise DeliveryError("dedicated journal mount required; never created by installer")
     row = selected[0]
     separator = row.index("-")
+    if not allow_read_only and (
+        "rw" not in row[separator + 3].split(",") or "ro" in row[separator + 3].split(",")
+    ):
+        raise DeliveryError("journal filesystem superblock is not writable")
+    device = path.stat().st_dev
+    if row[2] != f"{os.major(device)}:{os.minor(device)}":
+        raise DeliveryError("journal daemon sees another storage device")
     info = os.statvfs(path)
     value = {
         "path": str(path),
@@ -121,7 +135,7 @@ def storage() -> dict:
         "shared": any(other[2] == row[2] and other != row for other in rows),
         "capacity_bytes": info.f_frsize * info.f_blocks,
     }
-    validate_storage(value, path)
+    validate_storage(value, path, allow_read_only=allow_read_only)
     return value
 
 
@@ -156,7 +170,7 @@ def validate_receipt(value: dict) -> None:
         raise DeliveryError("journal receipt differs from fixed profile")
 
 
-def check_profile() -> dict:
+def check_profile(*, allow_read_only: bool = False) -> dict:
     preflight.protected(RECEIPT)
     configuration.private(RECEIPT)
     receipt = read_json(RECEIPT, 4096)
@@ -177,7 +191,7 @@ def check_profile() -> dict:
     if {p.name for p in DROPIN.parent.iterdir()} != {DROPIN.name}:
         raise DeliveryError("unknown journal instance override")
     check_configuration_overrides()
-    return storage()
+    return storage(allow_read_only=allow_read_only)
 
 
 def check_configuration_overrides() -> None:
@@ -190,13 +204,15 @@ def check_configuration_overrides() -> None:
 
 
 def check_ready() -> dict:
-    value = check_profile()
+    # A cap-zero observer's ProtectSystem view is intentionally read-only.
+    # That view establishes physical identity/capacity, not daemon writability.
+    check_profile(allow_read_only=True)
     props = dict(
         line.split("=", 1)
         for line in manager(
             "show",
             UNIT,
-            "--property=ActiveState,SubState,MainPID,ControlGroup,FragmentPath,DropInPaths",
+            "--property=ActiveState,SubState,MainPID,ControlGroup,FragmentPath,DropInPaths,InvocationID,RootDirectory,RootImage",
         ).splitlines()
         if "=" in line
     )
@@ -213,9 +229,16 @@ def check_ready() -> dict:
         "DropInPaths", ""
     ).split() != [str(DROPIN)]:
         raise DeliveryError("unrecorded journal manager executable or override")
+    if (
+        props.get("RootDirectory")
+        or props.get("RootImage")
+        or not re.fullmatch(r"[0-9a-f]{32}", props.get("InvocationID", ""))
+    ):
+        raise DeliveryError("unknown journal process/root binding")
     pid = int(props.get("MainPID", "0"))
     if not 1 < pid < 2**31:
         raise DeliveryError("journal process identity unavailable")
+    before = bounded_text(Path(f"/proc/{pid}/stat"), 16384).rsplit(")", 1)[1].split()[19]
     status = dict(
         line.split(":", 1)
         for line in bounded_text(Path(f"/proc/{pid}/status"), 16384).splitlines()
@@ -235,7 +258,31 @@ def check_ready() -> dict:
         "cpu.max": "25000 100000",
     }:
         raise DeliveryError("effective journal budgets differ")
+    # Kernel mountinfo is read-only and does not enter the daemon namespace or
+    # require ptrace/setns. Match its mount device to this protected fixed path,
+    # and require the daemon's actual view to be writable. No extra capability
+    # or writable-path exception is given to the observer or Python services.
+    value = storage(observed_pid=pid)
+    current = dict(
+        line.split("=", 1)
+        for line in manager(
+            "show", UNIT, "--property=ActiveState,MainPID,InvocationID"
+        ).splitlines()
+        if "=" in line
+    )
+    after = bounded_text(Path(f"/proc/{pid}/stat"), 16384).rsplit(")", 1)[1].split()[19]
+    if (
+        current.get("ActiveState") != "active"
+        or current.get("MainPID") != str(pid)
+        or current.get("InvocationID") != props["InvocationID"]
+        or before != after
+    ):
+        raise DeliveryError("journal process changed during observation")
     value["effective_limits"] = limits
+    value["memory_current"] = int(bounded_text(directory / "memory.current", 64))
+    value["pids_current"] = int(bounded_text(directory / "pids.current", 64))
+    fs = os.statvfs(Path(value["path"]))
+    value["available_bytes"] = fs.f_frsize * fs.f_bavail
     return value
 
 

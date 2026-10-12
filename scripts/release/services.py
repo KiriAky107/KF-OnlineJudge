@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 
-from . import configuration, install, manifest
+from . import configuration, install, journal, manifest
 from .policy import DeliveryError, canonical, digest
 
 PROFILES = {
@@ -87,6 +87,7 @@ def render(receipt: dict) -> dict[str, bytes]:
             "StandardError=journal",
             "LogRateLimitIntervalSec=30s",
             "LogRateLimitBurst=100",
+            "LogNamespace=" + journal.NAMESPACE,
         ]
         if environment:
             path = configuration.installed_path(release, batch, environment)
@@ -210,6 +211,7 @@ def main() -> None:
                 args.configuration_id,
             ):
                 raise DeliveryError("unit belongs to an unselected release/configuration")
+            journal.check_profile(allow_read_only=True)
             result = {"binding_valid": True, "execution_verified": False}
         else:
             result = generate(

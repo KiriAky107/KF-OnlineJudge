@@ -332,6 +332,7 @@ def render(release: str, batch: str) -> dict[str, bytes]:
             "StandardError=journal",
             "LogRateLimitIntervalSec=30s",
             "LogRateLimitBurst=100",
+            "LogNamespace=kf-onlinejudge",
             "ExecStartPre=+/usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C "
             + python_environment(payload)
             + f" {payload}/python/bin/python3.13"
