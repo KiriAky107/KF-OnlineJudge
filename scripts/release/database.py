@@ -123,9 +123,10 @@ async def _provision(operator: Path, endpoint_path: Path) -> dict:
             for login, group in MEMBERSHIP.items():
                 inherit = "FALSE" if login == "kf_migrator" else "TRUE"
                 set_role = "TRUE" if login == "kf_migrator" else "FALSE"
-                await db.execute(
-                    f"GRANT {group} TO {login} WITH ADMIN FALSE, INHERIT {inherit}, SET {set_role}"
-                )
+                for option, value in (("ADMIN", "FALSE"), ("INHERIT", inherit), ("SET", set_role)):
+                    # Each command uses the documented single membership-option
+                    # form; all three changes are in the same transaction.
+                    await db.execute(f"GRANT {group} TO {login} WITH {option} {value}")
         existing = await db.fetchval(
             "SELECT r.rolname FROM pg_database d JOIN pg_roles r ON r.oid=d.datdba "
             "WHERE d.datname=$1",
