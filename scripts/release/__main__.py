@@ -5,7 +5,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from . import build, configuration, database, install, manifest, policy, preflight
+from . import build, configuration, database, install, manifest, policy, preflight, proxy
 
 
 def main() -> None:
@@ -32,6 +32,11 @@ def main() -> None:
     check.add_argument("--connections", type=Path, required=True)
     check.add_argument("--output", type=Path, required=True)
     check.add_argument("--attest-measurement", action="store_true")
+    check = sub.add_parser("generate-proxy")
+    check.add_argument("bundle", type=Path)
+    check.add_argument("--manifest-sha256", required=True)
+    check.add_argument("--profile", type=Path, required=True)
+    check.add_argument("--output", type=Path, required=True)
     check = sub.add_parser("install-configuration")
     check.add_argument("directory", type=Path)
     check.add_argument("--receipt-sha256", required=True)
@@ -78,6 +83,8 @@ def main() -> None:
                 args.output,
                 attest=args.attest_measurement,
             )
+        elif args.command == "generate-proxy":
+            result = proxy.generate(args.bundle, args.manifest_sha256, args.profile, args.output)
         elif args.command == "install-configuration":
             result = configuration.install_configuration(args.directory, args.receipt_sha256)
         elif args.command == "check-configuration":

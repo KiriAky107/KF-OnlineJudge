@@ -69,3 +69,31 @@ establish trust in that same bundle. A verified delivery includes `bin/kf-delive
 and its source for later offline operations. Command success/receipt generation
 does not claim Linux execution, working service roles or installation acceptance;
 these require the recorded independent VM evidence.
+
+`generate-proxy` is a separate, offline composition entry. Its private 0600
+profile has exactly `schema_version: 1`, one canonical HTTPS DNS `origin`,
+`certificate_sha256` and `key_sha256`. TLS inputs are independently supplied
+later at `/etc/kf-onlinejudge/tls/fullchain.pem` and `key.pem`; the generator
+does not read, create or verify a private key. It emits a new private NGINX
+configuration and receipt tied to the verified release. No arbitrary upstream,
+include, path, credentials or resource overrides are accepted. Only browser API
+families target the API loopback port; execution-control paths are refused. ZIP
+uploads have their own canonical UUID route. Syntax, actual TLS/stream limits,
+static routes, permissions and service health require subsequent VM acceptance;
+the generator explicitly returns those capabilities as unverified.
+The separately installed `kf-proxy` worker identity must be distinct from API,
+Coordinator, import, judging and database/broker identities. It has no business
+credentials; generation alone never creates that account or starts NGINX.
+
+Operator responsibilities are separate: build/verify are read-only with respect
+to system state; preflight observes eligibility; file/config installation and
+activation require the root operator; DB provisioning requires a separately
+supplied local DB operator; schema/grants and first account use the existing
+Backend Alembic/account CLIs. Configuration validation never starts or restarts
+a service. The later bounded service lifecycle must prove drain/cleanup before
+maintenance; none of these entries authorizes a Sandbox isolation bypass or
+silently substitutes a healthy result when lifecycle evidence is absent.
+
+Proxy directive references: [NGINX core](https://nginx.org/en/docs/http/ngx_http_core_module.html),
+[proxy module](https://nginx.org/en/docs/http/ngx_http_proxy_module.html), and
+[TLS module](https://nginx.org/en/docs/http/ngx_http_ssl_module.html).

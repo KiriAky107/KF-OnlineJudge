@@ -15,6 +15,7 @@ manifest = importlib.import_module("scripts.release.manifest")
 builder = importlib.import_module("scripts.release.build")
 configuration = importlib.import_module("scripts.release.configuration")
 architecture = importlib.import_module("scripts.check_architecture")
+proxy = importlib.import_module("scripts.release.proxy")
 
 
 def test_delivery_authorities_and_layout():
@@ -237,3 +238,59 @@ def test_configuration_receipt_is_bound_before_path_use():
     receipt["installed"] = 0
     with pytest.raises(policy.DeliveryError, match="configuration binding"):
         configuration.validate_receipt(receipt, installed=False)
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://oj.test",
+        "https://oj.test:443",
+        "https://oj.test/",
+        "https://oj.test;include",
+        "https://user@oj.test",
+        "https://oj..test",
+        "https://-oj.test",
+        "https://OJ.test",
+    ],
+)
+def test_proxy_rejects_ambiguous_and_injected_origins(origin):
+    value = {
+        "schema_version": 1,
+        "origin": origin,
+        "certificate_sha256": "b" * 64,
+        "key_sha256": "c" * 64,
+    }
+    with pytest.raises(policy.DeliveryError):
+        proxy.validate_profile(value)
+
+
+def test_proxy_policy_cannot_change_upstream_paths_or_limits():
+    value = {
+        "schema_version": 1,
+        "origin": "https://oj.test",
+        "certificate_sha256": "b" * 64,
+        "key_sha256": "c" * 64,
+        "upstream": "http://127.0.0.1:8100",
+    }
+    with pytest.raises(policy.DeliveryError, match="proxy profile fields"):
+        proxy.validate_profile(value)
+    value.pop("upstream")
+    value["certificate_sha256"] = "a" * 64
+    with pytest.raises(policy.DeliveryError):
+        proxy.validate_profile(value)
+
+
+def test_proxy_is_separate_from_private_execution_control():
+    value = {
+        "schema_version": 1,
+        "origin": "https://oj.test",
+        "certificate_sha256": "b" * 64,
+        "key_sha256": "c" * 64,
+    }
+    contents = proxy.render("sd-123456789abc", value).decode()
+    assert "127.0.0.1:8100" not in contents and "control.sock" not in contents
+    assert "location ~ ^/(api|internal)(/|$) { return 404; }" in contents
+    assert "ssl_reject_handshake on" in contents
+    assert "proxy_request_buffering off" in contents
+    assert "$request_uri" not in contents and "$http_cookie" not in contents
+    assert value["key_sha256"] not in contents
