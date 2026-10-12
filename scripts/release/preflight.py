@@ -120,7 +120,7 @@ def identity_conflicts() -> list[str]:
     return errors
 
 
-def observe(payload: Path, *, require_root: bool = True) -> dict:
+def observe(payload: Path, *, bundle_data: dict, require_root: bool = True) -> dict:
     errors = []
     observations = {}
     if platform.system() != "Linux" or platform.machine() != "x86_64":
@@ -183,9 +183,24 @@ def observe(payload: Path, *, require_root: bool = True) -> dict:
     # A 4-GiB physical guest exposes slightly less MemTotal after kernel reserve.
     if memory["MemTotal"] < 15 * GIB // 4 or memory["MemAvailable"] < 5 * GIB // 2:
         errors.append("physical/available memory below installation capacity")
-    observations["disk_free_bytes"] = shutil.disk_usage("/var/lib").free
-    if observations["disk_free_bytes"] < 12 * GIB:
-        errors.append("installation/data disk reserve below 12 GiB")
+    disk = shutil.disk_usage("/var/lib")
+    protected_images = sum(
+        entry["bytes"] for entry in bundle_data["files"] if entry["path"].startswith("images/")
+    )
+    legacy_image = sum(
+        entry["bytes"] for entry in bundle_data["files"] if entry["path"].startswith("images/gnu/")
+    )
+    # Count a full new application + protected image copies + legacy image and
+    # four GiB of mutable data/operation reserve. Filesystem metadata makes a
+    # 12-GiB device expose less than 12 GiB free even when it is empty.
+    required = bundle_data["payload_bytes"] + protected_images + legacy_image + 4 * GIB
+    observations["disk"] = {
+        "total_bytes": disk.total,
+        "free_bytes": disk.free,
+        "required_free_bytes": required,
+    }
+    if disk.total < 12 * GIB or disk.free < required:
+        errors.append("installation/data capacity or inventory-derived free reserve insufficient")
     for name in ("libc.so.6", "ld-linux-x86-64.so.2"):
         system = Path("/usr/lib") / name
         try:

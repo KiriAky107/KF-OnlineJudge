@@ -61,8 +61,8 @@ def main() -> None:
         elif args.command == "build":
             result = build.build(args.repo, args.inputs, args.output, args.work)
         elif args.command == "preflight":
-            manifest.verify(args.bundle, args.manifest_sha256)
-            result = preflight.observe(args.bundle / "payload")
+            data = manifest.verify(args.bundle, args.manifest_sha256)
+            result = preflight.observe(args.bundle / "payload", bundle_data=data)
             print(json.dumps(result, sort_keys=True))
             if not result["eligible"]:
                 parser.exit(1)

@@ -182,7 +182,7 @@ def files(bundle: Path, expected: str) -> dict:
         raise DeliveryError("installer requires root")
     preflight.protected(bundle, directory=True)
     data = manifest.verify(bundle, expected)
-    observation = preflight.observe(bundle / "payload")
+    observation = preflight.observe(bundle / "payload", bundle_data=data)
     if not observation["eligible"]:
         raise DeliveryError("installation preflight refused: " + "; ".join(observation["errors"]))
     # Per-entry ownership matters even when the inventory is identical.

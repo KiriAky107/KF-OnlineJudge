@@ -10,6 +10,10 @@ The target has at least 4 GiB RAM and 12 GiB installation/data capacity. Judging
 and problem-import concurrency remain one each. Configured service and execution
 budgets, effective kernel limits and free capacity must also pass preflight; total
 RAM alone does not prove enough capacity or verified execution isolation.
+Preflight requires at least 12 GiB of filesystem capacity and derives required
+free bytes from the verified application, protected runtime-image copies and
+separate GNU legacy copy, plus 4 GiB of mutable-data/operation reserve. It does
+not assume that a nominal 12-GiB filesystem exposes 12 GiB free after metadata.
 
 Release payloads are directory bundles with a bounded manifest: at most 50,000
 single-link regular files, 256 MiB per file, 4 GiB total and 8 MiB metadata. The
