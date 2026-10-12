@@ -21,6 +21,7 @@ service_bootstrap = importlib.import_module("scripts.release.service_bootstrap")
 service_install = importlib.import_module("scripts.release.service_install")
 factory_service = importlib.import_module("scripts.release.factory_service")
 dependencies = importlib.import_module("scripts.release.dependencies")
+dependency_install = importlib.import_module("scripts.release.dependency_install")
 
 
 def test_delivery_authorities_and_layout():
@@ -590,3 +591,99 @@ def test_dependency_templates_keep_socket_auth_network_and_actual_limit_scope():
         assert "User=root" not in unit and "MemoryMax=512M" in unit
         assert "MemorySwapMax=0" in unit and "RestartSec=30" in unit
         assert "RequiresMountsFor=" + dependencies.STORAGE[name]["path"] in unit
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("root", "/shared"),
+        ("filesystem", "tmpfs"),
+        ("shared_elsewhere", True),
+        ("mountpoint", "/var/lib"),
+        ("capacity_bytes", 16 * 1024**3),
+        ("capacity_bytes", 128 * 1024**2),
+        ("capacity_bytes", True),
+        ("options", ["rw"]),
+    ],
+)
+def test_dependency_storage_refuses_soft_unbounded_or_shared_capacity(field, value):
+    observed = {
+        "root": "/",
+        "mountpoint": dependencies.STORAGE["postgres"]["path"],
+        "filesystem": "ext4",
+        "options": ["rw", "nosuid", "nodev", "noexec"],
+        "shared_elsewhere": False,
+        "capacity_bytes": 2 * 1024**3,
+    }
+    dependencies.validate_storage("postgres", observed)
+    observed[field] = value
+    with pytest.raises(policy.DeliveryError, match="hard dependency storage"):
+        dependencies.validate_storage("postgres", observed)
+
+
+@pytest.mark.parametrize("mutation", ["admin", "password", "privilege", "queue", "limit"])
+def test_dependency_install_refuses_broker_hash_or_authority_tampering(
+    delivery_configuration,
+    mutation,
+):
+    _, _, _, _, endpoints, _ = delivery_configuration
+    value = dependencies.broker_definitions(endpoints)
+    dependency_install.validate_definitions(value, endpoints)
+    if mutation == "admin":
+        value["users"][0]["tags"] = ["administrator"]
+    elif mutation == "password":
+        value["users"][0]["password_hash"] = dependencies.salted_password("foreign-secret")
+    elif mutation == "privilege":
+        value["permissions"][1]["write"] = ".*"
+    elif mutation == "queue":
+        value["queues"][0]["arguments"]["x-overflow"] = "drop-head"
+    else:
+        value["users"][1]["limits"]["max-connections"] = 1000
+    with pytest.raises(policy.DeliveryError, match="broker"):
+        dependency_install.validate_definitions(value, endpoints)
+
+
+def test_dependency_receipt_excludes_foreign_files_and_health_claims():
+    receipt = {
+        "schema_version": 1,
+        "source_sha": "123456789abc" + "d" * 28,
+        "configuration_id": "cfg-" + "e" * 24,
+        "configuration_receipt_sha256": "f" * 64,
+        "files": {name: "b" * 64 for name in dependency_install.FILES},
+        "required_storage_mounts": dependencies.STORAGE,
+        "installed": False,
+        "storage_limits_verified": False,
+        "services_started": False,
+        "execution_verified": False,
+    }
+    dependency_install.validate_receipt(receipt)
+    directory = "/etc/kf-dependencies/sd-123456789abc.cfg-" + "e" * 24
+    assert str(dependency_install.batch_directory(receipt)) == directory
+    assert (
+        str(
+            dependency_install.previous_batch(
+                directory + "/kf-postgres.service", "kf-postgres.service"
+            )
+        )
+        == directory
+    )
+    receipt["execution_verified"] = True
+    with pytest.raises(policy.DeliveryError, match="binding"):
+        dependency_install.validate_receipt(receipt)
+    receipt["execution_verified"] = False
+    receipt["files"]["server.key"] = "b" * 64
+    with pytest.raises(policy.DeliveryError, match="inventory"):
+        dependency_install.validate_receipt(receipt)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "/etc/kf-onlinejudge/units/sd-123456789abc.cfg-" + "e" * 24 + "/kf-postgres.service",
+        "/etc/kf-dependencies/sd-123456789abc.cfg-" + "e" * 24 + "/../kf-postgres.service",
+        "/etc//kf-dependencies/sd-123456789abc.cfg-" + "e" * 24 + "/kf-postgres.service",
+    ],
+)
+def test_dependency_pointer_does_not_adopt_unknown_units_or_paths(target):
+    with pytest.raises(policy.DeliveryError, match="unknown dependency unit"):
+        dependency_install.previous_batch(target, "kf-postgres.service")

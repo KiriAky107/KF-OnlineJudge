@@ -23,9 +23,56 @@ QUEUE_ARGUMENTS = {
     "x-message-ttl": 600000,
 }
 STORAGE = {
-    "postgres": {"path": "/var/lib/kf-onlinejudge/postgres", "filesystem_bytes": 2 * 1024**3},
-    "rabbitmq": {"path": "/var/lib/kf-onlinejudge/rabbitmq", "filesystem_bytes": 512 * 1024**2},
+    "postgres": {
+        "path": "/var/lib/kf-onlinejudge/postgres",
+        "filesystem_bytes": 2 * 1024**3,
+    },
+    "rabbitmq": {
+        "path": "/var/lib/kf-onlinejudge/rabbitmq",
+        "filesystem_bytes": 512 * 1024**2,
+    },
 }
+CONFIGURATION_ROOT = Path("/etc/kf-dependencies")
+
+
+def storage_observation(name: str) -> dict:
+    """Read an already provisioned dedicated filesystem, never create/mount one."""
+    directory = Path(STORAGE[name]["path"])
+    preflight.protected(directory.parent, directory=True)
+    if directory.is_symlink() or not directory.is_dir():
+        raise DeliveryError("ordinary dependency data directory required")
+    mounts = [line.split() for line in Path("/proc/self/mountinfo").read_text().splitlines()]
+    rows = [row for row in mounts if len(row) > 6 and row[4] == str(directory)]
+    if len(rows) != 1:
+        raise DeliveryError("one dedicated dependency storage mount required")
+    row = rows[0]
+    separator = row.index("-")
+    fs = os.statvfs(directory)
+    observation = {
+        "root": row[3],
+        "mountpoint": row[4],
+        "filesystem": row[separator + 1],
+        "options": row[5].split(","),
+        "device": row[2],
+        "shared_elsewhere": any(other[2] == row[2] and other != row for other in mounts),
+        "capacity_bytes": fs.f_frsize * fs.f_blocks,
+    }
+    validate_storage(name, observation)
+    return observation
+
+
+def validate_storage(name: str, observation: dict) -> None:
+    required = STORAGE[name]["filesystem_bytes"]
+    if (
+        observation["root"] != "/"
+        or observation["mountpoint"] != STORAGE[name]["path"]
+        or observation["filesystem"] != "ext4"
+        or observation["shared_elsewhere"] is not False
+        or not {"rw", "nosuid", "nodev", "noexec"} <= set(observation["options"])
+        or type(observation["capacity_bytes"]) is not int
+        or not required * 9 // 10 <= observation["capacity_bytes"] <= required
+    ):
+        raise DeliveryError("dedicated hard dependency storage budget differs")
 
 
 def check_runtime(name: str) -> dict:
@@ -89,20 +136,11 @@ def check_runtime(name: str) -> dict:
         or stat.S_IMODE(info.st_mode) != 0o700
     ):
         raise DeliveryError("private dependency data identity/mode differs")
-    # A parent filesystem and soft DB/broker alarm must not pass as the
-    # separately bounded data filesystem required by the service profile.
-    mounts = [line.split() for line in Path("/proc/self/mountinfo").read_text().splitlines()]
-    if not any(len(row) > 6 and row[4] == str(directory) and row[3] == "/" for row in mounts):
-        raise DeliveryError("separate dependency storage mount required")
-    fs = os.statvfs(directory)
-    capacity = fs.f_frsize * fs.f_blocks
-    required = STORAGE[name]["filesystem_bytes"]
-    if not required * 9 // 10 <= capacity <= required:
-        raise DeliveryError("effective dependency filesystem capacity differs")
+    storage = storage_observation(name)
     return {
         "dependency": name,
         "actual_cgroup_limits": limits,
-        "data_filesystem_bytes": capacity,
+        "data_filesystem_bytes": storage["capacity_bytes"],
         "execution_verified": False,
     }
 
@@ -152,7 +190,7 @@ def broker_definitions(connections: dict) -> dict:
                 "vhost": "kf",
                 "durable": True,
                 "auto_delete": False,
-                "arguments": QUEUE_ARGUMENTS,
+                "arguments": dict(QUEUE_ARGUMENTS),
             }
         ],
     }
@@ -166,7 +204,9 @@ def render(release: str, batch: str) -> dict[str, bytes]:
         r"cfg-[0-9a-f]{24}", batch
     ):
         raise DeliveryError("invalid dependency configuration binding")
-    base = f"/etc/kf-onlinejudge/dependencies/{release}.{batch}"
+    # The application's /etc/kf-onlinejudge is 0700: dependency identities
+    # must use a separate root-owned searchable tree with group-readable files.
+    base = str(CONFIGURATION_ROOT / f"{release}.{batch}")
     pg = (
         "\n".join(
             [
@@ -304,21 +344,26 @@ def render(release: str, batch: str) -> dict[str, bytes]:
             values += [
                 "RuntimeDirectory=postgresql",
                 "RuntimeDirectoryMode=0755",
-                "ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C.UTF-8"
-                f" /usr/bin/postgres -c config_file={base}/postgresql.conf",
+                (
+                    "ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C.UTF-8"
+                    f" /usr/bin/postgres -c config_file={base}/postgresql.conf"
+                ),
             ]
         else:
             values += [
                 "WorkingDirectory=/var/lib/kf-onlinejudge/rabbitmq",
-                "ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C.UTF-8"
-                " HOME=/var/lib/kf-onlinejudge/rabbitmq ERL_EPMD_ADDRESS=127.0.0.1"
-                " RABBITMQ_NODENAME=kf@localhost RABBITMQ_DIST_PORT=25672"
-                f" RABBITMQ_CONFIG_FILE={base}/rabbitmq.conf"
-                f" RABBITMQ_ENABLED_PLUGINS_FILE={base}/enabled_plugins"
-                " RABBITMQ_MNESIA_BASE=/var/lib/kf-onlinejudge/rabbitmq/data"
-                ' RABBITMQ_LOGS=- "RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=+S 2:2 +A 4 +P 1024 +Q 1024'
-                ' -kernel inet_dist_use_interface {127,0,0,1}"'
-                " /usr/lib/rabbitmq/sbin/rabbitmq-server",
+                (
+                    "ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C.UTF-8"
+                    " HOME=/var/lib/kf-onlinejudge/rabbitmq ERL_EPMD_ADDRESS=127.0.0.1"
+                    " RABBITMQ_NODENAME=kf@localhost RABBITMQ_DIST_PORT=25672"
+                    f" RABBITMQ_CONFIG_FILE={base}/rabbitmq.conf"
+                    f" RABBITMQ_ENABLED_PLUGINS_FILE={base}/enabled_plugins"
+                    " RABBITMQ_MNESIA_BASE=/var/lib/kf-onlinejudge/rabbitmq/data"
+                    ' RABBITMQ_LOGS=- "RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS='
+                    "+S 2:2 +A 4 +P 1024 +Q 1024"
+                    ' -kernel inet_dist_use_interface {127,0,0,1}"'
+                    " /usr/lib/rabbitmq/sbin/rabbitmq-server"
+                ),
             ]
         values += ["[Install]", "WantedBy=multi-user.target"]
         files["kf-" + name + ".service"] = ("\n".join(values) + "\n").encode()
@@ -377,6 +422,7 @@ def generate(connections_path: Path, output: Path) -> dict:
         "schema_version": 1,
         "source_sha": original["source_sha"],
         "configuration_id": selected["configuration_id"],
+        "configuration_receipt_sha256": selected["receipt_sha256"],
         "files": hashes,
         "required_storage_mounts": STORAGE,
         "installed": False,

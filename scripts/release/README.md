@@ -201,3 +201,25 @@ Dependency directive references: [PostgreSQL resources](https://www.postgresql.o
 [RabbitMQ limits](https://www.rabbitmq.com/docs/limits),
 [definition import](https://www.rabbitmq.com/docs/definitions),
 and [RabbitMQ access control](https://www.rabbitmq.com/docs/access-control).
+
+`python3.13 -m scripts.release.dependency_install DIRECTORY --receipt-sha256 SHA
+--erlang-cookie PRIVATE_FILE --cookie-sha256 SHA` installs the selected dependency
+snapshot with all app/dependency services stopped. It requires already provisioned
+dedicated ext4 mounts at the two fixed data paths, with their fixed capacity and
+`rw,nosuid,nodev,noexec` options. It does not create, format, resize or mount disks.
+A root-owned empty mount (apart from an empty private `lost+found`) may be assigned
+to its dedicated account; existing data is never recursively reassigned. Ordinary
+UID/GID 1203/1204 must be locked, without supplementary authority, and have the
+fixed PostgreSQL/RabbitMQ service homes. Conflicting OS accounts are not adopted.
+
+The generated files are installed under `/etc/kf-dependencies/RELEASE.CONFIGURATION/`.
+This separate root-owned searchable tree lets each service group read only its
+0640 configuration files; the application configuration tree remains private.
+The definition file's salted credentials, user privileges and queue budgets must
+match the selected outbox/Worker batch. The operator supplies an explicit private
+256-bit Erlang cookie; repeat installation requires the same ordinary-owned 0400
+cookie and does not implicitly rotate it. No cookie/password bytes are reported.
+System unit pointers may replace only recorded root-owned dependency snapshots.
+The command retains old batches, verifies loaded/inactive metadata, starts no
+service and initializes no database. Cluster initialization, actual effective
+limits, broker authorization and startup/readiness still require VM acceptance.
