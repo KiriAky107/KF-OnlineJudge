@@ -299,6 +299,10 @@ def build(repo: Path, inputs: Path, output: Path, work: Path) -> dict:
             curated(root, records, name, payload / name)
         elif name.startswith("services/usr/lib/"):
             relative = name.removeprefix("services/usr/lib/")
+            # Database-server OAuth/RADIUS plugins are provisioned with the
+            # database package, separate from application runtime libraries.
+            if relative.startswith(("libkrad.so", "libpq-oauth-")):
+                continue
             if "/" not in relative and (".so" in relative or relative == "ld-linux-x86-64.so.2"):
                 relative_name("lib/" + relative)
                 curated(root, records, name, payload / "lib" / relative)
