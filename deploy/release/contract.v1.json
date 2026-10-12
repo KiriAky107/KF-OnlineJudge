@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "format": "kf.single-node.directory.v1",
+  "platform": "linux_x86_64_v3_glibc244_systemd",
+  "toolchains": {"python": "3.13.16", "rust": "1.99.0", "node": "26.10.0", "pnpm": "11.28.4"},
+  "capacity": {"memory_bytes": 4294967296, "disk_bytes": 12884901888, "execution_slots": 1, "import_slots": 1},
+  "layout": {
+    "releases": "/opt/kf-onlinejudge/releases",
+    "current": "/opt/kf-onlinejudge/current",
+    "configuration": "/etc/kf-onlinejudge",
+    "data": "/var/lib/kf-onlinejudge",
+    "judge_configuration": "/etc/kf-judge",
+    "judge_state": "/var/lib/kf-judge",
+    "task_cgroup": "/sys/fs/cgroup/kf-judge-tasks"
+  },
+  "services": {
+    "api": "platform",
+    "coordinator": "coordinator",
+    "outbox": "platform",
+    "problem-import": "problem_import",
+    "worker": "none",
+    "sandbox-factory": "none",
+    "identity-operator": "identity_operator",
+    "migration": "migration_owner"
+  },
+  "recovery": {"consistent_cut_rpo_seconds": 0, "prepared_restore_rto_seconds": 1800}
+}

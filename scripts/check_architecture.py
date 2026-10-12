@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "backend/src/kf_oj"
+RELEASE = ROOT / "scripts/release"
 RUST_ALLOWED = {
     "kf-contracts": set(),
     "kf-sandbox": {"kf-contracts"},
@@ -97,12 +98,22 @@ def rust_violations() -> list[str]:
     return violations
 
 
+def release_violations() -> list[str]:
+    """Offline delivery may use public contracts, never application state layers."""
+    violations = []
+    for path in sorted(RELEASE.glob("*.py")):
+        for target in imports(ast.parse(path.read_text(encoding="utf-8")), "scripts.release"):
+            if target.startswith("kf_oj.") and not target.startswith("kf_oj.contracts."):
+                violations.append(f"{path.name}: release cannot import application state: {target}")
+    return violations
+
+
 def main() -> None:
-    violations = python_violations() + rust_violations()
+    violations = python_violations() + rust_violations() + release_violations()
     if violations:
         print("\n".join(violations), file=sys.stderr)
         raise SystemExit(1)
-    print("Architecture boundaries: OK (Python imports + Rust crate graph)")
+    print("Architecture boundaries: OK (Python imports + Rust crate graph + offline delivery)")
 
 
 if __name__ == "__main__":
