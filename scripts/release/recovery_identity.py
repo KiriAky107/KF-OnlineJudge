@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import configuration, database, dependencies, dependency_initialize, preflight
+from . import configuration, credentials, database, dependencies, dependency_initialize, preflight
 from .policy import DeliveryError, canonical, read_json
 
 UNIT = "kf-postgres-recover.service"
@@ -300,15 +300,7 @@ def run_in_unit() -> dict:
         raise DeliveryError("identity recovery refuses standby/replay signal files")
     dependency_initialize.cluster_identity()
     for name, maximum in (("connections", 16384), ("bootstrap", 65)):
-        info = (CREDENTIALS / name).lstat()
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_nlink != 1
-            or info.st_uid not in {0, 1203}
-            or stat.S_IMODE(info.st_mode) not in {0o400, 0o600}
-            or info.st_size > maximum
-        ):
-            raise DeliveryError("private recovery credential identity differs")
+        credentials.validate_metadata(CREDENTIALS / name, 1203, maximum)
     endpoints = configuration.validate_connections(read_json(CREDENTIALS / "connections", 16384))
     raw = (CREDENTIALS / "bootstrap").read_bytes()
     dependency_initialize.validate_password(raw)

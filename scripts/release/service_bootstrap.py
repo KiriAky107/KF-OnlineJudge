@@ -8,7 +8,7 @@ import resource
 import stat
 from pathlib import Path
 
-from . import preflight
+from . import credentials, preflight
 from .policy import DeliveryError, sha256
 from .services import PROFILES
 
@@ -193,15 +193,7 @@ def python_command(role: str, release: str) -> tuple[list[str], dict]:
 
 
 def read_credential(path: Path, expected: str, uid: int) -> bytes:
-    info = path.lstat()
-    if (
-        not stat.S_ISREG(info.st_mode)
-        or info.st_nlink != 1
-        or info.st_uid not in {0, uid}
-        or stat.S_IMODE(info.st_mode) not in {0o400, 0o600}
-        or not 1 <= info.st_size <= 32768
-    ):
-        raise DeliveryError("private bounded systemd credential required")
+    info = credentials.validate_metadata(path, uid, 32768)
     content = path.read_bytes()
     if len(content) != info.st_size or hashlib.sha256(content).hexdigest() != sha256(expected):
         raise DeliveryError("service credential fingerprint mismatch")

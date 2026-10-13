@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 import stat
+import struct
 import subprocess
 import sys
 from contextlib import nullcontext
@@ -29,6 +30,7 @@ factory_service = importlib.import_module("scripts.release.factory_service")
 dependencies = importlib.import_module("scripts.release.dependencies")
 dependency_install = importlib.import_module("scripts.release.dependency_install")
 dependency_initialize = importlib.import_module("scripts.release.dependency_initialize")
+credentials = importlib.import_module("scripts.release.credentials")
 node_health = importlib.import_module("scripts.release.node_health")
 broker_health = importlib.import_module("scripts.release.broker_health")
 lifecycle = importlib.import_module("scripts.release.lifecycle")
@@ -1238,6 +1240,96 @@ def test_dependency_pointer_does_not_adopt_unknown_units_or_paths(target):
 def test_database_initializer_refuses_empty_multiline_or_noncanonical_password(contents):
     with pytest.raises(policy.DeliveryError, match="bootstrap password"):
         dependency_initialize.validate_password(contents)
+
+
+def credential_acl(uid=1203, *, owner=4, user=4, group=0, mask=4, other=0):
+    return struct.pack("<I", 2) + b"".join(
+        struct.pack("<HHI", *row)
+        for row in [
+            (1, owner, 0xFFFFFFFF),
+            (2, user, uid),
+            (4, group, 0xFFFFFFFF),
+            (16, mask, 0xFFFFFFFF),
+            (32, other, 0xFFFFFFFF),
+        ]
+    )
+
+
+@pytest.mark.parametrize("uid", [1201, 1202, 1203])
+def test_credential_acl_has_exactly_one_service_reader(uid):
+    assert credentials.validate_acl(credential_acl(uid), uid) is None
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"",
+        credential_acl()[:-1],
+        b"\x01" + credential_acl()[1:],
+        credential_acl(1202),
+        credential_acl(owner=6),
+        credential_acl(user=6),
+        credential_acl(group=4),
+        credential_acl(mask=7),
+        credential_acl(other=4),
+        credential_acl() + struct.pack("<HHI", 2, 4, 9999),
+    ],
+)
+def test_credential_acl_refuses_extra_readers_writers_or_noncanonical_acl(raw):
+    with pytest.raises(policy.DeliveryError, match="credential ACL differs"):
+        credentials.validate_acl(raw, 1203)
+
+
+def credential_metadata(monkeypatch, **overrides):
+    values = dict(st_mode=stat.S_IFREG | 0o440, st_nlink=1, st_uid=0, st_gid=0, st_size=65)
+    values.update(overrides)
+    monkeypatch.setattr(Path, "lstat", lambda _: SimpleNamespace(**values))
+    monkeypatch.setattr(credentials.os, "statvfs", lambda _: SimpleNamespace(f_flag=os.ST_RDONLY))
+    monkeypatch.setattr(credentials.os, "getxattr", lambda *args: credential_acl())
+    monkeypatch.setattr(credentials.preflight, "protected", lambda *args, **kwargs: None)
+
+
+def test_acl_credential_is_limited_to_fixed_readonly_systemd_binding(monkeypatch):
+    credential_metadata(monkeypatch)
+    path = Path("/run/credentials/kf-postgres-initialize.service/bootstrap")
+    assert credentials.validate_metadata(path, 1203, 65).st_size == 65
+    monkeypatch.setattr(credentials.os, "statvfs", lambda _: SimpleNamespace(f_flag=0))
+    with pytest.raises(policy.DeliveryError, match="bounded systemd credential"):
+        credentials.validate_metadata(path, 1203, 65)
+
+
+@pytest.mark.parametrize(
+    "path,uid",
+    [
+        ("/tmp/kf-postgres-initialize.service/bootstrap", 1203),
+        ("/run/credentials/foreign.service/bootstrap", 1203),
+        ("/run/credentials/kf-postgres-initialize.service/foreign", 1203),
+        ("/run/credentials/kf-postgres-initialize.service/bootstrap", 1202),
+    ],
+)
+def test_acl_credential_refuses_wrong_directory_member_or_role(monkeypatch, path, uid):
+    credential_metadata(monkeypatch)
+    with pytest.raises(policy.DeliveryError, match="bounded systemd credential"):
+        credentials.validate_metadata(Path(path), uid, 65)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"st_uid": 1203},
+        {"st_gid": 1203},
+        {"st_nlink": 2},
+        {"st_size": 66},
+        {"st_mode": stat.S_IFREG | 0o444},
+        {"st_mode": stat.S_IFLNK | 0o440},
+    ],
+)
+def test_acl_credential_refuses_unknown_file_identity_or_bounds(monkeypatch, overrides):
+    credential_metadata(monkeypatch, **overrides)
+    with pytest.raises(policy.DeliveryError, match="bounded systemd credential"):
+        credentials.validate_metadata(
+            Path("/run/credentials/kf-postgres-initialize.service/bootstrap"), 1203, 65
+        )
 
 
 def test_database_initialization_receipt_does_not_prove_migration_or_authentication():

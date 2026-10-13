@@ -9,7 +9,15 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import configuration, dependencies, dependency_install, install, preflight, service_install
+from . import (
+    configuration,
+    credentials,
+    dependencies,
+    dependency_install,
+    install,
+    preflight,
+    service_install,
+)
 from .policy import DeliveryError, canonical, digest, fields, read_json, sha256
 from .services import python_environment
 
@@ -93,14 +101,8 @@ def run_in_unit() -> dict:
     interfaces = Path("/proc/net/dev").read_text().splitlines()[2:]
     if {line.split(":", 1)[0].strip() for line in interfaces} != {"lo"}:
         raise DeliveryError("network-isolated database initializer required")
-    credential = CREDENTIAL.lstat()
-    if (
-        not stat.S_ISREG(credential.st_mode)
-        or credential.st_nlink != 1
-        or credential.st_uid not in {0, 1203}
-        or stat.S_IMODE(credential.st_mode) not in {0o400, 0o600}
-        or credential.st_size != 65
-    ):
+    credential = credentials.validate_metadata(CREDENTIAL, 1203, 65)
+    if credential.st_size != 65:
         raise DeliveryError("private database initialization credential required")
     validate_password(CREDENTIAL.read_bytes())
     if DATA.exists() or DATA.is_symlink():
@@ -173,7 +175,12 @@ def initialize(password_file: Path, password_sha: str) -> dict:
     validate_password(password_file.read_bytes())
     selected, original = service_install.current_receipt()
     payload = install.RELEASES / selected["release_id"] / "payload"
-    for name in ("dependencies.py", "dependency_install.py", "dependency_initialize.py"):
+    for name in (
+        "credentials.py",
+        "dependencies.py",
+        "dependency_install.py",
+        "dependency_initialize.py",
+    ):
         shipped = payload / "delivery/scripts/release" / name
         preflight.protected(shipped)
         if digest(shipped) != digest(Path(__file__).parent / name):
