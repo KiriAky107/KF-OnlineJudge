@@ -3,6 +3,7 @@
 import importlib
 import json
 import os
+import re
 import secrets
 import stat
 import struct
@@ -1252,6 +1253,17 @@ def credential_acl(uid=1203, *, owner=4, user=4, group=0, mask=4, other=0):
             (16, mask, 0xFFFFFFFF),
             (32, other, 0xFFFFFFFF),
         ]
+    )
+
+
+def test_external_postgres_configuration_binds_ident_file_to_initialized_data():
+    files = dependencies.render("sd-123456789abc", "cfg-" + "e" * 24)
+    text = files["postgresql.conf"].decode()
+    paths = dict(re.findall(r"^(data_directory|ident_file|hba_file) = '([^']+)'$", text, re.M))
+    assert set(paths) == {"data_directory", "ident_file", "hba_file"}
+    assert Path(paths["ident_file"]) == Path(paths["data_directory"]) / "pg_ident.conf"
+    assert Path(paths["hba_file"]).parent == dependencies.CONFIGURATION_ROOT / (
+        "sd-123456789abc.cfg-" + "e" * 24
     )
 
 

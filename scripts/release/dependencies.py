@@ -220,6 +220,7 @@ def render(release: str, batch: str) -> dict[str, bytes]:
         "\n".join(
             [
                 "data_directory = '/var/lib/kf-onlinejudge/postgres/data'",
+                "ident_file = '/var/lib/kf-onlinejudge/postgres/data/pg_ident.conf'",
                 f"hba_file = '{base}/pg_hba.conf'",
                 "listen_addresses = '127.0.0.1'",
                 "port = 5432",
