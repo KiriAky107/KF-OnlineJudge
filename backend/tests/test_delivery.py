@@ -5,9 +5,11 @@ import json
 import os
 import secrets
 import stat
+import subprocess
 import sys
 from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -41,6 +43,47 @@ recovery_identity = importlib.import_module("scripts.release.recovery_identity")
 recovery_database = importlib.import_module("scripts.release.recovery_database")
 node_observation = importlib.import_module("scripts.release.node_observation")
 installer = importlib.import_module("scripts.release.install")
+
+
+@pytest.mark.parametrize("mode,owner", [(stat.S_IFREG, 0), (stat.S_IFSOCK, 1000)])
+def test_system_bus_preflight_refuses_unprotected_endpoint(monkeypatch, mode, owner):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    monkeypatch.setattr(Path, "lstat", lambda _: SimpleNamespace(st_mode=mode, st_uid=owner))
+    with pytest.raises(policy.DeliveryError, match="socket absent/unprotected"):
+        installer.preflight.system_bus()
+
+
+@pytest.mark.parametrize(
+    "response", [(0, 's "262"\n'), (0, 's "262-1-arch"\n'), (1, ""), (0, 's "other"\n')]
+)
+def test_system_bus_preflight_requires_bounded_manager_response(monkeypatch, response):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    monkeypatch.setattr(Path, "lstat", lambda _: SimpleNamespace(st_mode=stat.S_IFSOCK, st_uid=0))
+
+    def run(args, **options):
+        assert options["timeout"] == 5 and "--timeout=3" in args
+        assert options["env"] == {"PATH": "/usr/bin", "LC_ALL": "C"}
+        return SimpleNamespace(returncode=response[0], stdout=response[1], stderr="private detail")
+
+    monkeypatch.setattr(installer.preflight.subprocess, "run", run)
+    if response[0] == 0 and response[1].startswith('s "262'):
+        assert installer.preflight.system_bus()["manager_reachable"]
+    else:
+        with pytest.raises(policy.DeliveryError, match="manager unavailable/incompatible") as error:
+            installer.preflight.system_bus()
+        assert "private detail" not in str(error.value)
+
+
+def test_system_bus_timeout_is_an_explicit_preflight_refusal(monkeypatch):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    monkeypatch.setattr(Path, "lstat", lambda _: SimpleNamespace(st_mode=stat.S_IFSOCK, st_uid=0))
+
+    def run(args, **options):
+        raise subprocess.TimeoutExpired(args, options["timeout"])
+
+    monkeypatch.setattr(installer.preflight.subprocess, "run", run)
+    with pytest.raises(policy.DeliveryError, match="system message bus unavailable"):
+        installer.preflight.system_bus()
 
 
 @pytest.mark.parametrize("mode", [0o700, 0o755, 0o555])

@@ -120,6 +120,40 @@ def identity_conflicts() -> list[str]:
     return errors
 
 
+def system_bus() -> dict:
+    """Transient bounded operator units need the actual system message bus."""
+    try:
+        endpoint = Path("/run/dbus/system_bus_socket")
+        protected(endpoint.parent, directory=True)
+        info = endpoint.lstat()
+        if not stat.S_ISSOCK(info.st_mode) or info.st_uid != 0:
+            raise DeliveryError("system message bus socket absent/unprotected")
+        protected(Path("/usr/bin/busctl"))
+        result = subprocess.run(
+            [
+                "/usr/bin/busctl",
+                "--system",
+                "--timeout=3",
+                "get-property",
+                "org.freedesktop.systemd1",
+                "/org/freedesktop/systemd1",
+                "org.freedesktop.systemd1.Manager",
+                "Version",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env={"PATH": "/usr/bin", "LC_ALL": "C"},
+        )
+        if result.returncode or not re.fullmatch(
+            r's "262(?:[-+ .][A-Za-z0-9.+() -]{1,120})?"\n?', result.stdout
+        ):
+            raise DeliveryError("system message bus manager unavailable/incompatible")
+        return {"manager_reachable": True, "version": result.stdout.strip()}
+    except (OSError, subprocess.SubprocessError) as error:
+        raise DeliveryError("system message bus unavailable") from error
+
+
 def observe(payload: Path, *, bundle_data: dict, require_root: bool = True) -> dict:
     errors = []
     observations = {}
@@ -135,6 +169,10 @@ def observe(payload: Path, *, bundle_data: dict, require_root: bool = True) -> d
         errors.append("unsupported distribution profile")
     if Path("/proc/1/comm").read_text().strip() != "systemd":
         errors.append("systemd PID1 required")
+    try:
+        observations["system_bus"] = system_bus()
+    except DeliveryError as error:
+        errors.append(str(error))
     try:
         observations["hardware"] = hardware()
         flags = set(observations["hardware"]["processor"].get("flags", "").split())
@@ -258,7 +296,7 @@ def observe(payload: Path, *, bundle_data: dict, require_root: bool = True) -> d
             protected(Path(directory), directory=True)
         except (OSError, DeliveryError):
             errors.append("installation ancestor unprotected")
-    # No socket is opened for a running service and no peer is contacted.
+    # Port occupation checks do not connect to application peers.
     for port in (8000, 8100):
         with socket.socket() as check:
             try:
