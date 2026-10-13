@@ -374,3 +374,45 @@ it does not substitute for actual browser CA/HTTPS/security acceptance in the VM
 The exact `/api/v1/health/live` route permits GET/HEAD for this bounded process
 liveness check. Other health, internal, execution and control routes remain
 outside the public proxy allowlist; liveness does not attest judging readiness.
+
+Private cold backups use a separate format from public release bundles.
+`python3.13 -m kf_oj.infra.artifacts.backup` is an ordinary read-only artifact
+inventory command. Run it with the selected API database/storage identity after
+the owner-confirmed drain and while PostgreSQL is still available. It reads every
+ready artifact registry object through a repeatable-read, read-only transaction
+and hash-checks existing source/case bytes with a 64-KiB buffer. It creates no
+storage directory or lock and changes no metadata, grade, session or grant.
+Its output is private and does not itself prove that writers have stopped.
+
+After the confirmed drain, stop the selected database and broker and verify all
+their processes have exited. `python3.13 -m scripts.release.backup capture
+--backup-id bk-<32-lowercase-hex> --references PRIVATE_INVENTORY
+--references-sha256 SHA` launches one fixed Root backup operator. It requires the
+same selected release/configuration, this boot's successful owner-derived cut,
+quiescent admission, empty task resources, no surviving service identities and
+clean PostgreSQL shutdown. The operator has only `CAP_DAC_READ_SEARCH`, no-new-
+privileges, 256-MiB memory, zero swap, 32 tasks, 50% CPU, a 256-MiB individual-file
+limit and a 30-minute deadline. Only the preprovisioned private backup volume is
+writable; this entry does not format/mount a volume or execute captured content.
+
+Provision a separate Root-owned 0700 ext4 volume of 16 GiB at
+`/var/lib/kf-onlinejudge/backups`, with `nosuid,nodev,noexec` and no shared mount.
+The capture retains all source domains: the cold PostgreSQL cluster, source and
+testcase store, private import staging, all retained release/image versions,
+application/dependency/proxy configuration, factory replay history and operation
+receipts. Every entry has a bounded digest/size and original identity/mode;
+captured copies remain Root-only. Registered source/case references must all
+match captured files. Source modification, links, special files, unknown
+identities, insufficient space or an incomplete cut are refused. A failed target
+is retained for explicit inspection and never published as a successful backup.
+
+The bound is 7 GiB and 50,000 entries per backup, at most two backup directories,
+with a seven-day declared retention period. Capacity refusal does not silently
+delete an old/unknown backup. `backup verify --backup-id ID
+--manifest-sha256 SHA` checks an explicitly supplied private operator receipt and
+every private member; it performs no restoration or secret/epoch reuse. Actual
+retention pruning, controlled recovery into a clean node and measured recovery
+time require their separate implementation and independent VM acceptance.
+Backup data and manifests contain private credentials/source/testcase data and
+must stay outside Git and CI artifacts. Parsing, ordinary adapter tests or a
+manifest digest are not cold-backup/recovery acceptance evidence.
