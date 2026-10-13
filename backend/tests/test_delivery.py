@@ -1,5 +1,6 @@
 """Pure delivery-contract tests; these do not claim installation or VM safety."""
 
+import hashlib
 import importlib
 import json
 import os
@@ -39,6 +40,7 @@ journal = importlib.import_module("scripts.release.journal")
 proxy_runtime = importlib.import_module("scripts.release.proxy_runtime")
 proxy_service = importlib.import_module("scripts.release.proxy_service")
 proxy_guard = importlib.import_module("scripts.release.proxy_guard")
+proxy_install = importlib.import_module("scripts.release.proxy_install")
 backup = importlib.import_module("scripts.release.backup")
 restore = importlib.import_module("scripts.release.restore")
 restore_policy = importlib.import_module("scripts.release.restore_policy")
@@ -1254,6 +1256,79 @@ def credential_acl(uid=1203, *, owner=4, user=4, group=0, mask=4, other=0):
             (32, other, 0xFFFFFFFF),
         ]
     )
+
+
+def test_proxy_startup_refuses_another_protected_selected_binding(monkeypatch):
+    monkeypatch.setattr(proxy_install.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(
+        node_health,
+        "binding",
+        lambda: (
+            {"release_id": "sd-123456789abc", "configuration_id": "cfg-" + "e" * 24},
+            {},
+            ROOT,
+        ),
+    )
+    monkeypatch.setattr(installer, "selection", lambda **kwargs: pytest.fail("full image scan"))
+    with pytest.raises(policy.DeliveryError, match="another selected configuration"):
+        proxy_install.check_binding("sd-123456789abc", "cfg-" + "f" * 24)
+
+
+@pytest.mark.parametrize("changed", ["nginx.conf", "fullchain.pem", "key.pem", "selection"])
+def test_proxy_startup_still_refuses_own_bytes_or_selection_drift(monkeypatch, changed):
+    selected = {"release_id": "sd-123456789abc", "configuration_id": "cfg-" + "e" * 24}
+    fingerprints = {
+        name: hashlib.sha256(("synthetic protected " + name).encode()).hexdigest()
+        for name in ("nginx.conf", "fullchain.pem", "key.pem")
+    }
+    changed_fingerprint = hashlib.sha256(b"changed protected proxy bytes").hexdigest()
+    spec = {
+        "schema_version": 1,
+        **selected,
+        "origin": "https://oj.test",
+        "configuration_sha256": fingerprints["nginx.conf"],
+        "certificate_sha256": fingerprints["fullchain.pem"],
+        "key_sha256": fingerprints["key.pem"],
+    }
+    monkeypatch.setattr(proxy_install.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(node_health, "binding", lambda: (selected, {}, ROOT))
+    monkeypatch.setattr(proxy_service, "batch", lambda _: Path("/protected/proxy"))
+    monkeypatch.setattr(proxy_install, "read_json", lambda *args: spec)
+    monkeypatch.setattr(proxy_install.preflight, "protected", lambda *args, **kwargs: None)
+    real_stat = Path.stat
+    observed = {
+        Path("/protected/proxy/launch.json"),
+        Path("/protected/proxy/nginx.conf"),
+        proxy_service.ROOT / "tls/fullchain.pem",
+        proxy_service.ROOT / "tls/key.pem",
+    }
+
+    def file_info(path, *args, **kwargs):
+        if path not in observed:
+            return real_stat(path, *args, **kwargs)
+        return SimpleNamespace(
+            st_gid=1205 if path.name == "key.pem" else 0,
+            st_mode=stat.S_IFREG | (0o640 if path.name == "key.pem" else 0o644),
+            st_size=128,
+        )
+
+    monkeypatch.setattr(Path, "stat", file_info)
+    monkeypatch.setattr(
+        proxy_install,
+        "digest",
+        lambda p: changed_fingerprint if p.name == changed else fingerprints[p.name],
+    )
+    monkeypatch.setattr(proxy_install.journal, "check_profile", lambda **kwargs: None)
+    monkeypatch.setattr(proxy_install, "storage", lambda **kwargs: None)
+    monkeypatch.setattr(proxy_install, "account", lambda **kwargs: None)
+
+    def selection(**kwargs):
+        assert kwargs == {"check_configuration": False}
+        return {**selected, "configuration_id": "cfg-" + "f" * 24}
+
+    monkeypatch.setattr(installer, "selection", selection)
+    with pytest.raises(policy.DeliveryError, match="proxy.*changed"):
+        proxy_install.check_binding(selected["release_id"], selected["configuration_id"])
 
 
 def test_external_postgres_configuration_binds_ident_file_to_initialized_data():

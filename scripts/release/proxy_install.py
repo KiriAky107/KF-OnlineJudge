@@ -157,7 +157,11 @@ def known_link(path: Path) -> Path | None:
 def check_binding(release: str, batch: str) -> dict:
     if os.geteuid() != 0:
         raise DeliveryError("protected proxy operator required")
-    selected = install.selection()
+    from .node_health import binding
+
+    # Reuse the protected live configuration and source binding. Proxy startup
+    # does not recertify unrelated judge images; Sandbox checks each execution.
+    selected, _, _ = binding()
     if (release, batch) != (selected["release_id"], selected["configuration_id"]):
         raise DeliveryError("proxy unit belongs to another selected configuration")
     directory = proxy_service.batch(selected)
@@ -213,6 +217,8 @@ def check_binding(release: str, batch: str) -> dict:
     journal.check_profile(allow_read_only=True)
     storage(allow_read_only=True)
     account(check_lock=True)
+    if install.selection(check_configuration=False) != selected:
+        raise DeliveryError("selected proxy binding changed during startup check")
     return {"binding_valid": True, "tls_verified": False, "execution_verified": False}
 
 
