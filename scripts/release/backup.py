@@ -84,8 +84,12 @@ def stopped(selected: dict, cut: dict) -> None:
             raise DeliveryError("cold backup has an active required service")
         if props.get("ControlGroup"):
             group = Path("/sys/fs/cgroup") / props["ControlGroup"].lstrip("/")
-            if group.exists() and (group / "cgroup.procs").read_text().strip():
-                raise DeliveryError("cold backup service processes remain")
+            if group.exists():
+                events = dict(
+                    line.split() for line in (group / "cgroup.events").read_text().splitlines()
+                )
+                if events.get("populated") != "0":
+                    raise DeliveryError("cold backup service descendant processes remain")
     for name in ("tasks", "identities", "captures"):
         path = Path("/var/lib/kf-judge") / name
         if path.exists() and next(path.iterdir(), None) is not None:
@@ -109,7 +113,7 @@ def stopped(selected: dict, cut: dict) -> None:
         raise DeliveryError("PostgreSQL did not confirm clean cold shutdown")
 
 
-def volume() -> None:
+def volume(*, permit_full: bool = False) -> None:
     preflight.protected(ROOT, directory=True)
     if stat.S_IMODE(ROOT.stat().st_mode) != 0o700:
         raise DeliveryError("private preprovisioned backup volume required")
@@ -130,7 +134,11 @@ def volume() -> None:
         or not CAPACITY * 9 // 10 <= fs.f_frsize * fs.f_blocks <= CAPACITY
     ):
         raise DeliveryError("backup volume limits or mount isolation differ")
-    members = list(ROOT.iterdir())
+    members = []
+    for member in ROOT.iterdir():
+        members.append(member)
+        if len(members) > 3:
+            raise DeliveryError("private backup directory count exceeds bound")
     snapshots = []
     for p in members:
         preflight.protected(p, directory=p.is_dir())
@@ -140,7 +148,7 @@ def volume() -> None:
         if not p.is_dir() or stat.S_IMODE(p.stat().st_mode) != 0o700:
             raise DeliveryError("unknown private backup volume member")
         snapshots.append(p)
-    if len(snapshots) >= 2:
+    if len(snapshots) > 2 or (len(snapshots) == 2 and not permit_full):
         raise DeliveryError(
             "two-backup retention capacity reached; explicit verified pruning required"
         )
@@ -286,51 +294,20 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
                         < before.st_size + 64 * 1024**2
                     ):
                         raise DeliveryError("private backup capacity exhausted")
-                    fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
                     h = hashlib.sha256()
-                    output = os.open(
-                        destination / member,
-                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                        0o600,
-                    )
-                    with (
-                        os.fdopen(fd, "rb") as incoming,
-                        os.fdopen(output, "wb") as outgoing,
-                    ):
-                        observed = os.fstat(incoming.fileno())
-                        if any(
-                            getattr(before, k) != getattr(observed, k)
-                            for k in (
-                                "st_dev",
-                                "st_ino",
-                                "st_size",
-                                "st_mtime_ns",
-                                "st_ctime_ns",
-                            )
-                        ):
-                            raise DeliveryError("backup source changed before capture")
-                        count = 0
-                        while block := incoming.read(65536):
-                            count += len(block)
-                            if count > before.st_size or time.monotonic() >= deadline:
-                                raise DeliveryError("backup source or deadline changed")
-                            h.update(block)
-                            outgoing.write(block)
-                        after = os.fstat(incoming.fileno())
-                        if count != before.st_size or any(
-                            getattr(before, k) != getattr(after, k)
-                            for k in (
-                                "st_dev",
-                                "st_ino",
-                                "st_size",
-                                "st_mtime_ns",
-                                "st_ctime_ns",
-                            )
-                        ):
-                            raise DeliveryError("backup source changed during capture")
-                        outgoing.flush()
-                        os.fsync(outgoing.fileno())
-                        os.fchmod(outgoing.fileno(), 0o600)
+                    with os.fdopen(
+                        os.open(p, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC),
+                        "rb",
+                    ) as incoming:
+                        with os.fdopen(
+                            os.open(
+                                destination / member,
+                                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                0o600,
+                            ),
+                            "wb",
+                        ) as outgoing:
+                            copy_file(incoming, outgoing, before, deadline, h)
                     entry["sha256"] = h.hexdigest()
                     files.append(entry)
                 install.sync_directory(destination)
@@ -382,114 +359,245 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
         os.close(descriptor)
 
 
+def copy_file(incoming, outgoing, before, deadline: float, h) -> None:
+    keys = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
+    observed = os.fstat(incoming.fileno())
+    if any(getattr(before, key) != getattr(observed, key) for key in keys):
+        raise DeliveryError("backup source changed before capture")
+    count = 0
+    while block := incoming.read(65536):
+        count += len(block)
+        if count > before.st_size or time.monotonic() >= deadline:
+            raise DeliveryError("backup source or deadline changed")
+        h.update(block)
+        outgoing.write(block)
+    after = os.fstat(incoming.fileno())
+    if count != before.st_size or any(getattr(before, key) != getattr(after, key) for key in keys):
+        raise DeliveryError("backup source changed during capture")
+    outgoing.flush()
+    os.fsync(outgoing.fileno())
+    os.fchmod(outgoing.fileno(), 0o600)
+
+
+def retention_eligible(expired: dict, retained: dict, now: int) -> None:
+    """An explicit expired snapshot never removes the last verified recovery copy."""
+    if (
+        expired["backup_id"] == retained["backup_id"]
+        or expired["expires_unix_seconds"] > now
+        or retained["created_unix_seconds"] > now
+        or retained["created_unix_seconds"] <= expired["created_unix_seconds"]
+        or retained["expires_unix_seconds"] <= now
+    ):
+        raise DeliveryError("pruning requires an expired snapshot and a newer unexpired copy")
+
+
+def prune(backup_id: str, expected: str, keep_id: str, keep_expected: str) -> dict:
+    guarded()
+    volume(permit_full=True)
+    target, retained = ROOT / identifier(backup_id), ROOT / identifier(keep_id)
+    lock = lifecycle.STATE / "maintenance.lock"
+    configuration.private(lock)
+    descriptor = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    deadline = time.monotonic() + 1700
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        value = backup_manifest.verify(target, expected)
+        keep = backup_manifest.verify(retained, keep_expected)
+        if value["backup_id"] != backup_id or keep["backup_id"] != keep_id:
+            raise DeliveryError("private backup path does not match its receipt")
+        retention_eligible(value, keep, int(time.time()))
+        # Remove exactly the already verified inventory, never traverse or delete
+        # an unknown tree. Any interruption leaves a private partial target.
+        for item in value["files"]:
+            if time.monotonic() >= deadline:
+                raise DeliveryError("private backup pruning deadline")
+            path = target / "payload" / item["path"]
+            info = path.lstat()
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_nlink != 1
+                or (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) != (0, 0, 0o600)
+                or info.st_size != item["bytes"]
+            ):
+                raise DeliveryError("private backup changed before pruning")
+            path.unlink()
+            install.sync_directory(path.parent)
+        for item in sorted(
+            value["directories"], key=lambda item: item["path"].count("/"), reverse=True
+        ):
+            path = target / "payload" / item["path"]
+            preflight.protected(path, directory=True)
+            if stat.S_IMODE(path.stat().st_mode) != 0o700:
+                raise DeliveryError("private backup directory changed before pruning")
+            path.rmdir()
+            install.sync_directory(path.parent)
+        (target / "payload").rmdir()
+        configuration.private(target / "manifest.json")
+        if digest(target / "manifest.json") != sha256(expected):
+            raise DeliveryError("private backup receipt changed before pruning")
+        (target / "manifest.json").unlink()
+        target.rmdir()
+        install.sync_directory(ROOT)
+        backup_manifest.verify(retained, keep_expected)
+        return {
+            "backup_id": backup_id,
+            "pruned": True,
+            "retained_backup_id": keep_id,
+            "retained_manifest_sha256": keep_expected,
+            "execution_verified": False,
+        }
+    finally:
+        os.close(descriptor)
+
+
+def launch(args) -> dict:
+    """Only fixed backup actions; no program, identity or budget override."""
+    identifier(args.backup_id)
+    if args.action == "capture":
+        configuration.private(args.references)
+        if digest(args.references) != sha256(args.references_sha256):
+            raise DeliveryError("private artifact inventory receipt differs")
+        options = [
+            "--references",
+            str(args.references),
+            "--references-sha256",
+            args.references_sha256,
+        ]
+    else:
+        sha256(args.manifest_sha256)
+        options = ["--manifest-sha256", args.manifest_sha256]
+        if args.action == "prune":
+            identifier(args.keep_backup_id)
+            sha256(args.keep_manifest_sha256)
+            options += [
+                "--keep-backup-id",
+                args.keep_backup_id,
+                "--keep-manifest-sha256",
+                args.keep_manifest_sha256,
+            ]
+    selected = install.selection()
+    payload = install.RELEASES / selected["release_id"] / "payload"
+    current = manager("show", "kf-node-backup.service", "--property=LoadState,ActiveState,MainPID")
+    if current != {"LoadState": "not-found", "ActiveState": "inactive", "MainPID": "0"}:
+        raise DeliveryError("unknown or active backup operator")
+    command = [
+        "/usr/bin/systemd-run",
+        "--quiet",
+        "--wait",
+        "--pipe",
+        "--collect",
+        "--unit=kf-node-backup.service",
+        "--slice=kfonlinejudge.slice",
+    ]
+    for key, value in {
+        "User": "root",
+        "Group": "root",
+        "MemoryMax": "256M",
+        "MemorySwapMax": "0",
+        "TasksMax": "32",
+        "CPUQuota": "50%",
+        "RuntimeMaxSec": "1800",
+        "TimeoutStopSec": "15",
+        "KillMode": "control-group",
+        "Restart": "no",
+        "LimitCORE": "0",
+        "LimitFSIZE": "256M",
+        "LimitNOFILE": "256",
+        "LimitSTACK": "16M",
+        "UMask": "0077",
+        "NoNewPrivileges": "yes",
+        "CapabilityBoundingSet": "CAP_DAC_READ_SEARCH",
+        "AmbientCapabilities": "CAP_DAC_READ_SEARCH",
+        "ProtectSystem": "strict",
+        "ProtectHome": "yes",
+        "PrivateTmp": "yes",
+        "PrivateDevices": "yes",
+        "ProtectControlGroups": "yes",
+        "RestrictAddressFamilies": "AF_UNIX",
+        "ReadWritePaths": str(ROOT),
+    }.items():
+        command += ["--property=" + key + "=" + value]
+    command += [
+        "/usr/bin/env",
+        "-i",
+        "PATH=/usr/bin:/bin",
+        "LC_ALL=C.UTF-8",
+        *python_environment(payload).split(),
+        str(payload / "python/bin/python3.13"),
+        "-s",
+        "-P",
+        "-m",
+        "scripts.release.backup",
+        args.action,
+        "--inside",
+        "--backup-id",
+        args.backup_id,
+        *options,
+    ]
+    result = subprocess.run(command, capture_output=True, timeout=1820, check=False)
+    if result.returncode or len(result.stdout) > 4096:
+        raise DeliveryError(
+            "private backup action failed; source unchanged and partial target retained"
+        )
+    return json.loads(result.stdout)
+
+
+def selected_operator() -> None:
+    selected = install.selection()
+    payload = install.RELEASES / selected["release_id"] / "payload"
+    for name in ("backup.py", "backup_manifest.py"):
+        if digest(payload / "delivery/scripts/release" / name) != digest(
+            Path(__file__).parent / name
+        ):
+            raise DeliveryError("backup operator differs from selected release")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Private bounded cold backup operator")
     sub = parser.add_subparsers(dest="action", required=True)
     create = sub.add_parser("capture")
-    create.add_argument("--backup-id", required=True)
     create.add_argument("--references", type=Path, required=True)
     create.add_argument("--references-sha256", required=True)
-    create.add_argument("--inside", action="store_true")
     check = sub.add_parser("verify")
-    check.add_argument("--backup-id", required=True)
-    check.add_argument("--manifest-sha256", required=True)
+    remove = sub.add_parser("prune")
+    for command in (create, check, remove):
+        command.add_argument("--backup-id", required=True)
+        command.add_argument("--inside", action="store_true", help=argparse.SUPPRESS)
+    for command in (check, remove):
+        command.add_argument("--manifest-sha256", required=True)
+    remove.add_argument("--keep-backup-id", required=True)
+    remove.add_argument("--keep-manifest-sha256", required=True)
     args = parser.parse_args()
     try:
         if os.getuid() != 0 or os.geteuid() != 0:
             raise DeliveryError("explicit root backup operator required")
-        if args.action == "verify":
-            value = backup_manifest.verify(ROOT / identifier(args.backup_id), args.manifest_sha256)
-            result = {
-                "verified": True,
-                "backup_id": value["backup_id"],
-                "restored": False,
-                "execution_verified": False,
-            }
-        elif args.inside:
-            result = capture(args.backup_id, args.references, args.references_sha256)
+        if not args.inside:
+            result = launch(args)
         else:
-            # Caller provides only an ID/private digest; no program, identity,
-            # source-domain or resource override is accepted by this launcher.
-            identifier(args.backup_id)
-            configuration.private(args.references)
-            if digest(args.references) != sha256(args.references_sha256):
-                raise DeliveryError("private artifact inventory receipt differs")
-            selected = install.selection()
-            payload = install.RELEASES / selected["release_id"] / "payload"
-            current = manager(
-                "show",
-                "kf-node-backup.service",
-                "--property=LoadState,ActiveState,MainPID",
-            )
-            if current != {
-                "LoadState": "not-found",
-                "ActiveState": "inactive",
-                "MainPID": "0",
-            }:
-                raise DeliveryError("unknown or active backup operator")
-            command = [
-                "/usr/bin/systemd-run",
-                "--quiet",
-                "--wait",
-                "--pipe",
-                "--collect",
-                "--unit=kf-node-backup.service",
-                "--slice=kfonlinejudge.slice",
-            ]
-            for key, value in {
-                "User": "root",
-                "Group": "root",
-                "MemoryMax": "256M",
-                "MemorySwapMax": "0",
-                "TasksMax": "32",
-                "CPUQuota": "50%",
-                "RuntimeMaxSec": "1800",
-                "TimeoutStopSec": "15",
-                "KillMode": "control-group",
-                "Restart": "no",
-                "LimitCORE": "0",
-                "LimitFSIZE": "256M",
-                "LimitNOFILE": "256",
-                "LimitSTACK": "16M",
-                "UMask": "0077",
-                "NoNewPrivileges": "yes",
-                "CapabilityBoundingSet": "CAP_DAC_READ_SEARCH",
-                "AmbientCapabilities": "CAP_DAC_READ_SEARCH",
-                "ProtectSystem": "strict",
-                "ProtectHome": "yes",
-                "PrivateTmp": "yes",
-                "PrivateDevices": "yes",
-                "ProtectControlGroups": "yes",
-                "RestrictAddressFamilies": "AF_UNIX",
-                "ReadWritePaths": str(ROOT),
-            }.items():
-                command += ["--property=" + key + "=" + value]
-            command += [
-                "/usr/bin/env",
-                "-i",
-                "PATH=/usr/bin:/bin",
-                "LC_ALL=C.UTF-8",
-                *python_environment(payload).split(),
-                str(payload / "python/bin/python3.13"),
-                "-s",
-                "-P",
-                "-m",
-                "scripts.release.backup",
-                "capture",
-                "--inside",
-                "--backup-id",
-                args.backup_id,
-                "--references",
-                str(args.references),
-                "--references-sha256",
-                args.references_sha256,
-            ]
-            result = subprocess.run(command, capture_output=True, timeout=1820, check=False)
-            if result.returncode or len(result.stdout) > 4096:
-                raise DeliveryError(
-                    "cold backup capture failed; source remains stopped and partial target retained"
+            guarded()
+            selected_operator()
+            if args.action == "capture":
+                result = capture(args.backup_id, args.references, args.references_sha256)
+            elif args.action == "prune":
+                result = prune(
+                    args.backup_id,
+                    args.manifest_sha256,
+                    args.keep_backup_id,
+                    args.keep_manifest_sha256,
                 )
-            result = json.loads(result.stdout)
+            else:
+                volume(permit_full=True)
+                value = backup_manifest.verify(
+                    ROOT / identifier(args.backup_id), args.manifest_sha256
+                )
+                if value["backup_id"] != args.backup_id:
+                    raise DeliveryError("private backup path does not match its receipt")
+                result = {
+                    "verified": True,
+                    "backup_id": value["backup_id"],
+                    "restored": False,
+                    "execution_verified": False,
+                }
         print(json.dumps(result, sort_keys=True))
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         parser.exit(

@@ -311,6 +311,8 @@ def verify(root: Path, expected: str) -> dict:
     found_files, found_dirs = set(), set()
     payload = root / "payload"
     preflight.protected(payload, directory=True)
+    if stat.S_IMODE(payload.stat().st_mode) != 0o700:
+        raise DeliveryError("private backup payload directory required")
     for directory, names, files in os.walk(payload, followlinks=False):
         for member in names + files:
             p = Path(directory) / member

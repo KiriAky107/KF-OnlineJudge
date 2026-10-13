@@ -30,6 +30,31 @@ journal = importlib.import_module("scripts.release.journal")
 proxy_runtime = importlib.import_module("scripts.release.proxy_runtime")
 proxy_service = importlib.import_module("scripts.release.proxy_service")
 proxy_guard = importlib.import_module("scripts.release.proxy_guard")
+backup = importlib.import_module("scripts.release.backup")
+
+
+def test_backup_retention_preserves_a_newer_unexpired_recovery_copy():
+    expired = {
+        "backup_id": "bk-" + "1" * 32,
+        "created_unix_seconds": 100,
+        "expires_unix_seconds": 100 + 7 * 86400,
+    }
+    retained = {
+        "backup_id": "bk-" + "2" * 32,
+        "created_unix_seconds": 200,
+        "expires_unix_seconds": 200 + 7 * 86400,
+    }
+    now = expired["expires_unix_seconds"]
+    backup.retention_eligible(expired, retained, now)
+    for unavailable in (
+        expired,
+        {**retained, "expires_unix_seconds": now},
+        {**retained, "created_unix_seconds": now + 1},
+    ):
+        with pytest.raises(policy.DeliveryError):
+            backup.retention_eligible(expired, unavailable, now)
+    with pytest.raises(policy.DeliveryError):
+        backup.retention_eligible(expired, retained, now - 1)
 
 
 def test_delivery_authorities_and_layout():

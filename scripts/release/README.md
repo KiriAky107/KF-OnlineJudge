@@ -411,8 +411,15 @@ with a seven-day declared retention period. Capacity refusal does not silently
 delete an old/unknown backup. `backup verify --backup-id ID
 --manifest-sha256 SHA` checks an explicitly supplied private operator receipt and
 every private member; it performs no restoration or secret/epoch reuse. Actual
-retention pruning, controlled recovery into a clean node and measured recovery
-time require their separate implementation and independent VM acceptance.
+pruning uses `backup prune --backup-id EXPIRED_ID --manifest-sha256 SHA
+--keep-backup-id NEWER_ID --keep-manifest-sha256 SHA`. Both private inventories
+must verify completely; the named target must be expired and the preserved copy
+must be newer and unexpired. It removes only the known inventory under the
+maintenance lock, never the last verified copy, an unknown tree or a partial
+backup. Verification and pruning use the same bounded operator as capture.
+Controlled recovery into a clean node and measured recovery time require their
+separate implementation and independent VM acceptance. Capture, expiry pruning
+and interruption behavior also still require actual VM acceptance.
 Backup data and manifests contain private credentials/source/testcase data and
 must stay outside Git and CI artifacts. Parsing, ordinary adapter tests or a
 manifest digest are not cold-backup/recovery acceptance evidence.
