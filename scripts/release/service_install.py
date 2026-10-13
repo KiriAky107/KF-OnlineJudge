@@ -75,11 +75,16 @@ def previous_batch(target: str, name: str) -> Path:
 
 
 def current_receipt() -> tuple[dict, dict]:
-    selected = install.selection()
+    selected = install.selection(check_configuration=False)
     path = configuration.installed_receipt_path(
         selected["release_id"], selected["configuration_id"]
     )
     installed = configuration.check_installed(path)
+    if install.selection(check_configuration=False) != selected or any(
+        installed[key] != selected[key]
+        for key in ("release_id", "configuration_id", "manifest_sha256")
+    ):
+        raise DeliveryError("selected configuration changed during complete receipt validation")
     hashes = {
         name: installed["configuration_files"][
             str(

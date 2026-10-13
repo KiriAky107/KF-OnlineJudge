@@ -448,7 +448,7 @@ def install_snapshot(source: Path, expected: str, cookie: Path, cookie_sha: str)
         write_group_file(directory / name, contents[name], mode, group)
     install.exclusive_file(directory / "receipt.json", canonical(receipt), 0o600)
     check_group(directory, receipt)
-    if install.selection() != selected:
+    if install.selection(check_configuration=False) != selected:
         raise DeliveryError("selected binding changed during dependency installation")
     require_stopped()
     for name in sorted(NAMES):

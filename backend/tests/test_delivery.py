@@ -148,6 +148,32 @@ def test_exclusive_file_does_not_repair_existing_mode(tmp_path, monkeypatch):
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
+@pytest.mark.parametrize(
+    "changed", ["release_id", "configuration_id", "manifest_sha256", "selection"]
+)
+def test_current_receipt_rejects_changed_binding_after_full_validation(monkeypatch, changed):
+    selected = {
+        "release_id": "sd-aaaaaaaaaaaa",
+        "configuration_id": "cfg-" + "a" * 24,
+        "manifest_sha256": "a" * 64,
+        "receipt_sha256": "b" * 64,
+    }
+    installed = dict(selected)
+    after = dict(selected)
+    if changed == "selection":
+        after["receipt_sha256"] = "c" * 64
+    else:
+        installed[changed] = "different verified binding"
+    observations = iter([selected, after])
+    monkeypatch.setattr(service_install.install, "selection", lambda **options: next(observations))
+    monkeypatch.setattr(
+        service_install.configuration, "installed_receipt_path", lambda *args: Path("/fixture")
+    )
+    monkeypatch.setattr(service_install.configuration, "check_installed", lambda path: installed)
+    with pytest.raises(policy.DeliveryError, match="selected configuration changed"):
+        service_install.current_receipt()
+
+
 def test_new_copy_hashes_copied_bytes_and_reads_destination_before_acceptance(
     tmp_path, monkeypatch
 ):
