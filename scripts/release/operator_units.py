@@ -17,6 +17,7 @@ PROFILES = {
     "import-health": ("kf-oj", 1200, 128, 16, 25, 10),
     "outbox-health": ("kf-oj", 1200, 128, 16, 25, 10),
     "node-maintenance": ("root", 0, 256, 32, 50, 900),
+    "node-observation": ("root", 0, 128, 16, 25, 120),
 }
 
 

@@ -503,3 +503,23 @@ readiness and actual four-language/history checks in the second VM. Neither
 data nor credential receipts assert execution safety or healthy public service.
 These system steps and the 30-minute end-to-end recovery target remain pending
 independent VM acceptance.
+
+`python3.13 -m scripts.release.node_observation` dispatches one finite,
+read-only local observation through its fixed Root cap0/no-new-privileges helper
+(128 MiB, zero swap, 16 tasks, 25% CPU, 120 seconds, single named unit).
+It reads kernel memory/PIDs current and peak, CPU throttling, memory events,
+aggregate device IO and filesystem bytes/inodes without enumerating private
+source, hidden cases or credential files. Current selected service identities,
+ACLs, execution leases/cleanup, broker/outbox/import backlog and finite factory
+capacity come from the existing status owners. Notification probing stays off;
+it does not publish, claim, acknowledge, close admission or repair state.
+
+The result includes source/configuration binding, a sample time and observation
+duration. Independent readings are a bounded time window, not an atomic backup
+cut. Missing kernel fields, stopped services or failed owner queries are explicit
+incomplete observations; there is no invented zero/healthy fallback. Busy
+admission can remain false in a complete observation. `isolation_verified`
+remains false: every real execution still needs its own Sandbox gate. Private
+operational output is for the local operator and must stay outside public API,
+Git and CI artifacts. Actual resource/queue observations and long-run evidence
+still require the independent VM.

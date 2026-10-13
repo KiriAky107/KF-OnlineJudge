@@ -37,6 +37,38 @@ restore = importlib.import_module("scripts.release.restore")
 restore_policy = importlib.import_module("scripts.release.restore_policy")
 recovery_identity = importlib.import_module("scripts.release.recovery_identity")
 recovery_database = importlib.import_module("scripts.release.recovery_database")
+node_observation = importlib.import_module("scripts.release.node_observation")
+
+
+def test_kernel_observation_keeps_cumulative_counters_and_rejects_duplicate_rows():
+    raw = (
+        "usage_usec 17\nuser_usec 11\nsystem_usec 6\nnr_periods 9\nnr_throttled 2\nthrottled_usec 3"
+    )
+    observed = node_observation.counters(raw, node_observation.CPU_FIELDS)
+    assert observed["usage_usec"] == 17 and observed["nr_throttled"] == 2
+    with pytest.raises(policy.DeliveryError):
+        node_observation.counters(raw + "\nusage_usec 18", node_observation.CPU_FIELDS)
+    with pytest.raises(policy.DeliveryError):
+        node_observation.counters("usage_usec 17", node_observation.CPU_FIELDS)
+
+
+def test_kernel_io_observation_aggregates_devices_without_returning_device_identities():
+    actual = node_observation.io_totals(
+        "8:0 rbytes=5 wbytes=7 rios=1 wios=2 dbytes=0 dios=0\n"
+        "8:1 rbytes=11 wbytes=13 rios=3 wios=4 dbytes=0 dios=0"
+    )
+    assert actual == {"devices_observed": 2, "rbytes": 16, "wbytes": 20, "rios": 4, "wios": 6}
+    assert node_observation.io_totals("")["devices_observed"] == 0
+    with pytest.raises(policy.DeliveryError):
+        node_observation.io_totals(
+            "8:0 rbytes=5 wbytes=7 rios=1 wios=2\n8:0 rbytes=0 wbytes=0 rios=0 wios=0"
+        )
+
+
+@pytest.mark.parametrize("value", ["-1", "max", "True", str(2**63)])
+def test_kernel_observation_does_not_replace_unavailable_or_invalid_counters_with_zero(value):
+    with pytest.raises(policy.DeliveryError):
+        node_observation.number(value)
 
 
 def test_postgres_recovery_retains_narrow_existing_role_authorities():
