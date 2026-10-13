@@ -5,6 +5,7 @@ import json
 import secrets
 import sys
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -31,6 +32,63 @@ proxy_runtime = importlib.import_module("scripts.release.proxy_runtime")
 proxy_service = importlib.import_module("scripts.release.proxy_service")
 proxy_guard = importlib.import_module("scripts.release.proxy_guard")
 backup = importlib.import_module("scripts.release.backup")
+restore = importlib.import_module("scripts.release.restore")
+restore_policy = importlib.import_module("scripts.release.restore_policy")
+
+
+def test_restoration_keeps_old_runtime_configuration_and_operations_inactive():
+    directory = Path("/var/lib/kf-onlinejudge/recovery/rr-" + "1" * 32)
+    for domain in restore.HISTORICAL:
+        item = {"path": domain + "/old.json", "uid": 0, "gid": 0, "mode": 0o644, "bytes": 20}
+        path, uid, gid, mode = restore.target(item, directory)
+        assert path == directory / "history" / domain / "old.json"
+        assert (uid, gid, mode) == (0, 0, 0o600)
+    path, uid, gid, mode = restore.target(
+        {"path": "artifacts/object", "uid": 1200, "gid": 1200, "mode": 0o600, "bytes": 20},
+        directory,
+    )
+    assert path == Path("/var/lib/kf-onlinejudge/artifacts/object")
+    assert (uid, gid, mode) == (1200, 1200, 0o600)
+
+
+def test_recovery_requires_new_worker_tokens_epoch_and_every_operational_password():
+    from copy import deepcopy
+
+    def context(offset):
+        return {
+            "operator_attested": True,
+            "worker_id": str(UUID(int=offset + 1)),
+            "measurement_nonce": format(offset + 10, "064x"),
+            "measurement_epoch": format(offset + 20, "064x"),
+            "worker_token": format(offset + 30, "064x"),
+            "platform_token": format(offset + 40, "064x"),
+            "endpoints": {
+                "database": {
+                    "api": "postgresql://kf_platform:"
+                    + str(offset) * 32
+                    + "@127.0.0.1:5432/kf_onlinejudge"
+                },
+                "amqp": {
+                    "worker": "amqp://kf_worker:" + str(offset + 1) * 32 + "@127.0.0.1:5672/kf"
+                },
+            },
+        }
+
+    previous, current = context(1), context(5)
+    restore_policy.fresh_identities(previous, current)
+    for key in (
+        "worker_id",
+        "measurement_nonce",
+        "measurement_epoch",
+        "worker_token",
+        "platform_token",
+    ):
+        with pytest.raises(policy.DeliveryError):
+            restore_policy.fresh_identities(previous, {**current, key: previous[key]})
+    changed = deepcopy(current)
+    changed["endpoints"]["database"]["api"] = previous["endpoints"]["amqp"]["worker"]
+    with pytest.raises(policy.DeliveryError):
+        restore_policy.fresh_identities(previous, changed)
 
 
 def test_backup_retention_preserves_a_newer_unexpired_recovery_copy():

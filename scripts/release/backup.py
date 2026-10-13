@@ -113,7 +113,7 @@ def stopped(selected: dict, cut: dict) -> None:
         raise DeliveryError("PostgreSQL did not confirm clean cold shutdown")
 
 
-def volume(*, permit_full: bool = False) -> None:
+def volume(*, permit_full: bool = False, read_only: bool = False) -> None:
     preflight.protected(ROOT, directory=True)
     if stat.S_IMODE(ROOT.stat().st_mode) != 0o700:
         raise DeliveryError("private preprovisioned backup volume required")
@@ -129,8 +129,9 @@ def volume(*, permit_full: bool = False) -> None:
         row[3] != "/"
         or row[sep + 1] != "ext4"
         or any(r.startswith(("shared:", "master:")) for r in row[6:sep])
-        or not {"rw", "nosuid", "nodev", "noexec"} <= opts
-        or "ro" in opts
+        or not {"ro" if read_only else "rw", "nosuid", "nodev", "noexec"} <= opts
+        or (not read_only and "ro" in opts)
+        or any(other[2] == row[2] and other != row for other in rows)
         or not CAPACITY * 9 // 10 <= fs.f_frsize * fs.f_blocks <= CAPACITY
     ):
         raise DeliveryError("backup volume limits or mount isolation differ")
@@ -152,6 +153,40 @@ def volume(*, permit_full: bool = False) -> None:
         raise DeliveryError(
             "two-backup retention capacity reached; explicit verified pruning required"
         )
+
+
+def broker_cookie_fingerprint() -> str:
+    path = Path("/var/lib/kf-onlinejudge/rabbitmq/.erlang.cookie")
+    info = path.lstat()
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_nlink != 1
+        or (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) != (1204, 1204, 0o400)
+        or info.st_size != 65
+    ):
+        raise DeliveryError("private stopped broker cookie identity differs")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    with os.fdopen(descriptor, "rb") as stream:
+        before = os.fstat(stream.fileno())
+        contents = stream.read(66)
+        after = os.fstat(stream.fileno())
+    keys = (
+        "st_dev",
+        "st_ino",
+        "st_uid",
+        "st_gid",
+        "st_mode",
+        "st_size",
+        "st_mtime_ns",
+        "st_ctime_ns",
+    )
+    if (
+        re.fullmatch(rb"[0-9a-f]{64}\n", contents) is None
+        or any(getattr(info, key) != getattr(before, key) for key in keys)
+        or any(getattr(before, key) != getattr(after, key) for key in keys)
+    ):
+        raise DeliveryError("private stopped broker cookie changed")
+    return hashlib.sha256(contents).hexdigest()
 
 
 def guarded() -> None:
@@ -216,6 +251,7 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
     refs = backup_manifest.validate_references(backup_manifest.read_metadata(references_file))
     cut = read_json(lifecycle.LAST, 32768)
     stopped(selected, cut)
+    cookie_sha = broker_cookie_fingerprint()
     artifact_root = SOURCES["artifacts"].stat()
     if refs["boot_id"] != cut["boot_id"] or refs["storage_identity"] != {
         "device": artifact_root.st_dev,
@@ -314,11 +350,13 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
         stopped(selected, cut)
         if install.selection() != selected or read_json(lifecycle.LAST, 32768) != cut:
             raise DeliveryError("selected cut changed during backup")
+        if broker_cookie_fingerprint() != cookie_sha:
+            raise DeliveryError("stopped broker cookie changed during backup")
         manifest = read_json(payload.parent / "manifest.json")
         now = int(time.time())
         value = backup_manifest.validate(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "format": backup_manifest.FORMAT,
                 "backup_id": backup_id,
                 "source_sha": manifest["source_sha"],
@@ -329,6 +367,7 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
                 "consistent_cut": cut,
                 "selected": selected,
                 "artifact_references": refs,
+                "broker_cookie_sha256": cookie_sha,
                 "images": manifest["images"],
                 "directories": sorted(dirs, key=lambda x: x["path"]),
                 "files": sorted(files, key=lambda x: x["path"]),

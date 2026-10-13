@@ -376,6 +376,10 @@ liveness check. Other health, internal, execution and control routes remain
 outside the public proxy allowlist; liveness does not attest judging readiness.
 
 Private cold backups use a separate format from public release bundles.
+The private v2 format also binds the stopped broker cookie fingerprint, so a
+restore can reject distribution-secret reuse. It changes no public judging
+v1/v2 canonical bytes or historical report. The earlier private v1 prototype
+was never system-accepted and is refused by this restore format.
 `python3.13 -m kf_oj.infra.artifacts.backup` is an ordinary read-only artifact
 inventory command. Run it with the selected API database/storage identity after
 the owner-confirmed drain and while PostgreSQL is still available. It reads every
@@ -427,3 +431,33 @@ and interruption behavior also still require actual VM acceptance.
 Backup data and manifests contain private credentials/source/testcase data and
 must stay outside Git and CI artifacts. Parsing, ordinary adapter tests or a
 manifest digest are not cold-backup/recovery acceptance evidence.
+
+`python3.13 -m scripts.release.restore --recovery-id rr-<32-lowercase-hex>
+--backup-id ID --manifest-sha256 SHA` performs the cold **data** step on a
+different clean boot/node. First install a verified public bundle, generate and
+select an attested fresh configuration, and explicitly install the dependency
+snapshot with a new broker cookie on empty preprovisioned volumes. Keep all
+services stopped; do not initialize a new PostgreSQL cluster over restored data.
+The target must have new Worker UUID, measurement nonce/epoch, control tokens
+and all DB/MQ passwords. Cold restoration currently requires identical migration
+bytes, target platform/toolchains and runtime images; schema-changing upgrades
+need their separate Backend Alembic procedure.
+
+The fixed restore operator reads the backup volume through a read-only mount
+view, under 512-MiB memory, zero swap, 32 tasks, 50% CPU and a 30-minute deadline.
+It verifies the separate private receipt and every source byte before copying
+to fixed targets. It preserves original data identities/modes and every retained
+factory replay ID; a new boot's existing Sandbox preparation owns delegation
+recreation. It copies old application/judge/dependency/proxy configuration and
+maintenance receipts into private inactive `recovery/ID/history/`, never over
+the selected current configuration. Unknown/nonempty data targets and differing
+existing files are refused. Failed partial data stays stopped for explicit
+inspection; it is never silently adopted or erased.
+
+The `data-restored.json` receipt proves only byte/identity restoration. The
+operator starts no service, changes no schema/grant/grade/lease and reports DB
+credential rotation and execution verification as false. Recovery still needs
+an explicit ordinary PostgreSQL credential-recovery step, Backend Alembic
+verification, new TLS inputs, service readiness and actual four-language/history
+verification in the second VM before it can be considered complete. Those
+steps and the 30-minute end-to-end recovery target remain pending acceptance.
