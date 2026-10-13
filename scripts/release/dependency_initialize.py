@@ -17,6 +17,7 @@ UNIT = "kf-postgres-initialize.service"
 DATA = Path(dependencies.STORAGE["postgres"]["path"]) / "data"
 RECEIPT = dependency_install.ROOT / "postgres.initialization.json"
 CREDENTIAL = Path("/run/credentials") / UNIT / "bootstrap"
+CGROUP = Path("/sys/fs/cgroup/kfonlinejudge.slice") / UNIT
 
 
 def validate_password(contents: bytes) -> None:
@@ -152,7 +153,7 @@ def status() -> dict:
         for line in service_install.systemctl(
             "show",
             UNIT,
-            "--property=LoadState,ActiveState,SubState,MainPID,Result,Description,Transient",
+            "--property=LoadState,ActiveState,SubState,MainPID,Result,Description,Transient,ControlGroup,ExecMainStatus",
         ).splitlines()
         if "=" in line
     )
@@ -296,7 +297,9 @@ def initialize(password_file: Path, password_sha: str) -> dict:
                 or time.monotonic() >= deadline
             ):
                 raise DeliveryError(
-                    "database initialization failed/expired; partial state retained"
+                    "database initialization failed/expired; partial state retained "
+                    f"(result={actual.get('Result', 'unknown')}, "
+                    f"exit={actual.get('ExecMainStatus', 'unknown')})"
                 )
             time.sleep(0.5)
         if actual.get("Result") != "success" or actual.get("MainPID") != "0":
@@ -319,14 +322,7 @@ def initialize(password_file: Path, password_sha: str) -> dict:
         install.exclusive_file(RECEIPT, canonical(recorded), 0o600)
     finally:
         if dispatched:
-            actual = status()
-            if actual.get("LoadState") != "not-found":
-                if actual.get("Description") != description or actual.get("Transient") != "yes":
-                    raise DeliveryError("foreign initialization unit; refused cleanup")
-                service_install.systemctl("stop", UNIT)
-                actual = status()
-                if actual.get("ActiveState") != "inactive" or actual.get("MainPID") != "0":
-                    raise DeliveryError("database initialization cleanup unconfirmed")
+            stop_owned_unit(description)
     return {
         "initialized": True,
         "reused": False,
@@ -335,6 +331,35 @@ def initialize(password_file: Path, password_sha: str) -> dict:
         "services_started": False,
         "execution_verified": False,
     }
+
+
+def stop_owned_unit(description: str) -> None:
+    """A failed unit may be stopped; failure is never initialization success."""
+    actual = status()
+    if actual.get("LoadState") != "not-found":
+        if actual.get("Description") != description or actual.get("Transient") != "yes":
+            raise DeliveryError("foreign initialization unit; refused cleanup")
+        group = actual.get("ControlGroup", "")
+        if group and group != "/kfonlinejudge.slice/" + UNIT:
+            raise DeliveryError("foreign initialization cgroup; refused cleanup")
+        service_install.systemctl("stop", UNIT)
+        actual = status()
+        if actual.get("LoadState") != "not-found" and (
+            actual.get("Description") != description
+            or actual.get("Transient") != "yes"
+            or actual.get("ControlGroup", "") not in {"", "/kfonlinejudge.slice/" + UNIT}
+        ):
+            raise DeliveryError("initialization unit ownership changed during cleanup")
+    if (
+        actual.get("ActiveState") not in {"inactive", "failed"}
+        or actual.get("MainPID") != "0"
+        or CGROUP.exists()
+        and (
+            (CGROUP / "cgroup.procs").read_text().strip()
+            or "populated 0" not in (CGROUP / "cgroup.events").read_text().splitlines()
+        )
+    ):
+        raise DeliveryError("database initialization cleanup unconfirmed")
 
 
 def main() -> None:

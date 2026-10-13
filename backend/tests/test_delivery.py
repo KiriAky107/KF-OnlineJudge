@@ -1262,6 +1262,94 @@ def test_database_initialization_receipt_does_not_prove_migration_or_authenticat
         dependency_initialize.validate_receipt(receipt)
 
 
+@pytest.mark.parametrize("state", ["inactive", "failed"])
+def test_initializer_cleanup_accepts_only_owned_stopped_empty_unit(monkeypatch, tmp_path, state):
+    group = tmp_path / "cgroup"
+    group.mkdir()
+    (group / "cgroup.procs").write_text("")
+    (group / "cgroup.events").write_text("populated 0\nfrozen 0\n")
+    monkeypatch.setattr(dependency_initialize, "CGROUP", group)
+    actual = {
+        "LoadState": "loaded",
+        "Description": "owned",
+        "Transient": "yes",
+        "ControlGroup": "/kfonlinejudge.slice/" + dependency_initialize.UNIT,
+        "ActiveState": state,
+        "MainPID": "0",
+    }
+    monkeypatch.setattr(dependency_initialize, "status", lambda: actual)
+    stopped = []
+    monkeypatch.setattr(service_install, "systemctl", lambda *args: stopped.append(args))
+    assert dependency_initialize.stop_owned_unit("owned") is None
+    assert stopped == [("stop", dependency_initialize.UNIT)]
+
+
+@pytest.mark.parametrize(
+    "field,value", [("Description", "foreign"), ("Transient", "no"), ("ControlGroup", "/foreign")]
+)
+def test_initializer_cleanup_never_stops_foreign_unit(monkeypatch, field, value):
+    actual = {
+        "LoadState": "loaded",
+        "Description": "owned",
+        "Transient": "yes",
+        "ControlGroup": "/kfonlinejudge.slice/" + dependency_initialize.UNIT,
+    }
+    actual[field] = value
+    monkeypatch.setattr(dependency_initialize, "status", lambda: actual)
+    monkeypatch.setattr(service_install, "systemctl", lambda *args: pytest.fail("foreign stop"))
+    with pytest.raises(policy.DeliveryError, match="foreign"):
+        dependency_initialize.stop_owned_unit("owned")
+
+
+@pytest.mark.parametrize("changed", ["Description", "ControlGroup"])
+def test_initializer_cleanup_refuses_unit_replacement_after_stop(monkeypatch, changed):
+    actual = {
+        "LoadState": "loaded",
+        "Description": "owned",
+        "Transient": "yes",
+        "ControlGroup": "/kfonlinejudge.slice/" + dependency_initialize.UNIT,
+        "ActiveState": "failed",
+        "MainPID": "0",
+    }
+    later = {**actual, changed: "foreign"}
+    states = iter([actual, later])
+    monkeypatch.setattr(dependency_initialize, "status", lambda: next(states))
+    monkeypatch.setattr(service_install, "systemctl", lambda *args: None)
+    with pytest.raises(policy.DeliveryError, match="ownership changed"):
+        dependency_initialize.stop_owned_unit("owned")
+
+
+@pytest.mark.parametrize(
+    "state,pid,procs,populated",
+    [
+        ("active", "0", "", 0),
+        ("failed", "45", "", 0),
+        ("failed", "0", "45\n", 0),
+        ("failed", "0", "", 1),
+    ],
+)
+def test_initializer_cleanup_refuses_live_or_residual_processes(
+    monkeypatch, tmp_path, state, pid, procs, populated
+):
+    group = tmp_path / "cgroup"
+    group.mkdir()
+    (group / "cgroup.procs").write_text(procs)
+    (group / "cgroup.events").write_text(f"populated {populated}\nfrozen 0\n")
+    monkeypatch.setattr(dependency_initialize, "CGROUP", group)
+    # Even a disappeared transient unit must not hide residual descendants.
+    monkeypatch.setattr(
+        dependency_initialize,
+        "status",
+        lambda: {
+            "LoadState": "not-found",
+            "ActiveState": state,
+            "MainPID": pid,
+        },
+    )
+    with pytest.raises(policy.DeliveryError, match="cleanup unconfirmed"):
+        dependency_initialize.stop_owned_unit("owned")
+
+
 @pytest.mark.parametrize(
     "field,value",
     [
