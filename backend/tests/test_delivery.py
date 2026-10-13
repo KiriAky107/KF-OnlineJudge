@@ -2,7 +2,9 @@
 
 import importlib
 import json
+import os
 import secrets
+import stat
 import sys
 from contextlib import nullcontext
 from pathlib import Path
@@ -38,6 +40,32 @@ restore_policy = importlib.import_module("scripts.release.restore_policy")
 recovery_identity = importlib.import_module("scripts.release.recovery_identity")
 recovery_database = importlib.import_module("scripts.release.recovery_database")
 node_observation = importlib.import_module("scripts.release.node_observation")
+installer = importlib.import_module("scripts.release.install")
+
+
+@pytest.mark.parametrize("mode", [0o700, 0o755, 0o555])
+def test_new_layout_directory_has_explicit_mode_under_private_umask(tmp_path, monkeypatch, mode):
+    # Ordinary owned temporary files verify the umask regression. Root ownership
+    # and protected ancestor checks still require independent VM acceptance.
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    path = tmp_path / "created"
+    previous = os.umask(0o077)
+    try:
+        installer.directory(path, mode)
+    finally:
+        os.umask(previous)
+    assert stat.S_IMODE(path.stat().st_mode) == mode
+
+
+def test_layout_directory_does_not_repair_existing_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    path = tmp_path / "existing"
+    path.mkdir(mode=0o700)
+    before = path.stat()
+    with pytest.raises(policy.DeliveryError, match="existing directory mode differs"):
+        installer.directory(path, 0o755)
+    assert path.stat().st_ino == before.st_ino
+    assert stat.S_IMODE(path.stat().st_mode) == 0o700
 
 
 def test_kernel_observation_keeps_cumulative_counters_and_rejects_duplicate_rows():

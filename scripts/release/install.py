@@ -24,16 +24,42 @@ APPLICATION_UNITS = (
     "kf-sandbox-factory.service",
     "kf-proxy.service",
 )
-LEGACY_HEADER = {"image_kind": "linux_gnu_cxx_x86_64_v1", "architecture": "x86_64", "revision": 1}
+LEGACY_HEADER = {
+    "image_kind": "linux_gnu_cxx_x86_64_v1",
+    "architecture": "x86_64",
+    "revision": 1,
+}
 
 
 def directory(path: Path, mode: int) -> None:
     if not path.exists() and not path.is_symlink():
         preflight.protected(path.parent, directory=True)
         path.mkdir(mode=mode)
+        # Services deliberately run with UMask=0077. Explicit public layout
+        # modes apply only to the directory just created by this installer;
+        # an existing directory still goes through strict refusal below.
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            created = os.fstat(descriptor)
+            current = path.lstat()
+            if (
+                not stat.S_ISDIR(created.st_mode)
+                or created.st_uid != os.geteuid()
+                or (created.st_dev, created.st_ino) != (current.st_dev, current.st_ino)
+            ):
+                raise DeliveryError("new installation directory identity changed")
+            os.fchmod(descriptor, mode)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
     preflight.protected(path, directory=True)
-    if stat.S_IMODE(path.stat().st_mode) != mode:
-        raise DeliveryError("existing directory mode differs; operator review required")
+    actual_mode = stat.S_IMODE(path.stat().st_mode)
+    if actual_mode != mode:
+        raise DeliveryError(
+            "existing directory mode differs; operator review required: "
+            + str(path)
+            + f" (expected {mode:04o}, observed {actual_mode:04o})"
+        )
 
 
 def exclusive_file(path: Path, data: bytes, mode: int) -> None:
@@ -241,7 +267,9 @@ def files(bundle: Path, expected: str) -> dict:
     directory(image_base, 0o755)
     for name in data["images"]:
         frozen_copy(
-            release / "payload/images" / name, image_base / name, path_prefix="images/catalog/"
+            release / "payload/images" / name,
+            image_base / name,
+            path_prefix="images/catalog/",
         )
     legacy = image_base / "legacy-gnu"
     if legacy.exists():
@@ -295,13 +323,24 @@ def files(bundle: Path, expected: str) -> dict:
 
 def selection(*, check_configuration: bool = True) -> dict:
     """One bounded protected binding; no process or health claim."""
-    from .configuration import check_installed, installed_receipt_path, private, validate_receipt
+    from .configuration import (
+        check_installed,
+        installed_receipt_path,
+        private,
+        validate_receipt,
+    )
 
     preflight.protected(ACTIVE)
     private(ACTIVE)
     value = fields(
         read_json(ACTIVE, 4096),
-        {"schema_version", "release_id", "manifest_sha256", "configuration_id", "receipt_sha256"},
+        {
+            "schema_version",
+            "release_id",
+            "manifest_sha256",
+            "configuration_id",
+            "receipt_sha256",
+        },
         "active binding",
     )
     if (
@@ -339,7 +378,12 @@ def require_stopped() -> None:
     """Do not select different private identities while any app unit is alive."""
     for unit in APPLICATION_UNITS:
         result = subprocess.run(
-            ["/usr/bin/systemctl", "show", unit, "--property=LoadState,ActiveState,MainPID"],
+            [
+                "/usr/bin/systemctl",
+                "show",
+                unit,
+                "--property=LoadState,ActiveState,MainPID",
+            ],
             capture_output=True,
             text=True,
             timeout=5,
