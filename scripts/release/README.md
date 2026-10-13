@@ -376,10 +376,12 @@ liveness check. Other health, internal, execution and control routes remain
 outside the public proxy allowlist; liveness does not attest judging readiness.
 
 Private cold backups use a separate format from public release bundles.
-The private v2 format also binds the stopped broker cookie fingerprint, so a
-restore can reject distribution-secret reuse. It changes no public judging
-v1/v2 canonical bytes or historical report. The earlier private v1 prototype
-was never system-accepted and is refused by this restore format.
+The private v3 format binds the stopped broker cookie and current DB bootstrap
+fingerprints and retains
+recovery history as another private domain. A restore can reject distribution-secret
+reuse without dropping the inactive configuration from an earlier recovery. It
+changes no public judging v1/v2 canonical bytes or historical report. The earlier
+private v1/v2 prototypes were never system-accepted and are refused by this format.
 `python3.13 -m kf_oj.infra.artifacts.backup` is an ordinary read-only artifact
 inventory command. Run it with the selected API database/storage identity after
 the owner-confirmed drain and while PostgreSQL is still available. It reads every
@@ -456,8 +458,48 @@ inspection; it is never silently adopted or erased.
 
 The `data-restored.json` receipt proves only byte/identity restoration. The
 operator starts no service, changes no schema/grant/grade/lease and reports DB
-credential rotation and execution verification as false. Recovery still needs
-an explicit ordinary PostgreSQL credential-recovery step, Backend Alembic
-verification, new TLS inputs, service readiness and actual four-language/history
-verification in the second VM before it can be considered complete. Those
-steps and the 30-minute end-to-end recovery target remain pending acceptance.
+credential rotation and execution verification as false.
+
+`python3.13 -m scripts.release.recovery_database --recovery-id ID
+--data-receipt-sha256 SHA --password-file PRIVATE_NEW_BOOTSTRAP
+--password-sha256 SHA` dispatches the credential step only after that boot's
+selected complete data receipt. Supply a new 256-bit bootstrap password; its
+fingerprint must differ from the separately verified private backup's current
+bootstrap fingerprint. Backup capture requires one complete initialization or
+recovery marker for the actual cluster, so a restored node can be backed up again.
+Current
+service endpoints are loaded from the new protected configuration, not backup
+URLs. Missing/different authority, an active cluster, unknown unit or incomplete
+cleanup is refused; this is an explicit operation, not service startup behavior.
+
+One ordinary `kf-postgres` temporary unit gets 512-MiB memory, zero swap, 64
+tasks, 100% CPU, a four-minute deadline, cap0/no-new-privileges and private PID/
+network/runtime namespaces. It uses a private 0700 socket directory with TCP
+listening disabled. The [PostgreSQL peer mechanism](https://www.postgresql.org/docs/18/auth-peer.html)
+maps only this local OS identity to the fixed maintenance database login; fixed
+service logins use SCRAM for their credential checks. No trust authentication,
+external database listener or runtime Root business credential is introduced.
+
+The process checks effective PostgreSQL memory/time/socket/logging settings and
+the exact existing roles/memberships/database owner. It rotates only passwords
+for the five fixed service logins and `postgres` in one transaction, verifies
+unchanged role authority and authenticates each new credential. It grants no
+membership, creates no database/table, invokes no business repair and does not
+rewrite grades, leases or measurement history. SQL/error output containing
+utility statements is suppressed. Temporary-server exit and empty resources
+must be confirmed before the dispatcher writes `identity-recovered.json`.
+
+Startup and credential recovery share the cold data step's fixed lock. Startup
+holds a read-only shared lock through admission and validates the linked prepared,
+data and identity receipts in each bounded Root-private recovery directory.
+Missing/incomplete/foreign receipts refuse startup; a committed password change
+without a verified shutdown receipt cannot open admission. Complete historical
+receipts remain valid after reboot or a later selected version; they do not make
+the current services ready. Previous recovery history is backed up and restored
+into inactive history, never used as the new node's completion receipt.
+
+Recovery still needs Backend Alembic verification, new TLS inputs, service
+readiness and actual four-language/history checks in the second VM. Neither
+data nor credential receipts assert execution safety or healthy public service.
+These system steps and the 30-minute end-to-end recovery target remain pending
+independent VM acceptance.

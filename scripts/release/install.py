@@ -207,11 +207,13 @@ def files(bundle: Path, expected: str) -> dict:
         ("/etc/kf-onlinejudge", 0o700),
         ("/etc/kf-judge", 0o700),
         ("/var/lib/kf-onlinejudge", 0o755),
+        ("/var/lib/kf-onlinejudge/recovery", 0o700),
         ("/var/lib/kf-judge", 0o755),
         ("/var/lib/kf-judge/tasks", 0o755),
         (str(IMAGES), 0o755),
     ):
         directory(Path(name), mode)
+    exclusive_file(Path("/var/lib/kf-onlinejudge/recovery/restore.lock"), b"", 0o600)
     for name in ("artifacts", "imports"):
         data_directory(Path("/var/lib/kf-onlinejudge") / name, preflight.ACCOUNTS["kf-oj"])
     data_directory(Path("/var/lib/kf-onlinejudge/worker"), preflight.ACCOUNTS["kf-worker"])

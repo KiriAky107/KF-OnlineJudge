@@ -471,6 +471,12 @@ class Maintenance:
         return True
 
     def start(self, *, resume: bool) -> None:
+        from .recovery_database import admission_guard
+
+        with admission_guard():
+            self.start_locked(resume=resume)
+
+    def start_locked(self, *, resume: bool) -> None:
         if not resume:
             for name in APPS:
                 value = self.unit(name)
@@ -522,7 +528,14 @@ class Maintenance:
 def run(action: str) -> dict:
     operator_units.guarded("node-maintenance")
     selected, paths, payload = node_health.binding()
-    for name in ("lifecycle.py", "availability.py"):
+    for name in (
+        "lifecycle.py",
+        "availability.py",
+        "recovery_database.py",
+        "recovery_identity.py",
+        "restore.py",
+        "dependency_initialize.py",
+    ):
         shipped = payload / "delivery/scripts/release" / name
         preflight.protected(shipped)
         if digest(shipped) != digest(Path(__file__).parent / name):

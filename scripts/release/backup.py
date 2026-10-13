@@ -38,6 +38,7 @@ SOURCES = {
     "images": install.IMAGES,
     "dependencies": Path("/etc/kf-dependencies"),
     "proxy": Path("/etc/kf-proxy"),
+    "recovery": Path("/var/lib/kf-onlinejudge/recovery"),
 }
 
 
@@ -237,10 +238,19 @@ def guarded() -> None:
 
 
 def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
+    from .recovery_database import bootstrap_fingerprint
+
     guarded()
     selected = install.selection()
     payload = install.RELEASES / selected["release_id"] / "payload"
-    for name in ("backup.py", "backup_manifest.py"):
+    for name in (
+        "backup.py",
+        "backup_manifest.py",
+        "recovery_database.py",
+        "recovery_identity.py",
+        "dependency_initialize.py",
+        "restore.py",
+    ):
         if digest(payload / "delivery/scripts/release" / name) != digest(
             Path(__file__).parent / name
         ):
@@ -252,6 +262,7 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
     cut = read_json(lifecycle.LAST, 32768)
     stopped(selected, cut)
     cookie_sha = broker_cookie_fingerprint()
+    bootstrap_sha = bootstrap_fingerprint()
     artifact_root = SOURCES["artifacts"].stat()
     if refs["boot_id"] != cut["boot_id"] or refs["storage_identity"] != {
         "device": artifact_root.st_dev,
@@ -352,11 +363,13 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
             raise DeliveryError("selected cut changed during backup")
         if broker_cookie_fingerprint() != cookie_sha:
             raise DeliveryError("stopped broker cookie changed during backup")
+        if bootstrap_fingerprint() != bootstrap_sha:
+            raise DeliveryError("stopped DB credential marker changed during backup")
         manifest = read_json(payload.parent / "manifest.json")
         now = int(time.time())
         value = backup_manifest.validate(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "format": backup_manifest.FORMAT,
                 "backup_id": backup_id,
                 "source_sha": manifest["source_sha"],
@@ -368,6 +381,7 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
                 "selected": selected,
                 "artifact_references": refs,
                 "broker_cookie_sha256": cookie_sha,
+                "database_bootstrap_sha256": bootstrap_sha,
                 "images": manifest["images"],
                 "directories": sorted(dirs, key=lambda x: x["path"]),
                 "files": sorted(files, key=lambda x: x["path"]),

@@ -72,16 +72,19 @@ def validate_receipt(value: dict) -> dict:
     ):
         raise DeliveryError("initialization receipt binding differs")
     sha256(value["bootstrap_sha256"])
-    identity = fields(
-        value["cluster_identity"], {"device", "inode", "major_version", "uid"}, "cluster identity"
-    )
+    validate_cluster_identity(value["cluster_identity"])
+    return value
+
+
+def validate_cluster_identity(value: dict) -> dict:
+    identity = fields(value, {"device", "inode", "major_version", "uid"}, "cluster identity")
     if (
         any(type(identity[key]) is not int or identity[key] < 1 for key in identity)
         or identity["major_version"] != 18
         or identity["uid"] != 1203
     ):
-        raise DeliveryError("initialization receipt cluster identity differs")
-    return value
+        raise DeliveryError("recorded PostgreSQL cluster identity differs")
+    return identity
 
 
 def run_in_unit() -> dict:

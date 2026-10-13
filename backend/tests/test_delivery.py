@@ -4,6 +4,7 @@ import importlib
 import json
 import secrets
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from uuid import UUID
 
@@ -34,6 +35,168 @@ proxy_guard = importlib.import_module("scripts.release.proxy_guard")
 backup = importlib.import_module("scripts.release.backup")
 restore = importlib.import_module("scripts.release.restore")
 restore_policy = importlib.import_module("scripts.release.restore_policy")
+recovery_identity = importlib.import_module("scripts.release.recovery_identity")
+recovery_database = importlib.import_module("scripts.release.recovery_database")
+
+
+def test_postgres_recovery_retains_narrow_existing_role_authorities():
+    assert recovery_identity.properties("kf_platform") == (
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+        8,
+        True,
+        None,
+        None,
+    )
+    assert recovery_identity.memberships("kf_migrator") == [
+        ("kf_oj_identity_authority_owner", False, True, True)
+    ]
+    assert recovery_identity.memberships("kf_coordinator") == [
+        ("kf_oj_coordinator", False, True, False)
+    ]
+    assert recovery_identity.memberships("postgres") == []
+
+
+def postgres_recovery_settings_shape():
+    values = recovery_identity.recovery_settings()
+    rows = [{"name": key, "setting": value, "unit": None} for key, value in values.items()]
+    normalized = {
+        "shared_buffers": ("8192", "8kB"),
+        "work_mem": ("1024", "kB"),
+        "maintenance_work_mem": ("32768", "kB"),
+        "statement_timeout": ("5000", "ms"),
+        "lock_timeout": ("1000", "ms"),
+        "idle_in_transaction_session_timeout": ("5000", "ms"),
+        "authentication_timeout": ("5", "s"),
+        "temp_file_limit": ("16384", "kB"),
+        "log_parameter_max_length": ("0", "B"),
+        "log_parameter_max_length_on_error": ("0", "B"),
+        "log_min_duration_statement": ("-1", "ms"),
+        "log_min_duration_sample": ("-1", "ms"),
+    }
+    for row in rows:
+        if row["name"] in normalized:
+            row["setting"], row["unit"] = normalized[row["name"]]
+    return rows
+
+
+def test_postgres_recovery_readback_compares_effective_units_instead_of_cli_strings():
+    rows = postgres_recovery_settings_shape()
+    recovered = recovery_identity.check_settings(rows)
+    assert recovered["listen_addresses"]["setting"] == ""
+    assert recovered["unix_socket_permissions"]["setting"] == "0700"
+    for row in rows:
+        if row["name"] == "shared_buffers":
+            row["setting"] = "16384"
+    with pytest.raises(policy.DeliveryError):
+        recovery_identity.check_settings(rows)
+
+
+def recovery_receipts_shape():
+    # Pure closed-contract example; no PG connection, Root or Linux acceptance.
+    prepared = {
+        "schema_version": 1,
+        "recovery_id": "rr-" + "1" * 32,
+        "backup_id": "bk-" + "2" * 32,
+        "private_backup_sha256": "b" * 64,
+        "source_sha": "c" * 40,
+        "configuration_id": "cfg-" + "d" * 24,
+        "boot_id": "e" * 8 + "-" + "e" * 4 + "-" + "e" * 4 + "-" + "e" * 4 + "-" + "e" * 12,
+        "data_restored": False,
+        "database_credentials_rotated": False,
+        "services_started": False,
+        "execution_verified": False,
+    }
+    data = {
+        **prepared,
+        "data_restored": True,
+        "restored_payload_bytes": 1024,
+        "restored_files": 10,
+        "restored_directories": 12,
+        "historical_configuration_active": False,
+        "factory_replay_history_retained": True,
+    }
+    identity = {
+        **{
+            key: prepared[key]
+            for key in (
+                "schema_version",
+                "recovery_id",
+                "source_sha",
+                "configuration_id",
+                "boot_id",
+            )
+        },
+        "data_receipt_sha256": "f" * 64,
+        "bootstrap_sha256": "b" * 64,
+        "cluster_identity": {"device": 1, "inode": 10, "major_version": 18, "uid": 1203},
+        "temporary_server_stopped": True,
+        "database_credentials_rotated": True,
+        "services_started": False,
+        "schema_migrated": False,
+        "execution_state_changed": False,
+        "execution_verified": False,
+        "ordinary_identity_readback": {
+            "dependency": "postgres",
+            "actual_cgroup_limits": {
+                "memory.max": "536870912",
+                "memory.swap.max": "0",
+                "pids.max": "64",
+                "cpu.max": "100000 100000",
+            },
+            "data_filesystem_bytes": 2 * 1024**3,
+            "execution_verified": False,
+            "rotated_roles": sorted(["postgres", *configuration.PROFILES.values()]),
+            "role_authority_sha256": "c" * 64,
+            "authenticated": True,
+            "schema_migrated": False,
+            "execution_state_changed": False,
+            "effective_settings": recovery_identity.check_settings(
+                postgres_recovery_settings_shape()
+            ),
+            "temporary_server_stopped": True,
+            "services_started": False,
+        },
+    }
+    return prepared, data, identity
+
+
+@pytest.mark.parametrize("failure", ["unrotated", "running", "wrong_data", "wrong_config", "extra"])
+def test_recovery_completion_refuses_partial_or_unbound_steps(failure):
+    prepared, data, identity = recovery_receipts_shape()
+    recovery_database.validate_complete(prepared, data, identity, prepared["recovery_id"], "f" * 64)
+    if failure == "unrotated":
+        identity["database_credentials_rotated"] = False
+    elif failure == "running":
+        identity["temporary_server_stopped"] = False
+    elif failure == "wrong_data":
+        identity["data_receipt_sha256"] = "b" * 64
+    elif failure == "wrong_config":
+        identity["configuration_id"] = "cfg-" + "f" * 24
+    else:
+        identity["skip_verification"] = True
+    with pytest.raises(policy.DeliveryError):
+        recovery_database.validate_complete(
+            prepared, data, identity, prepared["recovery_id"], "f" * 64
+        )
+
+
+def test_startup_cannot_launch_services_when_recovery_admission_is_refused(monkeypatch):
+    maintenance = object.__new__(lifecycle.Maintenance)
+    calls = []
+    monkeypatch.setattr(maintenance, "start_locked", lambda **_: calls.append("start"))
+
+    def refuse():
+        raise policy.DeliveryError("partial recovery")
+
+    monkeypatch.setattr(recovery_database, "admission_guard", refuse)
+    with pytest.raises(policy.DeliveryError):
+        maintenance.start(resume=True)
+    assert calls == []
 
 
 def test_restoration_keeps_old_runtime_configuration_and_operations_inactive():
@@ -1124,6 +1287,7 @@ def test_maintenance_does_not_leave_admission_open_when_final_confirmation_fails
     maintenance.selected = {}
     maintenance.payload = Path("/unused")
     monkeypatch.setattr(maintenance, "change", lambda *_: None)
+    monkeypatch.setattr(recovery_database, "admission_guard", nullcontext)
 
     def publish(_, state):
         gate.append(state)

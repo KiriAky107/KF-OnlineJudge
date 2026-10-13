@@ -16,7 +16,7 @@ from .policy import (
     unique_object,
 )
 
-FORMAT = "kf.private.cold-backup.v2"
+FORMAT = "kf.private.cold-backup.v3"
 MAX_BYTES = 7 * 1024**3
 MAX_FILE_BYTES = 256 * 1024**2
 MAX_ENTRIES = 50000
@@ -33,6 +33,7 @@ DOMAINS = {
     "images",
     "dependencies",
     "proxy",
+    "recovery",
 }
 
 
@@ -144,6 +145,7 @@ def validate(value: dict) -> dict:
             "selected",
             "artifact_references",
             "broker_cookie_sha256",
+            "database_bootstrap_sha256",
             "images",
             "directories",
             "files",
@@ -155,7 +157,7 @@ def validate(value: dict) -> dict:
     )
     if (
         type(value["schema_version"]) is not int
-        or value["schema_version"] != 2
+        or value["schema_version"] != 3
         or value["format"] != FORMAT
         or not isinstance(value["backup_id"], str)
         or re.fullmatch(r"bk-[0-9a-f]{32}", value["backup_id"]) is None
@@ -169,6 +171,7 @@ def validate(value: dict) -> dict:
         raise DeliveryError("private backup identity or authority differs")
     sha256(value["manifest_sha256"])
     sha256(value["broker_cookie_sha256"])
+    sha256(value["database_bootstrap_sha256"])
     start = integer(value["created_unix_seconds"], 1, 2**63 - 1, "backup time")
     end = integer(value["expires_unix_seconds"], start + 1, start + 7 * 86400, "backup retention")
     if end - start != 7 * 86400:
