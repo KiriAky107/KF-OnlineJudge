@@ -1,9 +1,9 @@
 """Root operator file installation, independent of migrations and service start."""
 
+import hashlib
 import os
 import re
 import secrets
-import shutil
 import stat
 import subprocess
 from pathlib import Path
@@ -90,9 +90,10 @@ def sync_directory(path: Path) -> None:
 
 def copy_verified(source: Path, target: Path, expected: str, mode: int) -> None:
     preflight.protected(source)
-    if digest(source) != sha256(expected):
-        raise DeliveryError("source changed after bundle verification")
+    sha256(expected)
     if target.exists() or target.is_symlink():
+        if digest(source) != expected:
+            raise DeliveryError("source changed after bundle verification")
         preflight.protected(target)
         if digest(target) != expected or stat.S_IMODE(target.stat().st_mode) != mode:
             raise DeliveryError("existing release differs; refused overwrite")
@@ -105,12 +106,19 @@ def copy_verified(source: Path, target: Path, expected: str, mode: int) -> None:
             os.fdopen(incoming, "rb", closefd=False) as src,
             os.fdopen(outgoing, "wb", closefd=False) as dst,
         ):
-            shutil.copyfileobj(src, dst, 1024 * 1024)
+            copied = hashlib.sha256()
+            while chunk := src.read(1024 * 1024):
+                copied.update(chunk)
+                dst.write(chunk)
             dst.flush()
+            if copied.hexdigest() != expected:
+                raise DeliveryError(
+                    "source changed after bundle verification; incomplete copy retained"
+                )
+            os.fchmod(outgoing, mode)
             os.fsync(outgoing)
         if digest(target) != expected:
             raise DeliveryError("installed bytes differ; incomplete release retained")
-        os.fchmod(outgoing, mode)
     finally:
         os.close(incoming)
         os.close(outgoing)
@@ -177,9 +185,21 @@ def data_directory(path: Path, owner: int) -> None:
         raise DeliveryError("existing private data directory identity/mode differs")
 
 
-def frozen_copy(source: Path, target: Path, *, path_prefix: str = "") -> None:
+def frozen_copy(
+    source: Path,
+    target: Path,
+    *,
+    path_prefix: str = "",
+    verified_records: list[dict] | None = None,
+) -> None:
     """For already verified release images, never accept external archive members."""
-    records = manifest.inventory(source, path_prefix=path_prefix)
+    # Only the caller's verified manifest supplies these records. Each copied
+    # byte is still hashed and the complete destination is read back below.
+    records = (
+        manifest.inventory(source, path_prefix=path_prefix)
+        if verified_records is None
+        else verified_records
+    )
     directories = manifest.directories(source, path_prefix=path_prefix)
     if target.exists() or target.is_symlink():
         preflight.protected(target, directory=True)
@@ -257,7 +277,7 @@ def files(bundle: Path, expected: str) -> dict:
             raise DeliveryError("incomplete release requires explicit operator inspection")
         stage.mkdir(mode=0o700)
         # `frozen_copy` accepts names through the same bounded allowlist.
-        frozen_copy(bundle / "payload", stage / "payload")
+        frozen_copy(bundle / "payload", stage / "payload", verified_records=data["files"])
         copy_verified(bundle / "manifest.json", stage / "manifest.json", expected, 0o444)
         manifest.verify(stage, expected)
         stage.chmod(0o555)
@@ -265,11 +285,19 @@ def files(bundle: Path, expected: str) -> dict:
         sync_directory(RELEASES)
     image_base = IMAGES / data["release_id"]
     directory(image_base, 0o755)
+    image_records = {}
     for name in data["images"]:
+        prefix = "images/" + name + "/"
+        image_records[name] = [
+            {**record, "path": record["path"].removeprefix(prefix)}
+            for record in data["files"]
+            if record["path"].startswith(prefix)
+        ]
         frozen_copy(
             release / "payload/images" / name,
             image_base / name,
             path_prefix="images/catalog/",
+            verified_records=image_records[name],
         )
     legacy = image_base / "legacy-gnu"
     if legacy.exists():
@@ -294,7 +322,12 @@ def files(bundle: Path, expected: str) -> dict:
     else:
         # This is an explicit v1 compatibility image, not a catalog rewrite.
         # All executable/library bytes are identical to the verified GNU image.
-        frozen_copy(image_base / "gnu", legacy, path_prefix="images/catalog/")
+        frozen_copy(
+            image_base / "gnu",
+            legacy,
+            path_prefix="images/catalog/",
+            verified_records=image_records["gnu"],
+        )
         legacy.chmod(0o700)
         old = legacy / "manifest.json"
         old.chmod(0o600)

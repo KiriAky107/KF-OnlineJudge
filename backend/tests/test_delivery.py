@@ -68,6 +68,73 @@ def test_layout_directory_does_not_repair_existing_mode(tmp_path, monkeypatch):
     assert stat.S_IMODE(path.stat().st_mode) == 0o700
 
 
+def test_new_copy_hashes_copied_bytes_and_reads_destination_before_acceptance(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.write_bytes(b"ordinary release fixture\n" * 65536)
+    expected = policy.digest(source)
+    reads = []
+    original = installer.digest
+
+    def readback(path):
+        reads.append(path)
+        return original(path)
+
+    monkeypatch.setattr(installer, "digest", readback)
+    installer.copy_verified(source, target, expected, 0o444)
+    assert reads == [target]
+    assert target.read_bytes() == source.read_bytes()
+    assert stat.S_IMODE(target.stat().st_mode) == 0o444
+    inode = target.stat().st_ino
+    installer.copy_verified(source, target, expected, 0o444)
+    assert target.stat().st_ino == inode
+    assert reads == [target, source, target]
+
+
+def test_changed_copy_retains_incomplete_file_and_never_overwrites_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.write_bytes(b"original")
+    expected = policy.digest(source)
+    source.write_bytes(b"changed")
+    with pytest.raises(policy.DeliveryError, match="source changed"):
+        installer.copy_verified(source, target, expected, 0o444)
+    inode = target.stat().st_ino
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    source.write_bytes(b"original")
+    with pytest.raises(policy.DeliveryError, match="refused overwrite"):
+        installer.copy_verified(source, target, expected, 0o444)
+    assert target.stat().st_ino == inode
+    assert target.read_bytes() == b"changed"
+
+
+def test_frozen_copy_reuses_verified_records_and_checks_full_destination(tmp_path, monkeypatch):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.mkdir()
+    (source / "backend").mkdir()
+    payload = source / "backend/ordinary.txt"
+    payload.write_bytes(b"frozen input")
+    payload.chmod(0o444)
+    (source / "backend").chmod(0o555)
+    records = manifest.inventory(source)
+    scanned = []
+    original = manifest.inventory
+
+    def inventory(path, **kwargs):
+        scanned.append(path)
+        return original(path, **kwargs)
+
+    monkeypatch.setattr(manifest, "inventory", inventory)
+    installer.frozen_copy(source, target, verified_records=records)
+    assert scanned == [target]
+    assert original(target) == records
+    installer.frozen_copy(source, target, verified_records=records)
+    assert scanned == [target, target]
+
+
 def test_kernel_observation_keeps_cumulative_counters_and_rejects_duplicate_rows():
     raw = (
         "usage_usec 17\nuser_usec 11\nsystem_usec 6\nnr_periods 9\nnr_throttled 2\nthrottled_usec 3"
