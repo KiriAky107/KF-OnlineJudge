@@ -384,8 +384,12 @@ and hash-checks existing source/case bytes with a 64-KiB buffer. It creates no
 storage directory or lock and changes no metadata, grade, session or grant.
 Its output is private and does not itself prove that writers have stopped.
 
-After the confirmed drain, stop the selected database and broker and verify all
-their processes have exited. `python3.13 -m scripts.release.backup capture
+After collecting the inventory, run `lifecycle --action stop`. For an already
+quiescent node it reuses only this boot's successful selected owner-derived drain
+receipt, rechecks every application cgroup and the Root task cleanup, then stops
+the selected database and broker. It does not query owners already stopped or
+adopt a stale, failed or unproven cut. Verify all their processes have exited.
+`python3.13 -m scripts.release.backup capture
 --backup-id bk-<32-lowercase-hex> --references PRIVATE_INVENTORY
 --references-sha256 SHA` launches one fixed Root backup operator. It requires the
 same selected release/configuration, this boot's successful owner-derived cut,

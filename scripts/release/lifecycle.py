@@ -430,11 +430,45 @@ class Maintenance:
         final = self.snapshot()
         if not projection_empty(final):
             raise DeliveryError("work changed during final stop; quiescence unconfirmed")
+        self.record["drain_projection"] = final
         self.change("coordinator", "stop")
         self.change("sandbox-factory", "stop")
         self.root_stopped()
         availability.write(self.selected, "quiescent")
         self.save("quiescent")
+
+    def reuse_drained(self, previous: dict | None) -> bool:
+        """Continue a confirmed drain without querying owners already stopped."""
+        gate = availability.read()
+        if gate is None or gate.state != "quiescent":
+            return False
+        if previous is None:
+            raise DeliveryError("quiescent node has no confirmed drain receipt")
+        validate_record(previous)
+        if (
+            gate.release_id != self.selected["release_id"]
+            or gate.configuration_id != self.selected["configuration_id"]
+            or any(
+                previous[key] != self.record[key]
+                for key in ("source_sha", "configuration_id", "boot_id")
+            )
+            or previous["action"] not in {"drain", "stop"}
+            or previous["phase"] != "complete"
+            or previous["success"] is not True
+            or previous["root_cleanup_confirmed"] is not True
+            or any(event["confirmed"] is not True for event in previous["events"])
+            or "drain_projection" not in previous
+            or not projection_empty(previous["drain_projection"])
+        ):
+            raise DeliveryError("prior drain is not this boot's selected owner-confirmed cut")
+        for name in APPS:
+            values = self.unit(name)
+            if values["ActiveState"] != "inactive" or values["MainPID"] != "0":
+                raise DeliveryError("prior drain has a running application service")
+            self.empty_cgroup(name)
+        self.record["drain_projection"] = previous["drain_projection"]
+        self.root_stopped()
+        return True
 
     def start(self, *, resume: bool) -> None:
         if not resume:
@@ -508,14 +542,16 @@ def run(action: str) -> dict:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         # Refuse unknown history before publishing availability, including
         # resume where every known service could already be running.
+        previous = None
         if LAST.exists() or LAST.is_symlink():
             preflight.protected(LAST)
             configuration.private(LAST)
-            validate_record(read_json(LAST, 32768))
+            previous = validate_record(read_json(LAST, 32768))
         maintenance = Maintenance(selected, paths, payload, action)
         try:
             if action in {"drain", "stop", "restart"}:
-                maintenance.drain()
+                if not maintenance.reuse_drained(previous):
+                    maintenance.drain()
             if action == "stop":
                 for name in ("rabbitmq", "postgres"):
                     maintenance.change(name, "stop")

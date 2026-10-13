@@ -973,6 +973,44 @@ def test_maintenance_receipt_cannot_silently_adopt_unknown_history_or_release_pr
         lifecycle.validate_record(value)
 
 
+def test_confirmed_drain_can_continue_to_stop_without_querying_stopped_owners(monkeypatch):
+    from types import SimpleNamespace
+
+    selected = {"release_id": "kf-" + "b" * 12, "configuration_id": "cfg-" + "c" * 24}
+    previous = {
+        "schema_version": 1,
+        "source_sha": "b" * 40,
+        "configuration_id": selected["configuration_id"],
+        "action": "drain",
+        "phase": "complete",
+        "success": True,
+        "events": [],
+        "root_cleanup_confirmed": True,
+        "boot_id": "11111111-1111-4111-8111-111111111111",
+        "drain_projection": empty_drain_projection(),
+    }
+    maintenance = object.__new__(lifecycle.Maintenance)
+    maintenance.selected = selected
+    maintenance.record = {**previous, "action": "stop", "root_cleanup_confirmed": False}
+    gate = SimpleNamespace(**selected, state="quiescent")
+    monkeypatch.setattr(lifecycle.availability, "read", lambda: gate)
+    observed = []
+    monkeypatch.setattr(
+        maintenance, "unit", lambda name: {"ActiveState": "inactive", "MainPID": "0"}
+    )
+    monkeypatch.setattr(maintenance, "empty_cgroup", lambda name: observed.append(name))
+    monkeypatch.setattr(maintenance, "root_stopped", lambda: observed.append("root-proof"))
+    assert maintenance.reuse_drained(previous) is True
+    assert observed == [*lifecycle.APPS, "root-proof"]
+    assert maintenance.record["drain_projection"] == previous["drain_projection"]
+    observed.clear()
+    with pytest.raises(policy.DeliveryError):
+        maintenance.reuse_drained({**previous, "boot_id": "22222222-2222-4222-8222-222222222222"})
+    assert observed == []
+    gate.state = "draining"
+    assert maintenance.reuse_drained(previous) is False
+
+
 @pytest.mark.parametrize(
     "field,value",
     [
