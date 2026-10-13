@@ -45,6 +45,18 @@ node_observation = importlib.import_module("scripts.release.node_observation")
 installer = importlib.import_module("scripts.release.install")
 
 
+@pytest.mark.parametrize("field", ["release_id", "configuration_id", "manifest_sha256"])
+def test_activation_refuses_checked_binding_that_differs_from_explicit_request(monkeypatch, field):
+    monkeypatch.setattr(installer.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    release, batch, expected = "sd-123456789abc", "cfg-" + "1" * 24, "1" * 64
+    binding = {"release_id": release, "configuration_id": batch, "manifest_sha256": expected}
+    binding[field] = "different"
+    monkeypatch.setattr(configuration, "check_installed", lambda _: binding)
+    with pytest.raises(policy.DeliveryError, match="configuration not bound"):
+        installer.activate(release, expected, batch)
+
+
 @pytest.mark.parametrize("mode,owner", [(stat.S_IFREG, 0), (stat.S_IFSOCK, 1000)])
 def test_system_bus_preflight_refuses_unprotected_endpoint(monkeypatch, mode, owner):
     monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)

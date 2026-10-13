@@ -460,16 +460,19 @@ def activate(release_id: str, expected: str, batch: str) -> dict:
         or not re.fullmatch(r"cfg-[0-9a-f]{24}", batch)
     ):
         raise DeliveryError("invalid activation identity or privilege")
+    expected = sha256(expected)
     release = RELEASES / release_id
     preflight.protected(release, directory=True)
-    data = manifest.verify(release, expected)
     from .configuration import check_installed, installed_receipt_path
 
     config_receipt = installed_receipt_path(release_id, batch)
     binding = check_installed(config_receipt)
+    # check_installed has already verified the complete selected release and
+    # configuration bytes. Bind that result to the explicit operator request.
     if (
         binding.get("manifest_sha256") != expected
-        or binding.get("source_sha") != data["source_sha"]
+        or binding.get("release_id") != release_id
+        or binding.get("configuration_id") != batch
     ):
         raise DeliveryError("configuration not bound to selected release")
     require_stopped()
@@ -512,7 +515,7 @@ def activate(release_id: str, expected: str, batch: str) -> dict:
     # mismatch. No service is started and check-active refuses that state.
     selection()
     return {
-        "selected_source_sha": data["source_sha"],
+        "selected_source_sha": binding["source_sha"],
         "configuration_id": batch,
         "activated": True,
         "services_started": False,
