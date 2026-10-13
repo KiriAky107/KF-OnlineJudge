@@ -13,6 +13,7 @@ def build_engine(settings: Settings) -> AsyncEngine:
         max_overflow=0,
         pool_timeout=5,
         connect_args={
+            "timeout": 5,
             "command_timeout": 10,
             "server_settings": {
                 "statement_timeout": "10000",
