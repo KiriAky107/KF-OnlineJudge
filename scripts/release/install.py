@@ -89,6 +89,10 @@ def sync_directory(path: Path) -> None:
 
 
 def copy_verified(source: Path, target: Path, expected: str, mode: int) -> None:
+    _copy_verified(source, target, expected, mode, readback=True)
+
+
+def _copy_verified(source: Path, target: Path, expected: str, mode: int, *, readback: bool) -> None:
     preflight.protected(source)
     sha256(expected)
     if target.exists() or target.is_symlink():
@@ -117,7 +121,7 @@ def copy_verified(source: Path, target: Path, expected: str, mode: int) -> None:
                 )
             os.fchmod(outgoing, mode)
             os.fsync(outgoing)
-        if digest(target) != expected:
+        if readback and digest(target) != expected:
             raise DeliveryError("installed bytes differ; incomplete release retained")
     finally:
         os.close(incoming)
@@ -215,11 +219,14 @@ def frozen_copy(
     for name in sorted(directories, key=lambda name: (name.count("/"), name)):
         (target / name).mkdir(mode=0o700)
     for record in records:
-        copy_verified(
+        # The complete sealed tree is read back immediately below. Avoid
+        # hashing each destination both here and again in that inventory.
+        _copy_verified(
             source / record["path"],
             target / record["path"],
             record["sha256"],
             int(record["mode"], 8),
+            readback=False,
         )
     for name in sorted(directories, key=lambda name: name.count("/"), reverse=True):
         (target / name).chmod(0o555)

@@ -178,6 +178,32 @@ def test_frozen_copy_reuses_verified_records_and_checks_full_destination(tmp_pat
     assert scanned == [target, target]
 
 
+def test_frozen_copy_rejects_destination_io_mismatch_before_acceptance(tmp_path, monkeypatch):
+    # Simulated I/O mismatch in an ordinary owned fixture; Root protection and
+    # actual disk/error isolation are still separate VM acceptance.
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.mkdir()
+    (source / "backend").mkdir()
+    payload = source / "backend/ordinary.txt"
+    payload.write_bytes(b"frozen input")
+    payload.chmod(0o444)
+    (source / "backend").chmod(0o555)
+    records = manifest.inventory(source)
+    original = installer._copy_verified
+
+    def simulate_io_mismatch(source, target, expected, mode, **options):
+        assert options["readback"] is False
+        original(source, target, expected, mode, **options)
+        target.chmod(0o600)
+        target.write_bytes(b"different bytes")
+        target.chmod(mode)
+
+    monkeypatch.setattr(installer, "_copy_verified", simulate_io_mismatch)
+    with pytest.raises(policy.DeliveryError, match="installed image readback differs"):
+        installer.frozen_copy(source, target, verified_records=records)
+
+
 def test_kernel_observation_keeps_cumulative_counters_and_rejects_duplicate_rows():
     raw = (
         "usage_usec 17\nuser_usec 11\nsystem_usec 6\nnr_periods 9\nnr_throttled 2\nthrottled_usec 3"
