@@ -216,6 +216,29 @@ def test_frozen_copy_rejects_destination_io_mismatch_before_acceptance(tmp_path,
         installer.frozen_copy(source, target, verified_records=records)
 
 
+def test_frozen_copy_rejects_changed_source_against_trusted_records(tmp_path, monkeypatch):
+    # Ordinary fixture bytes exercise the deferred batch validation. Actual
+    # Root protection and installation are separately verified in the VM.
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.mkdir()
+    (source / "backend").mkdir()
+    payload = source / "backend/ordinary.txt"
+    payload.write_bytes(b"frozen input")
+    payload.chmod(0o444)
+    (source / "backend").chmod(0o555)
+    records = manifest.inventory(source)
+    payload.chmod(0o600)
+    payload.write_bytes(b"changed bytes")
+    payload.chmod(0o444)
+    with pytest.raises(policy.DeliveryError, match="installed image readback differs"):
+        installer.frozen_copy(source, target, verified_records=records)
+    assert (target / "backend/ordinary.txt").read_bytes() == b"changed bytes"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o555
+    with pytest.raises(policy.DeliveryError, match="existing protected image differs"):
+        installer.frozen_copy(source, target, verified_records=records)
+
+
 def test_kernel_observation_keeps_cumulative_counters_and_rejects_duplicate_rows():
     raw = (
         "usage_usec 17\nuser_usec 11\nsystem_usec 6\nnr_periods 9\nnr_throttled 2\nthrottled_usec 3"

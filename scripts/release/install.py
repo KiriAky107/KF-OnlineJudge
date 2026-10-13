@@ -110,12 +110,17 @@ def _copy_verified(source: Path, target: Path, expected: str, mode: int, *, read
             os.fdopen(incoming, "rb", closefd=False) as src,
             os.fdopen(outgoing, "wb", closefd=False) as dst,
         ):
-            copied = hashlib.sha256()
+            # A single-file copy verifies its source stream immediately. In a
+            # new frozen tree, the mandatory complete destination inventory
+            # below verifies every copied byte against the trusted records;
+            # hashing the same stream as well adds no independent evidence.
+            copied = hashlib.sha256() if readback else None
             while chunk := src.read(1024 * 1024):
-                copied.update(chunk)
+                if copied is not None:
+                    copied.update(chunk)
                 dst.write(chunk)
             dst.flush()
-            if copied.hexdigest() != expected:
+            if copied is not None and copied.hexdigest() != expected:
                 raise DeliveryError(
                     "source changed after bundle verification; incomplete copy retained"
                 )
@@ -197,8 +202,8 @@ def frozen_copy(
     verified_records: list[dict] | None = None,
 ) -> None:
     """For already verified release images, never accept external archive members."""
-    # Only the caller's verified manifest supplies these records. Each copied
-    # byte is still hashed and the complete destination is read back below.
+    # Only the caller's verified manifest supplies these records. The complete
+    # destination is independently read and hashed before this function returns.
     records = (
         manifest.inventory(source, path_prefix=path_prefix)
         if verified_records is None
