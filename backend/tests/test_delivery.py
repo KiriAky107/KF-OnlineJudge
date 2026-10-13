@@ -123,6 +123,31 @@ def test_layout_directory_does_not_repair_existing_mode(tmp_path, monkeypatch):
     assert stat.S_IMODE(path.stat().st_mode) == 0o700
 
 
+@pytest.mark.parametrize("mode", [0o444, 0o600, 0o644])
+def test_new_exclusive_file_has_requested_mode_under_private_umask(tmp_path, monkeypatch, mode):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    path = tmp_path / "created"
+    previous = os.umask(0o077)
+    try:
+        installer.exclusive_file(path, b"ordinary fixture", mode)
+    finally:
+        os.umask(previous)
+    assert path.read_bytes() == b"ordinary fixture"
+    assert stat.S_IMODE(path.stat().st_mode) == mode
+
+
+def test_exclusive_file_does_not_repair_existing_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    path = tmp_path / "existing"
+    path.write_bytes(b"ordinary fixture")
+    path.chmod(0o600)
+    inode = path.stat().st_ino
+    with pytest.raises(policy.DeliveryError, match="refused overwrite"):
+        installer.exclusive_file(path, b"ordinary fixture", 0o644)
+    assert path.stat().st_ino == inode
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
 def test_new_copy_hashes_copied_bytes_and_reads_destination_before_acceptance(
     tmp_path, monkeypatch
 ):

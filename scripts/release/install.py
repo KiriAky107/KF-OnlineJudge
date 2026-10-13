@@ -74,6 +74,7 @@ def exclusive_file(path: Path, data: bytes, mode: int) -> None:
         with os.fdopen(fd, "wb", closefd=False) as output:
             output.write(data)
             output.flush()
+            os.fchmod(fd, mode)
             os.fsync(fd)
     finally:
         os.close(fd)
