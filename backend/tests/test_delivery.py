@@ -2231,3 +2231,45 @@ def test_proxy_render_is_fixed_to_a_selected_snapshot_without_business_credentia
     assert "User=kf-proxy" in text and "CapabilityBoundingSet=CAP_NET_BIND_SERVICE" in text
     assert "PrivatePIDs=yes" in text and "LogNamespace=kf-onlinejudge" in text
     assert "EnvironmentFile=" not in text and "LoadCredential=" not in text
+
+
+@pytest.mark.parametrize("name", ["queues", "vhost_limits", "users", "permissions"])
+@pytest.mark.parametrize("failure", ["deadline", "exit", "output"])
+def test_broker_query_failure_identifies_fixed_operation_without_leaking_process_data(
+    monkeypatch, name, failure
+):
+    import subprocess
+    from types import SimpleNamespace
+
+    from scripts.release import broker_health
+
+    secret = "synthetic-private-process-detail"
+
+    def failed(command, *, stdout, stderr, timeout, env):
+        assert stderr == subprocess.DEVNULL
+        assert timeout == 8
+        assert command[-1] == "--formatter=json"
+        if failure == "deadline":
+            raise subprocess.TimeoutExpired([secret], timeout, stderr=secret.encode())
+        if failure == "output":
+            stdout.write(b"x" * 32769)
+        return SimpleNamespace(returncode=1 if failure == "exit" else 0)
+
+    monkeypatch.setattr(broker_health.subprocess, "run", failed)
+    suffix = {"deadline": "exceeded deadline", "exit": "failed", "output": "output exceeds bound"}
+    with pytest.raises(policy.DeliveryError) as raised:
+        broker_health.command(name)
+    assert str(raised.value) == "broker " + name + " query " + suffix[failure]
+    assert secret not in str(raised.value)
+
+
+@pytest.mark.parametrize("name", ["delete_queue", "users --delete", None])
+def test_broker_query_selector_never_accepts_extra_commands_or_flags(monkeypatch, name):
+    from scripts.release import broker_health
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("unknown selector launched a process")
+
+    monkeypatch.setattr(broker_health.subprocess, "run", unexpected)
+    with pytest.raises(policy.DeliveryError, match="unknown broker metadata query"):
+        broker_health.command(name)

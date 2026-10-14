@@ -11,6 +11,30 @@ from . import dependencies, operator_units, preflight
 from .policy import DeliveryError, canonical, fields, integer
 
 CTL = Path("/usr/lib/rabbitmq/sbin/rabbitmqctl")
+QUERIES = {
+    "queues": [
+        "list_queues",
+        "-p",
+        "kf",
+        "name",
+        "durable",
+        "auto_delete",
+        "exclusive",
+        "type",
+        "state",
+        "arguments",
+        "messages_ready",
+        "messages_unacknowledged",
+        "message_bytes",
+        "consumers",
+        "policy",
+        "operator_policy",
+        "effective_policy_definition",
+    ],
+    "vhost_limits": ["list_vhost_limits", "--global"],
+    "users": ["list_users"],
+    "permissions": ["list_permissions", "-p", "kf"],
+}
 
 
 def queue_arguments(value) -> dict:
@@ -123,7 +147,9 @@ def validate_snapshot(value: dict) -> dict:
     }
 
 
-def command(arguments: list[str]):
+def command(name: str):
+    if name not in QUERIES:
+        raise DeliveryError("unknown broker metadata query")
     # A file-backed capped stream prevents malicious metadata/log output from
     # allocating an unbounded capture buffer. The unit adds a hard file limit.
     env = {
@@ -137,24 +163,29 @@ def command(arguments: list[str]):
         ),
     }
     with tempfile.TemporaryFile() as output:
-        result = subprocess.run(
-            [
-                str(CTL),
-                "-q",
-                "-n",
-                "kf@localhost",
-                "--timeout",
-                "5",
-                *arguments,
-                "--formatter=json",
-            ],
-            stdout=output,
-            stderr=subprocess.DEVNULL,
-            timeout=8,
-            env=env,
-        )
-        if result.returncode or output.tell() > 32768:
-            raise DeliveryError("bounded broker metadata query unavailable")
+        try:
+            result = subprocess.run(
+                [
+                    str(CTL),
+                    "-q",
+                    "-n",
+                    "kf@localhost",
+                    "--timeout",
+                    "5",
+                    *QUERIES[name],
+                    "--formatter=json",
+                ],
+                stdout=output,
+                stderr=subprocess.DEVNULL,
+                timeout=8,
+                env=env,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise DeliveryError("broker " + name + " query exceeded deadline") from error
+        if result.returncode:
+            raise DeliveryError("broker " + name + " query failed")
+        if output.tell() > 32768:
+            raise DeliveryError("broker " + name + " query output exceeds bound")
         output.seek(0)
         return operator_units.decode(output.read(32769))
 
@@ -170,32 +201,7 @@ def observe() -> dict:
         or (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) != (1204, 1204, 0o400)
     ):
         raise DeliveryError("ordinary private broker cookie required")
-    data = {
-        "queues": command(
-            [
-                "list_queues",
-                "-p",
-                "kf",
-                "name",
-                "durable",
-                "auto_delete",
-                "exclusive",
-                "type",
-                "state",
-                "arguments",
-                "messages_ready",
-                "messages_unacknowledged",
-                "message_bytes",
-                "consumers",
-                "policy",
-                "operator_policy",
-                "effective_policy_definition",
-            ]
-        ),
-        "vhost_limits": command(["list_vhost_limits", "--global"]),
-        "users": command(["list_users"]),
-        "permissions": command(["list_permissions", "-p", "kf"]),
-    }
+    data = {name: command(name) for name in QUERIES}
     return validate_snapshot(data)
 
 
