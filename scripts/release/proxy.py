@@ -73,6 +73,8 @@ def render(release_id: str, value: dict) -> bytes:
             proxy_cache off;
             proxy_hide_header Cache-Control;
             add_header Cache-Control "no-store" always;
+            add_header X-Content-Type-Options nosniff always;
+            add_header X-Frame-Options DENY always;
     """.replace("HOST", host)
     return (
         """worker_processes 1;
@@ -142,15 +144,21 @@ http {
         location ~ \\.(js|mjs|css|woff2|svg|png|jpg|jpeg|ico|json|map)$ {
             try_files $uri =404;
             add_header Cache-Control "public, max-age=31536000, immutable";
+            add_header X-Content-Type-Options nosniff always;
+            add_header X-Frame-Options DENY always;
         }
         location = /admin { return 308 /admin/; }
         location /admin/ {
             try_files $uri $uri/ /admin/index.html;
             add_header Cache-Control "no-cache" always;
+            add_header X-Content-Type-Options nosniff always;
+            add_header X-Frame-Options DENY always;
         }
         location / {
             try_files $uri $uri/ /index.html;
             add_header Cache-Control "no-cache" always;
+            add_header X-Content-Type-Options nosniff always;
+            add_header X-Frame-Options DENY always;
         }
     }
 }

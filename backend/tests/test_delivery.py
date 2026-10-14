@@ -893,6 +893,37 @@ def test_proxy_is_separate_from_private_execution_control():
     ]
 
 
+def test_proxy_cache_locations_preserve_their_own_security_headers():
+    contents = proxy.render(
+        "sd-123456789abc",
+        {
+            "schema_version": 1,
+            "origin": "https://oj.test",
+            "certificate_sha256": "b" * 64,
+            "key_sha256": "c" * 64,
+        },
+    ).decode()
+    # Nginx's default inheritance stops at a location containing add_header.
+    # Inspect each cache-owning location independently, including both SPAs,
+    # assets and all three API boundaries; a server-only header cannot pass.
+    blocks = re.findall(r"^        location ([^\n]+) \{\n(.*?)^        \}", contents, re.M | re.S)
+    cached = [(location, body) for location, body in blocks if "add_header Cache-Control" in body]
+    assert len(cached) == 6
+    assert {
+        location for location, _ in cached if location.startswith("/admin/") or location == "/"
+    } == {
+        "/admin/",
+        "/",
+    }
+    for location, body in cached:
+        assert body.count("add_header X-Content-Type-Options nosniff always;") == 1, location
+        assert body.count("add_header X-Frame-Options DENY always;") == 1, location
+    inherited = contents.split("        location = /api/v1/health/live", 1)[0]
+    assert "add_header X-Content-Type-Options nosniff always;" in inherited
+    assert "add_header X-Frame-Options DENY always;" in inherited
+    assert "add_header_inherit" not in contents  # No dependency on Nginx 1.29.3.
+
+
 def test_all_enabled_nginx_temporary_paths_use_only_the_bounded_proxy_volume():
     contents = proxy.render(
         "sd-123456789abc",
