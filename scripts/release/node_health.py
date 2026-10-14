@@ -494,11 +494,25 @@ def observe(*, probe: bool) -> dict:
         components["https_entry"] = proxy_health.observe(selected)
     except (OSError, ValueError, subprocess.SubprocessError):
         errors.append("https_entry_unavailable")
-    for name in [*services.PROFILES, "postgres", "rabbitmq", "sandbox-factory", "proxy"]:
+    services_ready = True
+    for name in [
+        *services.PROFILES,
+        "postgres",
+        "rabbitmq",
+        "sandbox-factory",
+        "proxy",
+    ]:
         try:
             components[name] = inspect_unit(name, selected)
         except (OSError, ValueError):
+            services_ready = False
             errors.append(name + "_unavailable")
+    if not services_ready:
+        # Missing or invalid service profiles already close admission. Do not
+        # spend the outer helper deadline starting queries of those dependencies.
+        if install.selection(check_configuration=False) != selected:
+            errors.append("selected_binding_changed")
+        return result
     endpoints = dependency_install.installed_endpoints(selected)
     try:
         components["db_authority"] = asyncio.run(roles(endpoints))

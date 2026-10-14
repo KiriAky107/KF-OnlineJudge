@@ -1766,6 +1766,45 @@ def test_readiness_rejects_wrong_or_excess_database_authority(field, value):
         node_health.validate_role("coordinator", observed)
 
 
+@pytest.mark.parametrize(
+    "missing", [*services.PROFILES, "postgres", "rabbitmq", "sandbox-factory", "proxy"]
+)
+@pytest.mark.parametrize("probe", [False, True])
+def test_missing_service_closes_readiness_without_dependency_queries(
+    monkeypatch, tmp_path, missing, probe
+):
+    selected = {"release_id": "sd-123456789abc", "configuration_id": "cfg-" + "1" * 24}
+    payload = tmp_path / "payload"
+    payload.mkdir()
+    (tmp_path / "manifest.json").write_text(json.dumps({"source_sha": "a" * 40}))
+    monkeypatch.setattr(node_health.operator_units, "guarded", lambda _: None)
+    monkeypatch.setattr(node_health, "binding", lambda: (selected, {}, payload))
+    monkeypatch.setattr(journal, "check_ready", lambda: {})
+    monkeypatch.setattr(proxy_install, "check_binding", lambda *args: {})
+    monkeypatch.setattr(node_health.proxy_health, "observe", lambda _: {})
+    monkeypatch.setattr(installer, "selection", lambda **kwargs: selected)
+
+    def inspect(name, binding):
+        if name == missing:
+            raise policy.DeliveryError("selected service is not running")
+        return {"active": True}
+
+    def unavailable(*args, **kwargs):
+        pytest.fail("missing required service must not start dependency queries")
+
+    monkeypatch.setattr(node_health, "inspect_unit", inspect)
+    monkeypatch.setattr(node_health, "roles", unavailable)
+    monkeypatch.setattr(node_health, "http", unavailable)
+    monkeypatch.setattr(dependency_install, "installed_endpoints", unavailable)
+    monkeypatch.setattr(node_health.operator_units, "run", unavailable)
+    monkeypatch.setattr(node_health.availability, "read", unavailable)
+    observed = node_health.observe(probe=probe)
+    assert observed["ready_for_admission"] is False
+    assert observed["service_preconditions_met"] is False
+    assert observed["isolation_verified"] is False
+    assert observed["errors"] == [missing + "_unavailable"]
+
+
 def test_readiness_refuses_context_swap_or_claimed_isolation_certificate():
     value = {
         "schema_version": 1,
