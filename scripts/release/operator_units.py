@@ -11,13 +11,13 @@ from .policy import DeliveryError, invalid_constant, unique_object
 from .services import python_environment
 
 PROFILES = {
-    "node-health": ("root", 0, 128, 16, 50, 90),
+    "node-health": ("root", 0, 128, 16, 50, 300),
     "broker-health": ("rabbitmq", 1204, 256, 64, 50, 45),
-    "factory-health": ("kf-worker", 1202, 32, 4, 10, 10),
-    "import-health": ("kf-oj", 1200, 128, 16, 25, 10),
-    "outbox-health": ("kf-oj", 1200, 128, 16, 25, 10),
+    "factory-health": ("kf-worker", 1202, 32, 4, 10, 30),
+    "import-health": ("kf-oj", 1200, 128, 16, 25, 60),
+    "outbox-health": ("kf-oj", 1200, 128, 16, 25, 60),
     "node-maintenance": ("root", 0, 256, 32, 50, 900),
-    "node-observation": ("root", 0, 128, 16, 25, 120),
+    "node-observation": ("root", 0, 128, 16, 25, 360),
 }
 
 

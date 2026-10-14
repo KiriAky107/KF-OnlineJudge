@@ -410,10 +410,19 @@ Finish recovery with Backend Alembic verification, new TLS material, service
 readiness and actual four-language/history checks on the second VM. The 30-minute
 end-to-end target still requires measured acceptance.
 
+## Health query deadlines
+
+Fixed health helpers include interpreter startup in their wall-clock deadline.
+Outbox and import queries have 60 seconds each; factory status has 30 seconds and
+broker metadata has 45 seconds. Node readiness has 300 seconds for the sequential
+checks. Each helper keeps its fixed CPU, memory, process and privilege limits.
+These operator deadlines do not change student execution budgets. An expired or
+failed query keeps admission closed.
+
 ## Observe resources and queues
 
 `python3.13 -m scripts.release.node_observation` uses a finite read-only Root cap0,
-no-new-privileges helper: 128 MiB, zero swap, 16 tasks, 25% CPU, 120 seconds and one
+no-new-privileges helper: 128 MiB, zero swap, 16 tasks, 25% CPU, 360 seconds and one
 named unit. It reads memory/PIDs current/peak, CPU throttling, memory events, device
 IO and filesystem bytes/inodes without enumerating private content. Existing owners
 supply service identities, ACLs, leases/cleanup, broker/outbox/import backlog and
