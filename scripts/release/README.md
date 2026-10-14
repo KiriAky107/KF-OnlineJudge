@@ -249,6 +249,10 @@ API launchers disable access logging so queries are not copied to logs.
 Development diagnostics remain separate. Verify real routing, privacy and capacity
 on the installed node.
 
+NGINX sends access records to the namespace's local syslog socket. Records contain
+only method, status, response byte count and request duration; request paths,
+queries, cookies and hostname are omitted.
+
 ## Readiness and maintenance
 
 `python3.13 -m scripts.release.node_health` checks admission preconditions in one
@@ -435,7 +439,8 @@ outside public API, Git and CI artifacts.
   [CLI](https://www.rabbitmq.com/docs/man/rabbitmqctl.8).
 - NGINX: [core](https://nginx.org/en/docs/http/ngx_http_core_module.html),
   [proxy module](https://nginx.org/en/docs/http/ngx_http_proxy_module.html),
-  [TLS module](https://nginx.org/en/docs/http/ngx_http_ssl_module.html).
+  [TLS module](https://nginx.org/en/docs/http/ngx_http_ssl_module.html),
+  [syslog](https://nginx.org/en/docs/syslog.html).
 - systemd: [credentials](https://systemd.io/CREDENTIALS/),
   [namespace interface](https://github.com/systemd/systemd/blob/v262/man/systemd.exec.xml),
   [journal configuration](https://github.com/systemd/systemd/blob/v262/man/journald.conf.xml).

@@ -877,6 +877,18 @@ def test_proxy_is_separate_from_private_execution_control():
     assert "proxy_request_buffering off" in contents
     assert "$request_uri" not in contents and "$http_cookie" not in contents
     assert value["key_sha256"] not in contents
+    # systemd journal stdout is a socket, not a reopenable log file. Keep access
+    # records on the local namespace socket and restrict their fields to counters.
+    destination, format_name = re.findall(r"^\s+access_log (\S+) (\w+);$", contents, re.M)[0]
+    assert destination.startswith("syslog:server=unix:/")
+    assert format_name == "bounded" and "/dev/stdout" not in contents
+    log_fields = re.findall(r"^\s+log_format bounded '([^']+)';$", contents, re.M)[0]
+    assert log_fields.split() == [
+        "$request_method",
+        "$status",
+        "$body_bytes_sent",
+        "$request_time",
+    ]
 
 
 def test_all_enabled_nginx_temporary_paths_use_only_the_bounded_proxy_volume():
