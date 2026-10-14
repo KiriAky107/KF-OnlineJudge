@@ -96,6 +96,10 @@ http {
     client_body_timeout 10s;
     client_body_buffer_size 16k;
     client_body_temp_path /var/lib/kf-onlinejudge/proxy/body 1 2;
+    proxy_temp_path /var/lib/kf-onlinejudge/proxy/proxy 1 2;
+    fastcgi_temp_path /var/lib/kf-onlinejudge/proxy/fastcgi 1 2;
+    uwsgi_temp_path /var/lib/kf-onlinejudge/proxy/uwsgi 1 2;
+    scgi_temp_path /var/lib/kf-onlinejudge/proxy/scgi 1 2;
     large_client_header_buffers 2 8k;
     send_timeout 10s;
     keepalive_timeout 15s;

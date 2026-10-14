@@ -222,6 +222,23 @@ def check_binding(release: str, batch: str) -> dict:
     return {"binding_valid": True, "tls_verified": False, "execution_verified": False}
 
 
+def temporary_directories() -> None:
+    for name in ("body", "proxy", "fastcgi", "uwsgi", "scgi"):
+        temporary_directory = proxy_service.DATA / name
+        if temporary_directory.exists() or temporary_directory.is_symlink():
+            i = temporary_directory.lstat()
+            if (
+                not stat.S_ISDIR(i.st_mode)
+                or i.st_uid != proxy_service.UID
+                or i.st_gid != proxy_service.UID
+                or stat.S_IMODE(i.st_mode) != 0o700
+            ):
+                raise DeliveryError("unknown proxy temporary directory")
+        else:
+            temporary_directory.mkdir(mode=0o700)
+            os.chown(temporary_directory, proxy_service.UID, proxy_service.UID)
+
+
 def install_proxy(source: Path, expected: str, certificate: Path, key: Path) -> dict:
     if os.getuid() != 0 or os.geteuid() != 0 or os.getgid() != 0:
         raise DeliveryError("root proxy installer required")
@@ -319,19 +336,7 @@ def install_proxy(source: Path, expected: str, certificate: Path, key: Path) -> 
     install.directory(unitdir, 0o700)
     install.exclusive_file(unitdir / "binding.json", canonical(selected), 0o600)
     install.exclusive_file(unitdir / proxy_service.UNIT, proxy_service.render(selected), 0o644)
-    body = proxy_service.DATA / "body"
-    if body.exists() or body.is_symlink():
-        i = body.lstat()
-        if (
-            not stat.S_ISDIR(i.st_mode)
-            or i.st_uid != proxy_service.UID
-            or i.st_gid != proxy_service.UID
-            or stat.S_IMODE(i.st_mode) != 0o700
-        ):
-            raise DeliveryError("unknown proxy temporary directory")
-    else:
-        body.mkdir(mode=0o700)
-        os.chown(body, proxy_service.UID, proxy_service.UID)
+    temporary_directories()
     check_binding(selected["release_id"], selected["configuration_id"])
     install.require_stopped()
     if install.selection() != selected:

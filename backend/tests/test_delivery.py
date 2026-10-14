@@ -879,6 +879,64 @@ def test_proxy_is_separate_from_private_execution_control():
     assert value["key_sha256"] not in contents
 
 
+def test_all_enabled_nginx_temporary_paths_use_only_the_bounded_proxy_volume():
+    contents = proxy.render(
+        "sd-123456789abc",
+        {
+            "schema_version": 1,
+            "origin": "https://oj.test",
+            "certificate_sha256": "b" * 64,
+            "key_sha256": "c" * 64,
+        },
+    ).decode()
+    paths = dict(re.findall(r"^\s+(\w+_temp_path) (\S+) 1 2;$", contents, re.M))
+    assert set(paths) == {
+        "client_body_temp_path",
+        "proxy_temp_path",
+        "fastcgi_temp_path",
+        "uwsgi_temp_path",
+        "scgi_temp_path",
+    }
+    assert {Path(value).parent for value in paths.values()} == {proxy_service.DATA}
+    assert "proxy_buffering off" in contents and "proxy_request_buffering off" in contents
+
+
+@pytest.mark.parametrize("bad", ["wrong-mode", "link", "regular-file"])
+def test_proxy_temp_directory_conflicts_are_not_overwritten(monkeypatch, tmp_path, bad):
+    monkeypatch.setattr(proxy_service, "DATA", tmp_path)
+    monkeypatch.setattr(proxy_service, "UID", os.getuid())
+    path = tmp_path / "body"
+    if bad == "wrong-mode":
+        path.mkdir(mode=0o755)
+    elif bad == "link":
+        path.symlink_to(tmp_path, target_is_directory=True)
+    else:
+        path.write_text("known conflict")
+    before = path.lstat()
+    with pytest.raises(policy.DeliveryError, match="unknown proxy temporary directory"):
+        proxy_install.temporary_directories()
+    after = path.lstat()
+    assert (before.st_ino, before.st_mode, before.st_uid) == (
+        after.st_ino,
+        after.st_mode,
+        after.st_uid,
+    )
+
+
+def test_proxy_temp_directory_creation_is_bounded_and_repeatable(monkeypatch, tmp_path):
+    monkeypatch.setattr(proxy_service, "DATA", tmp_path)
+    monkeypatch.setattr(proxy_service, "UID", os.getuid())
+    monkeypatch.setattr(proxy_install.os, "chown", lambda *args: None)
+    proxy_install.temporary_directories()
+    before = {p.name: (p.stat().st_ino, stat.S_IMODE(p.stat().st_mode)) for p in tmp_path.iterdir()}
+    assert set(before) == {"body", "proxy", "fastcgi", "uwsgi", "scgi"}
+    assert all(mode == 0o700 for _, mode in before.values())
+    proxy_install.temporary_directories()
+    assert before == {
+        p.name: (p.stat().st_ino, stat.S_IMODE(p.stat().st_mode)) for p in tmp_path.iterdir()
+    }
+
+
 def test_ordinary_units_bind_exact_batch_without_inline_secrets():
     source, checksum = "123456789abc" + "d" * 28, "f" * 64
     hashes = {name: "b" * 64 for name in configuration.CONFIG_FILES}
