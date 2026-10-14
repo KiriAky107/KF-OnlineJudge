@@ -3,7 +3,7 @@
 from sqlalchemy import text
 
 from kf_oj.modules.problems.import_models import ImportPool
-from kf_oj.modules.problems.imports import ImportUnavailable, policy_digest
+from kf_oj.modules.problems.import_policy import ImportUnavailable, policy_digest
 
 
 class ImportOperationQueries:

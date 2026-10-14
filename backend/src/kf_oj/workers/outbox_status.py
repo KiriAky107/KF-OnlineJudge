@@ -5,13 +5,13 @@ import json
 
 from kf_oj.core.settings import Settings
 from kf_oj.infra.db.session import build_engine, build_session_factory
-from kf_oj.infra.messaging.publisher import OutboxRepository
+from kf_oj.infra.messaging.outbox_queries import OutboxQueries
 
 
 async def run() -> dict:
     engine = build_engine(Settings())
     try:
-        return await OutboxRepository(build_session_factory(engine)).status()
+        return await OutboxQueries(build_session_factory(engine)).status()
     finally:
         await engine.dispose()
 
