@@ -1,0 +1,192 @@
+name: Trusted engineering checks
+
+on:
+  push:
+    branches: [feat/single-node-delivery]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kf-onlinejudge-trusted-engineering
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.server_url == 'https://github.com' && github.repository == 'KiriAky107/KF-OnlineJudge'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    env:
+      CI: 'true'
+      RUSTUP_TOOLCHAIN: 1.99.0
+      CARGO_BUILD_JOBS: '2'
+      CARGO_NET_RETRY: '2'
+      UV_PYTHON: 3.13.16
+      UV_NO_PROGRESS: '1'
+      UV_HTTP_TIMEOUT: '30'
+      UV_HTTP_RETRIES: '2'
+    steps:
+      - name: Check out the pushed commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        timeout-minutes: 2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          fetch-tags: false
+          submodules: false
+          lfs: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        timeout-minutes: 3
+        with:
+          node-version: 26.10.0
+          check-latest: false
+          package-manager-cache: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        timeout-minutes: 3
+        with:
+          version: 0.12.24
+          python-version: 3.13.16
+          enable-cache: false
+
+      - name: Install locked toolchains and dependencies
+        timeout-minutes: 10
+        run: |
+          test "$GITHUB_SERVER_URL" = https://github.com
+          test "$GITHUB_REPOSITORY" = KiriAky107/KF-OnlineJudge
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = refs/heads/feat/single-node-delivery
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          uv python install 3.13.16
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          npm install --global --ignore-scripts pnpm@11.28.4
+          make install
+
+      - name: Check toolchain versions and CI inputs
+        timeout-minutes: 1
+        run: |
+          test "$(node --version)" = v26.10.0
+          test "$(pnpm --version)" = 11.28.4
+          test "$(rustc --version | cut -d ' ' -f 2)" = 1.99.0
+          test "$(uv --version | cut -d ' ' -f 2)" = 0.12.24
+          backend/.venv/bin/python - <<'PYCODE'
+          import os
+          import subprocess
+          import sys
+          assert sys.version_info[:3] == (3, 13, 16)
+          assert not any(name.startswith(('KF_', 'PGPASSWORD', 'PGSERVICE', 'DATABASE_URL', 'AMQP_URL'))
+                         for name in os.environ), 'CI must not carry node credentials or VM flags'
+          assert not subprocess.check_output(['git', 'ls-files', '--', 'docs/', '.localplan/'])
+          PYCODE
+
+      - name: Check architecture and generated contracts
+        timeout-minutes: 3
+        run: |
+          uv run --project backend --locked python scripts/check_architecture.py
+          make contracts
+          git diff --exit-code -- contracts frontend/src/api/generated/schema.d.ts
+
+      - name: Check Backend and run ordinary tests
+        timeout-minutes: 5
+        working-directory: backend
+        run: |
+          uv run --locked ruff check . ../scripts
+          uv run --locked ruff format --check . ../scripts
+          uv run --locked pytest \
+            tests/test_contracts.py \
+            tests/test_judging_contracts.py \
+            tests/test_judging_v2_contracts.py \
+            tests/test_submission_performance_contract.py \
+            tests/test_admin_import_contracts.py \
+            tests/test_availability.py \
+            tests/test_dependency_errors.py \
+            tests/test_production_logging.py \
+            tests/test_delivery.py \
+            tests/test_health.py \
+            tests/test_identity.py \
+            tests/test_coordinator_control.py \
+            --junitxml="$RUNNER_TEMP/kf-engineering-backend.xml"
+          uv run --locked python -m kf_oj.contracts.export --check
+
+      - name: Check Rust and run library and contract tests
+        timeout-minutes: 8
+        working-directory: judge
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo test --workspace --lib --locked
+          cargo test --package kf-contracts --locked
+
+      - name: Check and build Frontend
+        timeout-minutes: 5
+        run: make check-frontend
+
+      - name: Parse development Compose configuration
+        timeout-minutes: 1
+        run: make infra-config
+
+      - name: Collect public contracts and engineering report
+        timeout-minutes: 1
+        run: |
+          backend/.venv/bin/python - <<'PYCODE'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert source == os.environ['GITHUB_SHA']
+          destination = Path(os.environ['RUNNER_TEMP']) / 'kf-engineering-artifacts'
+          destination.mkdir(mode=0o700)
+          names = subprocess.check_output(['git', 'ls-files', '-z', '--',
+                                           'contracts/openapi/platform.v1.json',
+                                           'contracts/schemas/*.json']).decode().split('\0')[:-1]
+          assert 1 <= len(names) <= 64
+          files, total = [], 0
+          for name in names:
+              path = Path(name)
+              assert not any(part.is_symlink() for part in (path, *path.parents))
+              assert path.is_file() and path.stat().st_size <= 2 * 1024**2
+              data = path.read_bytes()
+              json.loads(data)
+              total += len(data)
+              assert total <= 8 * 1024**2
+              output = destination / name
+              output.parent.mkdir(parents=True, exist_ok=True)
+              output.write_bytes(data)
+              files.append({'path': name, 'bytes': len(data),
+                            'sha256': hashlib.sha256(data).hexdigest()})
+          junit = ET.parse(Path(os.environ['RUNNER_TEMP']) / 'kf-engineering-backend.xml')
+          suites = list(junit.getroot().iter('testsuite'))
+          backend = {name: sum(int(suite.attrib.get(name, 0)) for suite in suites)
+                     for name in ('tests', 'failures', 'errors', 'skipped')}
+          assert backend['failures'] == backend['errors'] == 0
+          report = {'schema_version': 1, 'source_sha': source,
+                    'scope': 'Trusted engineering checks only', 'backend': backend,
+                    'toolchains': {'python': '3.13.16', 'rust': '1.99.0',
+                                   'node': '26.10.0', 'pnpm': '11.28.4', 'uv': '0.12.24'},
+                    'files': files,
+                    'not_run': ['real PostgreSQL acceptance', 'independent VM cases',
+                                'user source execution', 'adverse archives and filesystem acceptance',
+                                'Linux isolation acceptance', 'deployment']}
+          (destination / 'engineering-report.json').write_text(json.dumps(report, indent=2)+'\n')
+          PYCODE
+
+      - name: Upload public contracts and engineering report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        timeout-minutes: 2
+        with:
+          name: engineering-checks-${{ github.sha }}
+          path: ${{ runner.temp }}/kf-engineering-artifacts
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+          retention-days: 1
+          compression-level: 6
