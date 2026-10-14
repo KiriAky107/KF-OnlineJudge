@@ -20,7 +20,7 @@ from . import (
     proxy_service,
     service_install,
 )
-from .policy import DeliveryError, canonical, digest, fields, read_json, sha256
+from .policy import FORMAT, DeliveryError, canonical, digest, fields, read_json, sha256
 
 
 def account(*, create: bool = False, check_lock: bool = False) -> None:
@@ -154,14 +154,81 @@ def known_link(path: Path) -> Path | None:
     return target.parent
 
 
+STARTUP_MODULES = (
+    "__init__.py",
+    "configuration.py",
+    "install.py",
+    "journal.py",
+    "manifest.py",
+    "policy.py",
+    "preflight.py",
+    "proxy.py",
+    "proxy_guard.py",
+    "proxy_install.py",
+    "proxy_runtime.py",
+    "proxy_service.py",
+    "service_install.py",
+    "services.py",
+)
+
+
+def startup_selection() -> dict:
+    """Bind only the protected proxy source; do not load judging contracts."""
+    selected = install.selection(check_configuration=False)
+    payload = install.RELEASES / selected["release_id"] / "payload"
+    receipt_path = configuration.installed_receipt_path(
+        selected["release_id"], selected["configuration_id"]
+    )
+    preflight.protected(receipt_path)
+    configuration.private(receipt_path)
+    receipt = configuration.validate_receipt(read_json(receipt_path, 16384), installed=True)
+    if digest(receipt_path) != selected["receipt_sha256"] or any(
+        receipt[key] != selected[key]
+        for key in ("release_id", "configuration_id", "manifest_sha256")
+    ):
+        raise DeliveryError("selected proxy receipt changed")
+    manifest_path = payload.parent / "manifest.json"
+    preflight.protected(manifest_path)
+    if digest(manifest_path) != selected["manifest_sha256"]:
+        raise DeliveryError("selected proxy manifest changed")
+    data = read_json(manifest_path)
+    if (
+        data.get("format") != FORMAT
+        or type(data.get("schema_version")) is not int
+        or data["schema_version"] != 1
+        or data.get("source_sha") != receipt["source_sha"]
+        or data.get("release_id") != selected["release_id"]
+        or not isinstance(data.get("files"), list)
+    ):
+        raise DeliveryError("selected proxy source binding changed")
+    # The installer certifies the full frozen inventory. Startup independently
+    # reads back just this helper's source closure against that protected catalog;
+    # it neither imports admission models nor recomputes judge measurement policy.
+    for name in STARTUP_MODULES:
+        relative = "delivery/scripts/release/" + name
+        records = [entry for entry in data["files"] if entry.get("path") == relative]
+        if len(records) != 1:
+            raise DeliveryError("selected proxy source inventory changed")
+        entry = records[0]
+        shipped = payload / relative
+        preflight.protected(shipped)
+        info = shipped.stat()
+        if (
+            entry.get("mode") != "0444"
+            or stat.S_IMODE(info.st_mode) != 0o444
+            or info.st_size != entry.get("bytes")
+            or digest(shipped) != sha256(entry.get("sha256"))
+            or digest(Path(__file__).parent / name) != entry["sha256"]
+        ):
+            raise DeliveryError("proxy tool differs from selected delivery")
+    return selected
+
+
 def check_binding(release: str, batch: str) -> dict:
     if os.geteuid() != 0:
         raise DeliveryError("protected proxy operator required")
-    from .node_health import binding
 
-    # Reuse the protected live configuration and source binding. Proxy startup
-    # does not recertify unrelated judge images; Sandbox checks each execution.
-    selected, _, _ = binding()
+    selected = startup_selection()
     if (release, batch) != (selected["release_id"], selected["configuration_id"]):
         raise DeliveryError("proxy unit belongs to another selected configuration")
     directory = proxy_service.batch(selected)

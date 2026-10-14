@@ -1316,16 +1316,118 @@ def credential_acl(uid=1203, *, owner=4, user=4, group=0, mask=4, other=0):
     )
 
 
+@pytest.mark.parametrize(
+    "changed",
+    [None, "manifest", "source", "missing", "duplicate", "shipped", "mode", "running", "receipt"],
+)
+def test_proxy_startup_binds_own_source_without_loading_judging_policy(
+    tmp_path, monkeypatch, changed
+):
+    source = "123456789abc" + "d" * 28
+    release = "sd-" + source[:12]
+    payload = tmp_path / release / "payload"
+    modules = payload / "delivery/scripts/release"
+    modules.mkdir(parents=True)
+    entries = []
+    for name in proxy_install.STARTUP_MODULES:
+        shipped = modules / name
+        shipped.write_bytes((ROOT / "scripts/release" / name).read_bytes())
+        shipped.chmod(0o444)
+        entries.append(
+            {
+                "path": "delivery/scripts/release/" + name,
+                "mode": "0444",
+                "bytes": shipped.stat().st_size,
+                "sha256": policy.digest(shipped),
+            }
+        )
+    if changed == "missing":
+        entries.pop()
+    elif changed == "duplicate":
+        entries.append(entries[0])
+    elif changed == "mode":
+        entries[0]["mode"] = "0644"
+    manifest_path = payload.parent / "manifest.json"
+    manifest_path.write_bytes(
+        policy.canonical(
+            {
+                "format": policy.FORMAT,
+                "schema_version": 1,
+                "release_id": release,
+                "source_sha": "e" * 40 if changed == "source" else source,
+                "files": entries,
+            }
+        )
+    )
+    checksum = policy.digest(manifest_path)
+    hashes = {name: "f" * 64 for name in configuration.CONFIG_FILES}
+    batch = configuration.configuration_id(source, checksum, hashes)
+    receipt_path = tmp_path / "configuration.json"
+    receipt_path.write_bytes(
+        policy.canonical(
+            {
+                "schema_version": 1,
+                "source_sha": source,
+                "release_id": release,
+                "configuration_id": batch,
+                "manifest_sha256": checksum,
+                "configuration_files": {
+                    str(configuration.installed_path(release, batch, name)): value
+                    for name, value in hashes.items()
+                },
+                "operator_attested_measurement": False,
+                "installed": True,
+                "execution_verified": False,
+            }
+        )
+    )
+    selected = {
+        "schema_version": 1,
+        "release_id": release,
+        "configuration_id": batch,
+        "manifest_sha256": checksum,
+        "receipt_sha256": policy.digest(receipt_path),
+    }
+    if changed == "manifest":
+        manifest_path.write_bytes(manifest_path.read_bytes() + b" ")
+    elif changed == "receipt":
+        receipt_path.write_bytes(receipt_path.read_bytes() + b" ")
+    elif changed == "shipped":
+        shipped = modules / "proxy_install.py"
+        shipped.chmod(0o644)
+        shipped.write_bytes(b"changed frozen source")
+        shipped.chmod(0o444)
+    real_digest = proxy_install.digest
+
+    def digest(path):
+        if changed == "running" and path == ROOT / "scripts/release/proxy_install.py":
+            return hashlib.sha256(b"different running helper").hexdigest()
+        return real_digest(path)
+
+    def selection(**kwargs):
+        assert kwargs == {"check_configuration": False}
+        return selected
+
+    monkeypatch.setattr(installer, "RELEASES", tmp_path)
+    monkeypatch.setattr(installer, "selection", selection)
+    monkeypatch.setattr(configuration, "installed_receipt_path", lambda *args: receipt_path)
+    monkeypatch.setattr(proxy_install.preflight, "protected", lambda *args, **kwargs: None)
+    monkeypatch.setattr(configuration, "private", lambda *args: None)
+    monkeypatch.setattr(proxy_install, "digest", digest)
+    monkeypatch.setattr(node_health, "binding", lambda: pytest.fail("unrelated judging policy"))
+    if changed:
+        with pytest.raises(policy.DeliveryError, match="proxy|selected delivery"):
+            proxy_install.startup_selection()
+    else:
+        assert proxy_install.startup_selection() == selected
+
+
 def test_proxy_startup_refuses_another_protected_selected_binding(monkeypatch):
     monkeypatch.setattr(proxy_install.os, "geteuid", lambda: 0)
     monkeypatch.setattr(
-        node_health,
-        "binding",
-        lambda: (
-            {"release_id": "sd-123456789abc", "configuration_id": "cfg-" + "e" * 24},
-            {},
-            ROOT,
-        ),
+        proxy_install,
+        "startup_selection",
+        lambda: {"release_id": "sd-123456789abc", "configuration_id": "cfg-" + "e" * 24},
     )
     monkeypatch.setattr(installer, "selection", lambda **kwargs: pytest.fail("full image scan"))
     with pytest.raises(policy.DeliveryError, match="another selected configuration"):
@@ -1349,7 +1451,7 @@ def test_proxy_startup_still_refuses_own_bytes_or_selection_drift(monkeypatch, c
         "key_sha256": fingerprints["key.pem"],
     }
     monkeypatch.setattr(proxy_install.os, "geteuid", lambda: 0)
-    monkeypatch.setattr(node_health, "binding", lambda: (selected, {}, ROOT))
+    monkeypatch.setattr(proxy_install, "startup_selection", lambda: selected)
     monkeypatch.setattr(proxy_service, "batch", lambda _: Path("/protected/proxy"))
     monkeypatch.setattr(proxy_install, "read_json", lambda *args: spec)
     monkeypatch.setattr(proxy_install.preflight, "protected", lambda *args, **kwargs: None)
