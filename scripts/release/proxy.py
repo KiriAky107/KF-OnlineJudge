@@ -87,7 +87,7 @@ http {
     }
     default_type application/octet-stream;
     log_format bounded '$request_method $status $body_bytes_sent $request_time';
-    access_log syslog:server=unix:/dev/log,tag=kf-proxy,nohostname,severity=info bounded;
+    access_log syslog:server=unix:/dev/log,tag=kf_proxy,nohostname,severity=info bounded;
     server_tokens off;
     limit_conn_zone $binary_remote_addr zone=per_client:64k;
     limit_conn_zone $server_name zone=per_site:64k;
