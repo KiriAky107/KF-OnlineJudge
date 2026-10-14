@@ -1,20 +1,13 @@
 # Offline release tooling
 
-This package is an operator composition tool. `policy` validates delivery bounds,
-`manifest` inventories/verifies explicit files, and `build` runs the locked trusted
-checkout build and copies only tracked application/deployment sources, fresh
-production dependencies and separately fingerprinted public runtime inputs.
-It does not import domain ORM/repositories, write application state, implement a
-second migration path, execute student code or perform Sandbox privilege work.
-`scripts/check_architecture.py` enforces its application import boundary.
+Build and operate a KF-OnlineJudge node with locked dependencies and verified
+offline materials. The tools cover installation, configuration, HTTPS, maintenance
+and cold recovery. Full system and recovery acceptance is still in progress.
 
-All dependency resolution for a release uses existing lockfiles and offline
-caches. Backend source is shipped with locked production dependencies rather
-than invoking an unpinned isolated wheel build backend. uvx/pip and package
-startup path hooks are not delivery runtime entry points. Build inputs specify a
-verified public runtime inventory and the three existing image catalogs; an
-independent expected SHA-256 binds each input. Real input paths/receipts are local
-operator data and do not belong in Git.
+For the target platform and installation order, read
+[`deploy/release/README.md`](../../deploy/release/README.md).
+
+## Build a release
 
 ```sh
 python3.13 -m scripts.release build --repo /native/checkout \
@@ -22,504 +15,428 @@ python3.13 -m scripts.release build --repo /native/checkout \
   --work /private/new-build-work
 ```
 
-The checkout must be clean and committed, build output/work directories new,
-and the output filesystem have the required reserve. The resulting receipt
-contains the source and manifest fingerprints, file count and byte total, with
-`installed=false` and `execution_verified=false`. Installation and service
-acceptance remain separate operations. See `deploy/release/README.md` for the
-versioned installation contract and authority split.
+Start from a clean committed checkout. Output and work directories must be new,
+and their filesystem must have the required reserve. The build uses lockfiles and
+offline caches, then copies tracked application/deployment sources, fresh locked
+production dependencies and separately fingerprinted public runtimes. Backend
+source ships with those dependencies; uvx/pip and startup hooks are not runtime
+entry points.
 
-`preflight` reads installation eligibility only. `install-files` requires root,
-a completely root-controlled verified input tree and the fixed target profile;
-it installs protected versions/images and bounded OS identities, without table
-migrations, application accounts, services or the active-version switch.
-Repeated identical files converge; unknown modes/owners, changed bytes or an
-incomplete staging directory require operator inspection and are never removed.
+Build inputs contain explicit inventories and expected SHA-256 digests for public
+runtimes and the three image catalogs. Keep real input paths and receipts outside
+Git. The build receipt records source and manifest digests, file count and byte
+total with `installed=false` and `execution_verified=false`.
 
-`generate-configuration` composes exact public contracts with separately supplied
-0600 node and endpoint inputs. It emits a new private directory and a hash-bound
-receipt, never prints tokens, never changes a supplied password and never silently
-overwrites an earlier identity. API, publisher, import, migration and identity
-operations have distinct required database authority; Worker holds only its own
-MQ/control identity, Root receives no business credentials. Backend URLs use the
-existing asyncpg driver. No uvx/pip or online runtime installation is used.
+Use a separately trusted checker and an out-of-band manifest SHA to validate an
+incoming bundle. A verified delivery includes `bin/kf-delivery` for later offline
+operations. Running an unverified bundle's checker cannot establish trust in that
+bundle.
 
-`install-configuration` validates the entire group before writing any member;
-`check-configuration` checks installed bytes, same-source admission, identity and
-hardware/kernel/node scheduler bindings. `activate` requires that check and
-stopped control ports, no factory socket and no retained task/identity/capture
-resources. It atomically selects an installed directory and starts no process;
-draining, migrations and actual health remain separate operations. It does not
-erase retained journals or release resources lacking cleanup proof.
-Every private group also has a content-bound `configuration_id`. Installing a
-second group for the same source preserves the first group byte-for-byte.
-`activate RELEASE --manifest-sha256 SHA --configuration-id BATCH` selects an
-explicit validated batch only after ordinary application units and independent
-task resources are stopped. `check-active` checks the protected batch/code
-binding and current measurement snapshot, with no liveness/readiness claim.
+## Authority and service identities
 
-`provision-database-identities` is an explicit local database operator step.
-It uses the locked asyncpg dependency, bounded connections/statements and a
-120-second overall deadline. It installs only fixed independent logins/NOLOGIN
-groups and the application database, verifies every supplied credential and
-refuses unexpected existing authority. There is no application table DDL or
-automatic account bootstrap: the migration login owns the database without
-global superuser/create-role/create-db/bypass-RLS rights; Backend Alembic remains
-the only schema/grant migration entry. Runtime logins cannot grant/set group
-authority. The migration login inherits the narrow NOLOGIN function-owner role
-and can SET that role, so unchanged Alembic can grant/rename its functions after
-ownership transfer. Membership has no ADMIN option, adds no global role-creation
-privilege, and is never given to runtime logins. See
-[PostgreSQL role membership](https://www.postgresql.org/docs/18/role-membership.html)
-and [function ownership](https://www.postgresql.org/docs/18/sql-alterfunction.html).
+| Operation | Authority |
+| --- | --- |
+| Build, verify and preflight | Read-only system access |
+| File/configuration installation and activation | Root operator |
+| Database identity provisioning | Supplied local DB operator |
+| Schema and grants | Backend Alembic |
+| Application accounts | Backend account CLI |
+| Execution state | Coordinator |
+| Privileged task preparation and execution | Rust Sandbox |
 
-Always bootstrap validation from a separately trusted tool copy and an out-of-band
-manifest SHA. Do not execute a checker supplied inside an unverified bundle to
-establish trust in that same bundle. A verified delivery includes `bin/kf-delivery`
-and its source for later offline operations. Command success/receipt generation
-does not claim Linux execution, working service roles or installation acceptance;
-these require the recorded independent VM evidence.
+`policy` validates bounds, `manifest` inventories and verifies files, and `build`
+assembles the release. Release tools do not import domain ORM/repositories or
+provide a second schema migration path. `scripts/check_architecture.py` checks
+the application import boundary. Installation and configuration commands start
+no services; the maintenance commands below control their lifecycle.
 
-`generate-proxy` is a separate, offline composition entry. Its private 0600
-profile has exactly `schema_version: 1`, one canonical HTTPS DNS `origin`,
-`certificate_sha256` and `key_sha256`. TLS inputs are independently supplied
-later at `/etc/kf-proxy/tls/fullchain.pem` and `key.pem`; the generator
-does not read, create or verify a private key. It emits a new private NGINX
-configuration and receipt tied to the verified release. No arbitrary upstream,
-include, path, credentials or resource overrides are accepted. Only browser API
-families target the API loopback port; execution-control paths are refused. ZIP
-uploads have their own canonical UUID route. Syntax, actual TLS/stream limits,
-static routes, permissions and service health require subsequent VM acceptance;
-the generator explicitly returns those capabilities as unverified.
-The separately installed `kf-proxy` worker identity must be distinct from API,
-Coordinator, import, judging and database/broker identities. It has no business
-credentials; generation alone never creates that account or starts NGINX.
+API/outbox/import share the content-storage identity and use private PID views.
+Coordinator and Worker have distinct ordinary identities. `service_bootstrap`
+validates Rust credential bytes and writes a private runtime copy with mode 0600
+before launching the fixed binary. Tokens and URLs
+stay out of arguments and unit text. Python launchers accept fixed modules,
+arguments and generated environment fields; inherited debugging, proxy and
+provider credentials are omitted. Import also requires a loopback-only network
+view and the same admission policy as API.
 
-Operator responsibilities are separate: build/verify are read-only with respect
-to system state; preflight observes eligibility; file/config installation and
-activation require the root operator; DB provisioning requires a separately
-supplied local DB operator; schema/grants and first account use the existing
-Backend Alembic/account CLIs. Configuration validation never starts or restarts
-a service. The later bounded service lifecycle must prove drain/cleanup before
-maintenance; none of these entries authorizes a Sandbox isolation bypass or
-silently substitutes a healthy result when lifecycle evidence is absent.
+Every ordinary launch checks UID/GID, cap0, no-new-privileges, node/service cgroup
+limits and process file/descriptor/stack limits. The Python services require PID 1
+inside their private namespace. Unsupported or ignored isolation settings refuse
+startup. Rust Worker has no database credentials. Root factory uses an empty
+business environment and gets no database, MQ or platform identity.
 
-Proxy directive references: [NGINX core](https://nginx.org/en/docs/http/ngx_http_core_module.html),
-[proxy module](https://nginx.org/en/docs/http/ngx_http_proxy_module.html), and
-[TLS module](https://nginx.org/en/docs/http/ngx_http_ssl_module.html).
+## Install files and configuration
 
-`python3.13 -m scripts.release.services generate` composes five ordinary system
-units from a verified bundle and matching private configuration receipt. The
-matching service launch modules must themselves be in that bundle. Rendering
-uses fixed users, resource ceilings, finite restart/stop limits and an explicit
-release/configuration pre-start binding. It never writes system units, starts a
-process, migrates a schema or claims readiness. Actual units, mount/PID/cgroup
-views, Unix DB socket access, dependency roles and effective limits require VM
-installation/acceptance. Root factory and database/broker lifecycle are separate.
+`preflight` checks eligibility. `install-files` requires Root, a Root-controlled
+verified input tree and the fixed target profile. It installs protected versions,
+images and OS identities. Repeat installation checks identical files; unknown
+ownership/modes, changed bytes and incomplete staging directories require inspection.
 
-API/outbox/import share the established content-storage identity; individual PID
-namespaces prevent same-UID inspection of another service's environment. This
-requires the fixed systemd profile and verified kernel namespace support. Rust
-Coordinator/Worker use distinct ordinary identities and systemd credentials.
-Every ordinary launch checks effective service/node cgroup memory, swap, CPU and
-PID limits, file/descriptor/stack limits, UID/GID and absence of capabilities
-before exec. The three Python services also require PID 1 in their private PID
-namespace; import requires a loopback-only network view. Ignored namespace
-directives therefore refuse startup. These checks still require actual VM
-verification; they do not attest Sandbox isolation or service readiness.
-The import environment includes the same validated admission policy as API.
+`generate-configuration` reads separate 0600 node and endpoint inputs and writes
+a new private batch. API, publisher, import, migration and account operations use
+their required DB authority; Worker receives its own MQ/control identity. Backend
+URLs use asyncpg. The tool preserves supplied passwords and earlier identities.
 
-`service_bootstrap` verifies bounded Rust credential bytes, copies them to a
-private service runtime directory with the existing required 0600 mode and then
-launches only the fixed ordinary binary. It accepts no student executable,
-command override or privileged Sandbox operation. Tokens/URLs are not command
-arguments or unit text. The outbox unit uses the existing actual confirmed
-publisher module; the old scaffold check entry is not treated as a delivery loop.
-Python launches use a fixed module/argument list and only the generated service
-environment fields; inherited debugging/proxy/provider credentials are omitted.
+`install-configuration` validates the entire batch before writing. A batch has a
+content-bound `configuration_id`; installing another for the same source retains
+the first byte-for-byte. `check-configuration` validates installed bytes,
+admission, identity and hardware/kernel/node scheduling bindings.
 
-`python3.13 -m scripts.release.service_install DIRECTORY --receipt-sha256 SHA`
-is the separate root operator step for those five ordinary units. It requires
-the selected installed configuration, the canonical configuration receipt from
-the generator, and matching service launch/installer bytes in that delivery.
-All app units must be stopped. It stores immutable batches under the protected
-`/etc/kf-onlinejudge/units/RELEASE.CONFIGURATION/` directory, then updates only
-known root-owned system unit pointers and performs a bounded daemon reload.
-Unknown regular files, foreign pointers, changed bytes and unrecorded old batches
-refuse replacement. Previously installed batches remain available; interruption
-may leave a mixed set of pointers, but each pre-start check rejects an unselected
-binding. Repeat installation can finish the same verified batch after stopping
-all app units. Loaded/inactive unit readback starts no service and makes no
-claim about effective runtime limits, readiness, Sandbox gates or VM acceptance.
+Run `activate RELEASE --manifest-sha256 SHA --configuration-id BATCH` with the
+explicit batch. `activate` requires stopped application units, control ports and
+factory socket, and empty task/identity/capture resources. Root journals and
+batches are retained. Interruption between pointer writes requires inspection.
+`check-active` checks code/configuration selection and the measurement snapshot.
 
-`python3.13 -m scripts.release.factory_service --output DIRECTORY` composes the
-separate Root factory unit only after selection and protected configuration checks.
-It requires matching composition code in that delivery, uses the fixed Root
-binary and empty business environment, and preserves the supervisor reservations
-and finite lifetime. It does not inherit the ordinary service namespace/filter
-flags. Its pre-start `kf-sandbox prepare-factory` performs privileged cgroup
-preparation inside Sandbox: the exact node/UID pool, single supervisor process,
-empty task/lease/capture resources and factory lock are required. A retained
-boot/inode record recognizes only its own empty delegation; an unknown group,
-same-boot loss or conflicting record refuses. New-boot recreation requires empty
-persistent resources. No journal/lease is deleted and preparation grants no
-execution permit. Neither composition nor lexical tests are Root/kernel/service
-acceptance; install, restart, failure recovery and actual execution remain VM-only.
-The separate operator step `factory_service --install DIRECTORY --receipt-sha256 SHA`
-requires that generated receipt, the selected protected configuration and matching
-installer bytes. It keeps immutable Root-unit batches under `/etc/kf-judge/units/`,
-updates only recorded Root-owned pointers with all app units stopped, and checks
-loaded/inactive systemd metadata. Foreign files/links and partial unknown batches
-are refused, old batches remain retained. This step neither starts the factory nor
-prepares its cgroup; only the later bounded startup invokes Sandbox preparation.
+## PostgreSQL and RabbitMQ
+
+### Prepare dependencies
 
 `python3.13 -m scripts.release.dependencies --connections PRIVATE_JSON --output DIRECTORY`
-composes the fixed loopback PostgreSQL/RabbitMQ configurations and ordinary units
-from the selected release. Broker passwords must be identical to the selected
-outbox/Worker batch. The private definition file contains salted password hashes,
-two users without management tags, one vhost/queue and separate publish/consume
-permissions. Definitions import is required on a blank broker; no guest account
-or default password is configured. The management plugin remains disabled.
-PostgreSQL local/loopback paths both use SCRAM, including the Unix import socket.
-Configuration includes bounded connections, query/temp budgets and log controls.
+generates fixed loopback configurations and ordinary units for the selected
+release. Broker passwords must match the outbox/Worker batch. Its private
+definition contains salted hashes, two users without management tags, one
+vhost/queue and separate publish/consume permissions. A blank broker must import
+these definitions; management and guest/default accounts stay disabled.
 
-Both dependency units reserve 512 MiB, zero swap and bounded CPU/PIDs/files,
-restart and lifetime. The receipt requires separate 2-GiB PostgreSQL and 512-MiB
-broker storage mounts. These mounts are not created or checked by composition.
-RabbitMQ memory/disk alarms and PostgreSQL WAL/temp settings are not total hard
-storage/memory guarantees. Required real filesystem/cgroup/queue/auth readbacks,
-account ownership, cluster initialization, cookie/definition permissions and
-startup/restart are still explicit installation/VM steps; no service is started.
-Dependency pre-start checks require the selected release/batch and read back the
-ordinary UID, zero capabilities, no-new-privileges, process/cgroup/node budgets,
-private data ownership, a separate data filesystem mount and its actual size.
-A parent filesystem or an alarm setting therefore cannot silently pass as the
-required dedicated hard storage capacity. Config parsing alone does not verify
-these conditions or broker semantics on an already-initialized node.
+PostgreSQL uses SCRAM on local and loopback paths, including the import Unix
+socket. Its configuration bounds connections, queries, temporary storage, WAL and
+logs. Both dependency services have 512 MiB, zero swap and finite CPU/PIDs/files,
+restart and lifetime limits. Memory/disk alarms supplement the hard limits.
 
-Dependency directive references: [PostgreSQL resources](https://www.postgresql.org/docs/18/runtime-config-resource.html),
-[RabbitMQ limits](https://www.rabbitmq.com/docs/limits),
-[definition import](https://www.rabbitmq.com/docs/definitions),
-and [RabbitMQ access control](https://www.rabbitmq.com/docs/access-control).
+### Install snapshots
 
 `python3.13 -m scripts.release.dependency_install DIRECTORY --receipt-sha256 SHA
---erlang-cookie PRIVATE_FILE --cookie-sha256 SHA` installs the selected dependency
-snapshot with all app/dependency services stopped. It requires already provisioned
-dedicated ext4 mounts at the two fixed data paths, with their fixed capacity and
-`rw,nosuid,nodev,noexec` options. It does not create, format, resize or mount disks.
-A root-owned empty mount (apart from an empty private `lost+found`) may be assigned
-to its dedicated account; existing data is never recursively reassigned. Ordinary
-UID/GID 1203/1204 must be locked, without supplementary authority, and have the
-fixed PostgreSQL/RabbitMQ service homes. Conflicting OS accounts are not adopted.
+--erlang-cookie PRIVATE_FILE --cookie-sha256 SHA` installs a snapshot while all
+application and dependency services are stopped.
 
-The generated files are installed under `/etc/kf-dependencies/RELEASE.CONFIGURATION/`.
-This separate root-owned searchable tree lets each service group read only its
-0640 configuration files; the application configuration tree remains private.
-The definition file's salted credentials, user privileges and queue budgets must
-match the selected outbox/Worker batch. The operator supplies an explicit private
-256-bit Erlang cookie; repeat installation requires the same ordinary-owned 0400
-cookie and does not implicitly rotate it. No cookie/password bytes are reported.
-System unit pointers may replace only recorded root-owned dependency snapshots.
-The command retains old batches, verifies loaded/inactive metadata, starts no
-service and initializes no database. Cluster initialization, actual effective
-limits, broker authorization and startup/readiness still require VM acceptance.
+Prepare dedicated ext4 data mounts first, with fixed capacities and
+`rw,nosuid,nodev,noexec` options:
+
+| Service | Storage | Ordinary UID/GID |
+| --- | --- | --- |
+| PostgreSQL | 2 GiB | 1203 |
+| RabbitMQ | 512 MiB | 1204 |
+
+The installer does not create, format, resize or mount disks. It can assign an
+empty Root-owned mount, allowing only an empty private `lost+found`, to the
+dedicated account. Existing data is never recursively reassigned. Accounts must
+be locked, have the fixed service homes and lack supplementary authority.
+
+Snapshots live in `/etc/kf-dependencies/RELEASE.CONFIGURATION/`. Each service group
+reads its own 0640 files; application configuration remains private. Definition
+hashes, permissions and queue budgets must match the selected outbox/Worker batch.
+Supply a private 256-bit Erlang cookie. Repeat installation requires the same
+ordinary-owned 0400 cookie and leaves its value unchanged.
+
+Only recorded Root-owned unit pointers can be replaced. Old snapshots remain;
+loaded/inactive metadata is read back. Before execution, each dependency checks
+its UID, cap0, no-new-privileges, process/service/node budgets, private data
+ownership and the dedicated filesystem's mount identity and size.
+
+### Initialize PostgreSQL
 
 `python3.13 -m scripts.release.dependency_initialize --password-file PRIVATE_FILE
---password-sha256 SHA` is the separate explicit PostgreSQL cluster initialization
-step. It requires the selected dependency snapshot, stopped services, the dedicated
-storage mount and an operator-supplied hexadecimal bootstrap password file. Only
-a fresh unrecorded target is initialized. The fixed ordinary PostgreSQL identity
-runs `initdb` in a transient network-isolated unit with node/service/process/disk
-budgets checked before execution. systemd passes the password as a private file
-credential; its bytes are neither unit arguments nor environment values. Both
-local and host authentication use SCRAM; incomplete data is retained for explicit
-recovery, not silently deleted or reused. The initializer never starts a database
-server or migrates business tables; Alembic and role provisioning remain separate.
+--password-sha256 SHA` initializes a fresh unrecorded cluster on the selected
+snapshot's dedicated mount, with services stopped. Supply a hexadecimal bootstrap
+password file. The ordinary PostgreSQL identity runs `initdb` in a bounded,
+network-isolated transient unit. systemd supplies the private password file as a
+credential, outside arguments and environment values. Local and host
+authentication use SCRAM.
 
-A root-owned initialization receipt binds the physical cluster identity and initial
-credential fingerprint. Repeat initialization requires that recorded identity and
-does not reset a password or claim successful DB authentication. The operator
-reads the transient unit result and confirms stop; foreign/residual units and
-unrecorded/partial targets are refused. These are implementation interfaces, not
-actual VM acceptance. See [PostgreSQL initdb](https://www.postgresql.org/docs/18/app-initdb.html)
-and [systemd credentials](https://systemd.io/CREDENTIALS/) for the underlying interfaces.
+The Root-owned receipt records the physical cluster identity and credential
+fingerprint. Repeat initialization requires that identity and does not reset its
+password. The operator checks the unit result and confirms stop; foreign/residual
+units and partial/unrecorded targets are refused. Retain incomplete data for
+inspection. This command starts no DB server and migrates no tables.
 
-`python3.13 -m scripts.release.node_health` performs the installed service
-admission-precondition checks in a fixed root operator unit. It uses bounded
-ordinary broker/factory/import observer units and accepts no executable, account,
-port or command override. Each helper checks its effective node/service/process
-budgets, identity and no-new-privileges/capability boundary. Unknown or concurrent
-units are refused; transient helper stop is read back. This is an operator CLI,
-not an additional public HTTP control endpoint, and has no schema/state writer.
+### Provision database identities
 
-The projection checks selected unit pointers and effective identities/limits,
-actual DB-role/column privileges, the import owner's fresh policy-bound heartbeat
-through its Unix socket, and broker queue semantics/permissions/vhost limits via
-ordinary-cookie read-only CLI queries. Coordinator owns the authenticated bounded
-execution/cleanup counters; truncated or unconfirmed data never proves a drain.
-Its `/internal/operations/` routes require platform authority and are not proxied
-publicly. Counters contain no submission IDs, source, archives or credential bytes.
+`provision-database-identities` uses locked asyncpg, bounded connections/statements
+and a 120-second deadline. It installs fixed independent logins/NOLOGIN groups and
+the application database, checks every supplied credential and rejects unexpected
+authority. Backend Alembic remains responsible for table DDL and grants.
 
-Factory health is a separate version-1 authenticated observation, rate/call-count
-bounded for the finite factory lifetime. It reads current supervisor/delegation
-authorization, the exact runtime-config digest, live helpers, remaining requests
-and lifetime, without recovery, task allocation, ledger writes or limit repair.
-The old allocation request bytes are unchanged. Health explicitly reports
-`isolation_verified=false` and `execution_gate=required_per_execution`: every real
-execution still needs its namespace/root/identity/seccomp/exec acknowledgements.
-Admission readiness requires confirmed empty execution/cleanup state and enough
-factory requests/lifetime for the configured maximum job. It does not certify
-TLS/browser behavior or replace the independent VM's execution acceptance.
+The migration login owns the database and can inherit/SET the narrow NOLOGIN
+function-owner role so Alembic can grant or rename transferred functions. It has
+no superuser/create-role/create-db/bypass-RLS rights or ADMIN membership option.
+Runtime logins cannot grant/set group authority and never receive that membership.
 
-The optional explicit `--probe-notification` sends one small confirmed notification
-for a fresh identifier checked absent by Coordinator. It reads no message body,
-creates no evaluation/grade and starts no program; ordinary periodic observation
-does not publish messages. Probe failure is reported separately. Underlying
-interfaces: [RabbitMQ CLI](https://www.rabbitmq.com/docs/man/rabbitmqctl.8),
-[PostgreSQL privilege functions](https://www.postgresql.org/docs/18/functions-info.html).
+## Application units and Root factory
 
-`python3.13 -m scripts.release.lifecycle --action start|resume|drain|stop|restart`
-is the explicit fixed-unit maintenance entry. Root publishes a protected, versioned
-availability record bound to the selected release/configuration. The installed API
-checks that record before accepting mutations; an absent, unknown, closed or wrong
-binding returns 503. Existing reads, logout, cancellation and receipt-bound archive
-uploads retain their ordinary identity/lease checks. Health alone cannot open this
-barrier, and service startup does not create schemas, accounts or credentials.
+`python3.13 -m scripts.release.services generate` renders five ordinary units from
+a verified bundle and matching configuration receipt. Users, budgets, restart/stop
+limits and pre-start release/batch checks are fixed. The outbox runs the confirmed
+publisher module. Service launch code must belong to the selected delivery.
 
-Drain first closes new mutations, keeps the API available to already accepted
-work, and polls the Coordinator, outbox, import, broker and factory owners within
-a finite deadline. Only their untruncated empty projections permit ordinary
-service shutdown. Final owner counts, actual stopped process groups, delegated
-tasks/identity/capture resources and absent factory socket must all agree before
-quiescence is published. Timeout preserves unfinished rows, leases, queues and
-replay journals; no forced grade or cleanup proof is written. `drain` leaves DB/MQ
-running, `stop` additionally stops them, and `restart` drains before a fresh start.
+`python3.13 -m scripts.release.service_install DIRECTORY --receipt-sha256 SHA`
+installs those units with all application services stopped. Snapshots are retained
+in `/etc/kf-onlinejudge/units/RELEASE.CONFIGURATION/`. The installer updates only
+known Root-owned pointers and performs a bounded daemon reload. Foreign pointers,
+regular files, changed bytes and unknown partial batches refuse replacement.
+A stopped repeat installation can finish the same verified batch. Every pre-start
+check rejects a pointer left on an unselected batch.
 
-Fresh start requires stopped known application units. `resume` explicitly checks
-known units that are already running after an interrupted operation; it does not
-adopt foreign units or repair unknown resources. Both keep admission closed until
-full service preconditions pass and opening is read back. Failed final readiness
-closes the barrier again. A bounded Root maintenance receipt records manager
-operations and cleanup results. Root factory termination uses a signal notice and
-the existing bounded guardian/recovery path; ordinary import termination finishes
-its current authorized operation before claiming another. These interfaces require
-actual independent-VM lifecycle acceptance and are not installation/safety proof.
+`python3.13 -m scripts.release.factory_service --output DIRECTORY` renders the
+separate Root unit after selection and protected configuration checks. The unit
+uses the fixed binary, empty business environment, supervisor reservations and
+finite lifetime, with the factory's own namespace/filter context.
 
-`python3.13 -m scripts.release.journal` separately installs a fixed KF journal
-namespace profile. It requires a preprovisioned dedicated 64-MiB ext4 mount at
-`/var/log/journal/MACHINE_ID.kf-onlinejudge`, with the same private hard-volume
-mount rules used for dependencies. It never creates/formats/mounts a disk, changes
-the default system journal, adopts old unrecorded log data or starts a daemon.
-Unknown configuration/overrides and partial installations are retained and refused.
+`factory_service --install DIRECTORY --receipt-sha256 SHA` installs the generated
+receipt and unit under `/etc/kf-judge/units/`, preserving earlier snapshots and
+checking loaded/inactive systemd metadata. Application units must be stopped;
+foreign files/links and unknown partial batches are refused.
 
-The profile fixes 32-MiB persistent/8-MiB runtime rotation budgets, bounded files,
-lines and seven-day retention. Its namespaced daemon override limits CPU, memory,
-swap and PIDs. Rotation settings are not a hard filesystem guarantee; the dedicated
-volume must also be observed. The `check_ready` interface reads actual namespace
-service/process/cgroup state. Ordinary application, DB/MQ and Root-factory
-templates now select this namespace. Their protected pre-start binding checks
-require its recorded configuration and physical hard volume, while retaining
-ordinary private PID views and the Root factory's existing permission context.
-Installing the profile does not start or replace running services. Real routing,
-privacy and retention/capacity behavior remain C+D/F VM acceptance work.
-The profile relies on the pinned systemd 262
-[namespace interface](https://github.com/systemd/systemd/blob/v262/man/systemd.exec.xml)
-and [journal configuration](https://github.com/systemd/systemd/blob/v262/man/journald.conf.xml).
+On startup, `kf-sandbox prepare-factory` checks the exact node/UID pool, a single
+supervisor, the factory lock and empty task/lease/capture resources before creating
+cgroup delegation. A boot/inode record identifies only its own empty delegation.
+Unknown groups, same-boot loss and conflicting records refuse startup; a new boot
+requires empty persistent resources. Preparation retains journals and leases.
+Each subsequent execution still needs the full Sandbox isolation check.
 
-The read-only status observer may see a `ProtectSystem` mount as read-only. That
-does not prove the logger can write: readiness separately reads the fixed known
-daemon's kernel mountinfo, matches its mount device to the protected volume and
-requires both mount and superblock writability. Main PID, invocation and process
-start time are checked again to reject a changed process. No writable exception,
-ptrace/setns capability or wider Python PID visibility is added to observation.
-Underlying read interface: [Linux proc mountinfo implementation](https://github.com/torvalds/linux/blob/v6.18/fs/proc_namespace.c).
+## HTTPS entry
 
-Production API logging uses a closed event vocabulary and omits arbitrary library
-messages, arguments, paths and exception text. Uvicorn's separate error handlers
-are redirected through that formatter; installed API launchers disable access
-logging so request query strings are not copied into service logs. Development
-diagnostics remain separate. These ordinary formatting checks are not evidence
-of actual daemon, HTTP or upload log privacy; that is still a VM acceptance case.
-
-Build-input version 2 adds an explicitly fingerprinted public NGINX 1.30.5
-runtime catalog. Version 1 remains available for older engineering bundles without
-proxy support; there is no implicit proxy default. The separate `proxy_runtime`
-module permits only the binary and bounded shared libraries, excludes TLS and
-configuration files, verifies every byte/mode and ships them under `payload/proxy`.
-This separate library search tree avoids silently replacing existing application,
-database or language-image libraries. Binary version/signature/ELF-closure evidence
-is recorded by the operator; accepting a structural catalog is not TLS/server or
-Linux-safety acceptance. Actual proxy installation and execution remain separate.
+`generate-proxy` reads a 0600 profile containing `schema_version: 1`, canonical DNS
+`origin`, `certificate_sha256` and `key_sha256`. It generates a new NGINX snapshot
+and receipt for the verified release. It accepts fixed upstreams, paths and limits.
+Browser API families reach only API loopback; execution-control routes are refused.
+ZIP uploads use a separate canonical UUID route.
 
 `python3.13 -m scripts.release.proxy_install --source DIRECTORY
 --receipt-sha256 SHA --certificate PRIVATE_CERTIFICATE --private-key PRIVATE_KEY`
-installs the explicitly supplied protected proxy snapshot and matching unencrypted
-TLS files. It requires the same release/API-origin batch, a distinct locked
-UID/GID 1205 (`kf-proxy`) without supplementary groups, and an already provisioned
-private 128-MiB ext4 volume at `/var/lib/kf-onlinejudge/proxy`. Provision that
-volume's ownership/mode explicitly; the installer does not format, mount or
-recursively reassign unknown data. Existing TLS material must match its fingerprint;
-this entry does not silently rotate keys or claim DNS/public-browser trust.
+installs the selected release/API-origin snapshot and matching unencrypted TLS
+material at `/etc/kf-proxy/tls/fullchain.pem` and `key.pem`.
 
-Proxy modules separate public runtime verification, fixed service rendering,
-Root installation, ordinary launch guarding and read-only HTTPS observation.
-The ordinary process retains only `CAP_NET_BIND_SERVICE` for 443, no-new-privileges,
-private PID visibility and actual CPU/memory/swap/PIDs/file bounds. It receives
-no application DB/MQ/control credentials. Installation preserves older snapshots,
-refuses foreign system-unit pointers, reads back loaded/inactive metadata and
-starts no server. Maintenance includes the proxy in start/drain/stop ordering.
-Readiness uses fixed loopback TLS with the supplied certificate as an explicit
-local trust anchor and checks hostname/leaf identity plus the API live response;
-it does not substitute for actual browser CA/HTTPS/security acceptance in the VM.
-The exact `/api/v1/health/live` route permits GET/HEAD for this bounded process
-liveness check. Other health, internal, execution and control routes remain
-outside the public proxy allowlist; liveness does not attest judging readiness.
+Prepare a 128-MiB private ext4 volume at `/var/lib/kf-onlinejudge/proxy` and the
+distinct locked UID/GID 1205 (`kf-proxy`), without supplementary groups. The
+installer checks ownership/mode and matching existing TLS fingerprints; it does
+not format/mount data volumes, reassign unknown data or rotate keys implicitly.
 
-Private cold backups use a separate format from public release bundles.
-The private v3 format binds the stopped broker cookie and current DB bootstrap
-fingerprints and retains
-recovery history as another private domain. A restore can reject distribution-secret
-reuse without dropping the inactive configuration from an earlier recovery. It
-changes no public judging v1/v2 canonical bytes or historical report. The earlier
-private v1/v2 prototypes were never system-accepted and are refused by this format.
-`python3.13 -m kf_oj.infra.artifacts.backup` is an ordinary read-only artifact
-inventory command. Run it with the selected API database/storage identity after
-the owner-confirmed drain and while PostgreSQL is still available. It reads every
-ready artifact registry object through a repeatable-read, read-only transaction
-and hash-checks existing source/case bytes with a 64-KiB buffer. It creates no
-storage directory or lock and changes no metadata, grade, session or grant.
-Its output is private and does not itself prove that writers have stopped.
+The ordinary proxy keeps only `CAP_NET_BIND_SERVICE` for 443, no-new-privileges,
+private PID visibility and CPU/memory/swap/PIDs/file limits. It has no DB/MQ/control
+credentials. Maintenance includes it in start/drain/stop order. Readiness verifies
+loopback TLS with the supplied certificate, hostname/leaf identity and API live
+response. `/api/v1/health/live` allows GET/HEAD; other health/internal/control
+routes remain outside the allowlist. Browser CA trust needs separate verification.
 
-After collecting the inventory, run `lifecycle --action stop`. For an already
-quiescent node it reuses only this boot's successful selected owner-derived drain
-receipt, rechecks every application cgroup and the Root task cleanup, then stops
-the selected database and broker. It does not query owners already stopped or
-adopt a stale, failed or unproven cut. Verify all their processes have exited.
+Build-input version 2 specifies the NGINX 1.30.5 catalog. Version 1 supports older
+bundles without a proxy. `proxy_runtime` checks every binary/library byte and mode,
+excludes TLS/configuration files and ships a separate tree under `payload/proxy`.
+Record package signature, version and ELF-closure verification with the inputs.
+
+## Logs
+
+`python3.13 -m scripts.release.journal` installs the fixed KF journal namespace
+profile on a preprovisioned 64-MiB ext4 volume at
+`/var/log/journal/MACHINE_ID.kf-onlinejudge`. It keeps the default system journal
+unchanged and rejects unknown configuration, overrides, old unrecorded data and
+partial installs.
+
+The profile uses 32-MiB persistent and 8-MiB runtime rotation budgets, bounded
+files/lines and seven-day retention. Its daemon has separate CPU/memory/swap/PIDs
+limits. Application, DB/MQ and Root units use this namespace and check the recorded
+profile and physical volume before starting.
+
+`check_ready` reads the daemon's process, cgroup and mount state. An observer's
+read-only `ProtectSystem` view does not establish daemon writability: the check
+matches the daemon's mount device to the protected volume and checks mount and
+superblock writability. It rechecks PID, invocation and start time to detect a
+changed process, without ptrace/setns or a wider observer PID view.
+
+Production API logs use fixed event names and omit arbitrary library messages,
+arguments, paths and exception text. Uvicorn errors use that formatter; installed
+API launchers disable access logging so queries are not copied to logs.
+Development diagnostics remain separate. Verify real routing, privacy and capacity
+on the installed node.
+
+## Readiness and maintenance
+
+`python3.13 -m scripts.release.node_health` checks admission preconditions in one
+fixed Root operator unit. Ordinary broker/factory/import observers have finite
+budgets; each checks identity, limits and no-new-privileges/capabilities. The CLI
+rejects unknown/concurrent helpers, reads back their stop and accepts no executable,
+account, port or command override.
+
+Checks include selected units and effective limits, DB-role/column privileges,
+the import owner's fresh policy-bound Unix-socket heartbeat and read-only broker
+queue/permissions/vhost queries. Coordinator supplies authenticated execution and
+cleanup counts through `/internal/operations/`. Truncated or unconfirmed counts
+cannot establish a drain. These internal routes require platform authority and
+return no submission IDs, source, archives or credentials.
+
+Factory health is a version-1 authenticated, rate/call-count-bounded observation.
+It reports supervision/delegation authorization, config digest, live helpers,
+remaining requests and lifetime. It performs no recovery, allocation, ledger write
+or limit repair. Request bytes remain unchanged. It reports
+`isolation_verified=false` and `execution_gate=required_per_execution`.
+
+Readiness requires confirmed empty execution/cleanup state and enough requests
+and lifetime for the maximum job. `--probe-notification` optionally sends one
+small confirmed notification for an identifier checked absent by Coordinator. It
+reads no body, creates no evaluation and runs no program. Periodic observation
+does not publish; probe failures are reported separately.
+
+`python3.13 -m scripts.release.lifecycle --action start|resume|drain|stop|restart`
+controls the fixed units and a Root-protected release/batch availability record:
+
+| Action | Behaviour |
+| --- | --- |
+| `start` | Requires stopped known application units; opens admission after readiness passes |
+| `resume` | Validates known running units after an interrupted operation |
+| `drain` | Closes new mutations, waits for owner-confirmed cleanup and leaves DB/MQ running |
+| `stop` | Completes the drain, then stops DB/MQ |
+| `restart` | Drains before a fresh start |
+
+API returns 503 for an absent, unknown, closed or wrong-bound availability record.
+Reads, logout, cancellation and receipt-bound archive uploads keep their existing
+identity/lease checks. Both startup paths keep admission closed until the opening
+is read back; failed final readiness closes it again.
+
+Drain keeps API available to accepted work and polls Coordinator, outbox, import,
+broker and factory within a finite deadline. Untruncated owner counts, stopped
+process groups, empty tasks/identity/capture resources and an absent factory socket
+must agree before quiescence is published. Timeout preserves rows, leases, queues
+and replay journals. Root uses its signal/guardian recovery path; import finishes
+its current authorized operation before claiming another. The maintenance receipt
+records manager operations and cleanup results.
+
+## Cold backups
+
+Collect the private artifact inventory with
+`python3.13 -m kf_oj.infra.artifacts.backup` after owner-confirmed drain, while
+PostgreSQL is available. Use the selected API DB/storage identity. A read-only,
+repeatable-read transaction checks ready registry objects and source/case digests
+with a 64-KiB buffer. The command creates no directory/lock and changes no state.
+
+Run `lifecycle --action stop` and verify processes have exited. A quiescent stop
+reuses only this boot's successful selected owner-derived drain receipt and
+rechecks application cgroups and Root task cleanup.
+
 `python3.13 -m scripts.release.backup capture
 --backup-id bk-<32-lowercase-hex> --references PRIVATE_INVENTORY
---references-sha256 SHA` launches one fixed Root backup operator. It requires the
-same selected release/configuration, this boot's successful owner-derived cut,
-quiescent admission, empty task resources, no surviving service identities and
-clean PostgreSQL shutdown. The operator has only `CAP_DAC_READ_SEARCH`, no-new-
-privileges, 256-MiB memory, zero swap, 32 tasks, 50% CPU, a 256-MiB individual-file
-limit and a 30-minute deadline. Only the preprovisioned private backup volume is
-writable; this entry does not format/mount a volume or execute captured content.
+--references-sha256 SHA` captures a cold snapshot after checking the selected
+batch, owner-derived cut, quiescent admission, empty tasks, stopped service
+identities and clean PostgreSQL shutdown.
 
-Provision a separate Root-owned 0700 ext4 volume of 16 GiB at
+Prepare a separate Root-owned 0700, 16-GiB ext4 volume at
 `/var/lib/kf-onlinejudge/backups`, with `nosuid,nodev,noexec` and no shared mount.
-The capture retains all source domains: the cold PostgreSQL cluster, source and
-testcase store, private import staging, all retained release/image versions,
-application/dependency/proxy configuration, factory replay history and operation
-receipts. Every entry has a bounded digest/size and original identity/mode;
-captured copies remain Root-only. Registered source/case references must all
-match captured files. Source modification, links, special files, unknown
-identities, insufficient space or an incomplete cut are refused. A failed target
-is retained for explicit inspection and never published as a successful backup.
+The fixed backup operator has `CAP_DAC_READ_SEARCH`, no-new-privileges, 256 MiB,
+zero swap, 32 tasks, 50% CPU, a 256-MiB file limit and a 30-minute deadline. Only
+that volume is writable.
 
-The bound is 7 GiB and 50,000 entries per backup, at most two backup directories,
-with a seven-day declared retention period. Capacity refusal does not silently
-delete an old/unknown backup. `backup verify --backup-id ID
---manifest-sha256 SHA` checks an explicitly supplied private operator receipt and
-every private member; it performs no restoration or secret/epoch reuse. Actual
-pruning uses `backup prune --backup-id EXPIRED_ID --manifest-sha256 SHA
---keep-backup-id NEWER_ID --keep-manifest-sha256 SHA`. Both private inventories
-must verify completely; the named target must be expired and the preserved copy
-must be newer and unexpired. It removes only the known inventory under the
-maintenance lock, never the last verified copy, an unknown tree or a partial
-backup. Verification and pruning use the same bounded operator as capture.
-Controlled recovery into a clean node and measured recovery time require their
-separate implementation and independent VM acceptance. Capture, expiry pruning
-and interruption behavior also still require actual VM acceptance.
-Backup data and manifests contain private credentials/source/testcase data and
-must stay outside Git and CI artifacts. Parsing, ordinary adapter tests or a
-manifest digest are not cold-backup/recovery acceptance evidence.
+Backup domains include PostgreSQL, source/case storage, private import staging,
+retained releases/images, configuration, replay history and operation receipts.
+Every member records bounded digest/size and original identity/mode; copies remain
+Root-only. Registry references must match. Links, special files, changing sources,
+unknown identities, insufficient space and incomplete cuts are refused. Failed
+targets remain unpublished for inspection.
+
+| Limit | Value |
+| --- | --- |
+| Per snapshot | 7 GiB and 50,000 entries |
+| Stored snapshots | At most two |
+| Declared retention | Seven days |
+
+`backup verify --backup-id ID
+--manifest-sha256 SHA` checks the supplied private receipt and every member.
+`backup prune --backup-id EXPIRED_ID --manifest-sha256 SHA
+--keep-backup-id NEWER_ID --keep-manifest-sha256 SHA` verifies both inventories,
+requires an expired target and a newer unexpired retained copy, then removes only
+the named known inventory under the maintenance lock. It retains the last verified
+copy and refuses unknown/partial trees. Capacity refusal deletes nothing.
+
+Private v3 backups bind the stopped broker cookie, current DB bootstrap fingerprint
+and recovery history. Earlier private v1/v2 prototypes are refused. These private
+versions do not alter judging canonical bytes or historical reports. Keep all
+backup data and manifests out of Git and CI artifacts.
+
+## Restore to a clean node
+
+Install a verified public bundle on a different clean boot/node. Generate and
+select a newly attested batch, then install dependencies with a new broker cookie
+on empty provisioned volumes. Keep services stopped and do not initialize a new
+cluster over restored data. Use fresh Worker UUID, measurement nonce/epoch,
+control tokens and all DB/MQ passwords.
 
 `python3.13 -m scripts.release.restore --recovery-id rr-<32-lowercase-hex>
---backup-id ID --manifest-sha256 SHA` performs the cold **data** step on a
-different clean boot/node. First install a verified public bundle, generate and
-select an attested fresh configuration, and explicitly install the dependency
-snapshot with a new broker cookie on empty preprovisioned volumes. Keep all
-services stopped; do not initialize a new PostgreSQL cluster over restored data.
-The target must have new Worker UUID, measurement nonce/epoch, control tokens
-and all DB/MQ passwords. Cold restoration currently requires identical migration
-bytes, target platform/toolchains and runtime images; schema-changing upgrades
-need their separate Backend Alembic procedure.
+--backup-id ID --manifest-sha256 SHA` runs the cold data step. Compatibility
+requires identical migration bytes, target platform/toolchains and runtime images;
+schema-changing upgrades need a separate Backend Alembic procedure.
 
-The fixed restore operator reads the backup volume through a read-only mount
-view, under 512-MiB memory, zero swap, 32 tasks, 50% CPU and a 30-minute deadline.
-It verifies the separate private receipt and every source byte before copying
-to fixed targets. It preserves original data identities/modes and every retained
-factory replay ID; a new boot's existing Sandbox preparation owns delegation
-recreation. It copies old application/judge/dependency/proxy configuration and
-maintenance receipts into private inactive `recovery/ID/history/`, never over
-the selected current configuration. Unknown/nonempty data targets and differing
-existing files are refused. Failed partial data stays stopped for explicit
-inspection; it is never silently adopted or erased.
+The operator reads the backup through a read-only mount, checks the private receipt
+and every byte, then copies to fixed targets under 512 MiB, zero swap, 32 tasks,
+50% CPU and a 30-minute deadline. Original identities/modes and replay IDs are
+preserved. Old configuration and maintenance receipts go into inactive
+`recovery/ID/history/`. The new boot's Sandbox preparation owns cgroup recreation.
+Unknown/nonempty targets and differing existing files are refused; partial restores
+remain stopped for inspection.
 
-The `data-restored.json` receipt proves only byte/identity restoration. The
-operator starts no service, changes no schema/grant/grade/lease and reports DB
-credential rotation and execution verification as false.
+`data-restored.json` records only byte/identity restoration. Services stay stopped
+and DB credential rotation and execution verification remain false.
+
+### Rotate database credentials
 
 `python3.13 -m scripts.release.recovery_database --recovery-id ID
 --data-receipt-sha256 SHA --password-file PRIVATE_NEW_BOOTSTRAP
---password-sha256 SHA` dispatches the credential step only after that boot's
-selected complete data receipt. Supply a new 256-bit bootstrap password; its
-fingerprint must differ from the separately verified private backup's current
-bootstrap fingerprint. Backup capture requires one complete initialization or
-recovery marker for the actual cluster, so a restored node can be backed up again.
-Current
-service endpoints are loaded from the new protected configuration, not backup
-URLs. Missing/different authority, an active cluster, unknown unit or incomplete
-cleanup is refused; this is an explicit operation, not service startup behavior.
+--password-sha256 SHA` requires this boot's selected complete data receipt and a
+new 256-bit bootstrap password with a different fingerprint from the backup.
+Backup capture requires a complete initialization or recovery marker for the
+actual cluster, allowing a restored node to be backed up again. Endpoints come
+from current protected configuration.
 
-One ordinary `kf-postgres` temporary unit gets 512-MiB memory, zero swap, 64
-tasks, 100% CPU, a four-minute deadline, cap0/no-new-privileges and private PID/
-network/runtime namespaces. It uses a private 0700 socket directory with TCP
-listening disabled. The [PostgreSQL peer mechanism](https://www.postgresql.org/docs/18/auth-peer.html)
-maps only this local OS identity to the fixed maintenance database login; fixed
-service logins use SCRAM for their credential checks. No trust authentication,
-external database listener or runtime Root business credential is introduced.
+One ordinary `kf-postgres` temporary unit uses 512 MiB, zero swap, 64 tasks, 100%
+CPU, a four-minute deadline, cap0/no-new-privileges and private PID/network/runtime
+namespaces. TCP is disabled; the private 0700 socket uses local peer authentication
+for this OS identity only. Fixed service logins use SCRAM.
 
-The process checks effective PostgreSQL memory/time/socket/logging settings and
-the exact existing roles/memberships/database owner. It rotates only passwords
-for the five fixed service logins and `postgres` in one transaction, verifies
-unchanged role authority and authenticates each new credential. It grants no
-membership, creates no database/table, invokes no business repair and does not
-rewrite grades, leases or measurement history. SQL/error output containing
-utility statements is suppressed. Temporary-server exit and empty resources
-must be confirmed before the dispatcher writes `identity-recovered.json`.
+The process checks PostgreSQL settings, roles, memberships and database ownership.
+It rotates the five service logins and `postgres` in one transaction, preserves
+authority and authenticates every new credential. It changes no schema, grade,
+lease or measurement history. SQL/error utility text is suppressed. Confirm
+server exit and empty resources before publishing `identity-recovered.json`.
 
-Startup and credential recovery share the cold data step's fixed lock. Startup
-holds a read-only shared lock through admission and validates the linked prepared,
-data and identity receipts in each bounded Root-private recovery directory.
-Missing/incomplete/foreign receipts refuse startup; a committed password change
-without a verified shutdown receipt cannot open admission. Complete historical
-receipts remain valid after reboot or a later selected version; they do not make
-the current services ready. Previous recovery history is backed up and restored
-into inactive history, never used as the new node's completion receipt.
+Recovery and startup share a fixed lock. Startup holds a read-only shared lock
+through admission and validates linked prepared/data/identity receipts in the
+bounded Root-private recovery directories. Missing/incomplete/foreign receipts
+keep admission closed, including a committed credential change without confirmed
+shutdown. Historical receipts remain valid after reboot or version change but do
+not establish current readiness. They stay in inactive history on later restores.
 
-Recovery still needs Backend Alembic verification, new TLS inputs, service
-readiness and actual four-language/history checks in the second VM. Neither
-data nor credential receipts assert execution safety or healthy public service.
-These system steps and the 30-minute end-to-end recovery target remain pending
-independent VM acceptance.
+Finish recovery with Backend Alembic verification, new TLS material, service
+readiness and actual four-language/history checks on the second VM. The 30-minute
+end-to-end target still requires measured acceptance.
 
-`python3.13 -m scripts.release.node_observation` dispatches one finite,
-read-only local observation through its fixed Root cap0/no-new-privileges helper
-(128 MiB, zero swap, 16 tasks, 25% CPU, 120 seconds, single named unit).
-It reads kernel memory/PIDs current and peak, CPU throttling, memory events,
-aggregate device IO and filesystem bytes/inodes without enumerating private
-source, hidden cases or credential files. Current selected service identities,
-ACLs, execution leases/cleanup, broker/outbox/import backlog and finite factory
-capacity come from the existing status owners. Notification probing stays off;
-it does not publish, claim, acknowledge, close admission or repair state.
+## Observe resources and queues
 
-The result includes source/configuration binding, a sample time and observation
-duration. Independent readings are a bounded time window, not an atomic backup
-cut. Missing kernel fields, stopped services or failed owner queries are explicit
-incomplete observations; there is no invented zero/healthy fallback. Busy
-admission can remain false in a complete observation. `isolation_verified`
-remains false: every real execution still needs its own Sandbox gate. Private
-operational output is for the local operator and must stay outside public API,
-Git and CI artifacts. Actual resource/queue observations and long-run evidence
-still require the independent VM.
+`python3.13 -m scripts.release.node_observation` uses a finite read-only Root cap0,
+no-new-privileges helper: 128 MiB, zero swap, 16 tasks, 25% CPU, 120 seconds and one
+named unit. It reads memory/PIDs current/peak, CPU throttling, memory events, device
+IO and filesystem bytes/inodes without enumerating private content. Existing owners
+supply service identities, ACLs, leases/cleanup, broker/outbox/import backlog and
+factory capacity. Notification probing stays off.
+
+Output includes source/batch, sample time and duration. Readings cover a bounded
+time window, not an atomic backup cut. Missing fields, stopped services and failed
+owner queries are explicit incomplete observations. Busy admission can be false
+in a complete sample; `isolation_verified` remains false. Keep operational output
+outside public API, Git and CI artifacts.
+
+## References
+
+- PostgreSQL: [role membership](https://www.postgresql.org/docs/18/role-membership.html),
+  [function ownership](https://www.postgresql.org/docs/18/sql-alterfunction.html),
+  [initdb](https://www.postgresql.org/docs/18/app-initdb.html),
+  [peer authentication](https://www.postgresql.org/docs/18/auth-peer.html),
+  [resources](https://www.postgresql.org/docs/18/runtime-config-resource.html),
+  [privilege functions](https://www.postgresql.org/docs/18/functions-info.html).
+- RabbitMQ: [limits](https://www.rabbitmq.com/docs/limits),
+  [definition import](https://www.rabbitmq.com/docs/definitions),
+  [access control](https://www.rabbitmq.com/docs/access-control),
+  [CLI](https://www.rabbitmq.com/docs/man/rabbitmqctl.8).
+- NGINX: [core](https://nginx.org/en/docs/http/ngx_http_core_module.html),
+  [proxy module](https://nginx.org/en/docs/http/ngx_http_proxy_module.html),
+  [TLS module](https://nginx.org/en/docs/http/ngx_http_ssl_module.html).
+- systemd: [credentials](https://systemd.io/CREDENTIALS/),
+  [namespace interface](https://github.com/systemd/systemd/blob/v262/man/systemd.exec.xml),
+  [journal configuration](https://github.com/systemd/systemd/blob/v262/man/journald.conf.xml).
+- Linux: [proc mountinfo](https://github.com/torvalds/linux/blob/v6.18/fs/proc_namespace.c).

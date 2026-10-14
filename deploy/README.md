@@ -1,10 +1,12 @@
 # 本地开发依赖
 
-管理员账号 bootstrap/恢复、有界题包解析服务、不可变发布/下架、审计与回收步骤见
-[题目维护运维说明](admin-problems.md)。该说明与服务模板用于受控部署准备，不表示已部署生产。
+开发环境用 Compose 提供数据库和消息队列。单机交付使用独立的受限服务，安装入口见
+[单机交付说明](release/README.md)。管理员账号、题包导入、发布、下架和审计见
+[题目维护运维说明](admin-problems.md)。
 
-`compose.dev.yml` 只提供 PostgreSQL 和 RabbitMQ，端口绑定 localhost。
-先复制 `.env.example` 为 `.env`，然后在仓库根目录运行：
+## 启动开发依赖
+
+将 `.env.example` 复制为 `.env`，在仓库根目录运行：
 
 ```bash
 make infra-config
@@ -12,75 +14,73 @@ make infra-up
 make infra-down
 ```
 
-`infra-down` 保留数据卷；不要把示例口令用于正式部署。
-API 存活检查和前端预览不依赖这些容器，可以先独立启动。
-该 Compose 不运行判题 Worker 或不可信代码。
+`compose.dev.yml` 只启动 PostgreSQL 和 RabbitMQ，端口绑定 localhost。
+`infra-down` 保留数据卷。API 存活检查和前端预览可以先独立启动。
+不要在这个 Compose 或宿主机上运行学生代码，也不要将示例口令用于正式部署。
 
-镜像固定具体维护版本（PostgreSQL 18.6、RabbitMQ 4.3.6），正式实验前另锁镜像摘要。
-配置检查只验证 Compose 结构；成功启动、实际健康与备份恢复需要单独验证。
-后续受控主机服务和最小权限沙箱启动器配置放在本目录。
+开发镜像固定 PostgreSQL 18.6 和 RabbitMQ 4.3.6；正式实验还需锁定镜像摘要。
+配置检查只检查 Compose 结构。服务健康和备份恢复要在实际环境验证。
+镜像用法见官方 [PostgreSQL](https://hub.docker.com/_/postgres) 和
+[RabbitMQ](https://hub.docker.com/_/rabbitmq) 说明。
 
-官方镜像说明：[PostgreSQL](https://hub.docker.com/_/postgres)、
-[RabbitMQ](https://hub.docker.com/_/rabbitmq)。
+## 单机 helper 工厂
 
-### 单机 helper 工厂
+`kf-sandbox factory --config /etc/kf-judge/runtime.json` 启动 Root 工厂。
+普通 Worker 连接配置中的 `state_root/factory/control.sock`。
+安装 `deploy/kf-sandbox-factory.service` 示例前，管理员需核对固定二进制、不可写的
+GNU 镜像与配置、Worker UID/GID，以及 Root 所有且与监督器 cgroup 分离的任务委派根。
+工厂读回服务和任务预算，每次编译、测试点运行都经过完整隔离检查。
 
-`kf-sandbox factory --config /etc/kf-judge/runtime.json` 是 Root 服务入口；
-普通 Worker 使用配置中 `state_root/factory/control.sock` 的普通用户客户端。
-`deploy/kf-sandbox-factory.service` 给出有限服务预算示例，安装前由可信管理员
-核对固定二进制、不可写 GNU 镜像/配置、Worker UID/GID，以及**与服务自身 cgroup
-分离**的 Root 所有任务委派根。工厂实际读回服务 cgroup 限额，应用/读回任务总预算；
-每次编译和测试点仍须通过已有完整隔离门控。服务文件本身不证明这些条件成立。
+工厂无等待队列，只接收有界 run ID。槽位满、重复 ID 和未知字段立即拒绝。
+每次请求创建全新的单线程 helper，继承已认证连接和工厂生命线。
+额外控制帧、断连或生命线消失会终止任务树。ID 先进入持久记录，最多 4096 个，
+跨重启继续拒绝重放。清理失败时保留身份租约并停止分配；恢复只处理已记录的
+归属和 inode，未知资源保留并拒绝启动。
 
-工厂只接收有界 run ID，无排队：槽位满、重复 ID 或未知字段立即拒绝。
-每次申请使用全新单线程 helper，固定继承已认证的连接与工厂生命线；
-额外控制帧、断开或生命线消失会终止整棵任务树。ID 先写入有限持久记录
-（最多 4096 个，跨重启拒绝重放）；容量用尽需要管理员在所有任务停止、已核对
-回收后安排新记录周期，不自动删除记录。清理失败保留身份租约并停止新分配；
-重启只根据已记录归属和 inode 回收，未知/外来内容保留并拒绝启动。
+### 轮换记录周期
 
-工厂 `--max-requests` 由可信 Root 启动参数选择，范围1–4096，默认4096；
-它限制当前记录周期的受理次数，不改变学生预算或已记录 ID 的拒绝规则。
-`kf-sandbox rotate-factory-cycle --config ROOT_CONFIG --cycle-id ID` 是独立的
-Root 维护入口：在受限监督器作用域中，核对受保护配置/镜像、取得工厂排他锁，
-并读回任务、身份、捕获目录和委派 cgroup 为空、控制 socket 已消失后，才把
-当前请求记录保留到 Root 私有 `factory/cycles/`，fsync文件与目录后清空当前记录。
-最多保留64个有界周期；历史 ID 在后续启动仍用于拒绝重放。正常启动、重启、
-寿命结束和容量用尽不会调用轮换或删除任何历史记录。归档完成但当前记录未清空
-的中断状态拒绝启动，需在停止/排空后显式使用同一个 cycle ID 重试；未知或
-不完整记录保留并拒绝，不能通过删日志恢复。该入口不启动服务，也不证明隔离。
-新安装路径下的实际轮换、崩溃恢复、跨周期重放拒绝与资源读回仍需独立 VM 验收。
+可信 Root 参数 `--max-requests` 设置本周期受理上限，范围 1 到 4096，默认 4096。
+容量用尽后，先停止任务并核对回收，再由管理员维护记录周期。
 
-`kf-worker judge-submission` 是受控本地适配入口。常驻 `kf-worker serve --config`
-使用有界 AMQP 通知和经过服务身份认证的 Coordinator claim；配置与依赖见
-[判题工程说明](../judge/README.md#单机持久化协调与常驻-worker)。
-它验证不可变清单摘要，C17/C++20 仅映射到固定 GNU 命令，编译一次；
-成功产物经完整清理后封印并计算 SHA-256，每点分别申请 helper、stdin 与工作区。
-期望值逐点读取，留在比较端，不传给工厂/用户文件系统。
-新增锁定 `sha2 0.10.9` 仅供 Worker 验证输入及编译产物摘要；
-Sandbox 同版本仅为独立 VM 测试数据生成的开发依赖，Engine 不依赖加密或 OS 库。
+`kf-sandbox rotate-factory-cycle --config ROOT_CONFIG --cycle-id ID` 在受限监督器作用域
+中核对配置和镜像、取得工厂排他锁，确认任务、身份、捕获目录、委派 cgroup 均为空，
+且控制 socket 已消失，才归档请求记录到 Root 私有 `factory/cycles/`。
+归档文件和目录经 fsync 后清空当前记录，最多保留 64 个周期；历史 ID 继续用于拒绝重放。
 
-### 单机提交服务的启动与停止
+正常启动、重启、寿命结束和容量用尽不会自动轮换或删除历史记录。
+若归档完成后中断，先排空，再显式用同一 cycle ID 重试。未知或不完整记录需要检查，
+不能删日志续用工厂。轮换入口不启动服务。新安装路径的轮换、崩溃恢复和跨周期拒绝
+仍需独立 VM 验收。
 
-1. Backend Alembic 迁移；创建分别仅继承平台/协调器 NOLOGIN 角色的专用登录账号，
-   平台角色只可插入初始评测，执行状态仅由 Coordinator 写入。
-2. 普通平台服务持有私有工件目录；使用应用服务导入不可变题目和创建测试账号。
-3. 验证固定 GNU 镜像、Root 配置及工厂服务/任务 cgroup 的真实上限，再启动工厂。
-4. 独立启动 API、Coordinator、outbox publisher 和普通 Worker；单机 HTTP/AMQP
-   仅数值 loopback，PostgreSQL loopback/Unix socket。任何入口都不自动创建表。
-5. Coordinator readiness 验证数据库和权限；仍需独立 VM 验证真实执行门控。
-   Root 工厂不可持有平台/MQ/数据库口令，用户运行镜像不含服务文件。
-6. 先向 Worker 发送 SIGTERM，使当前任务取消/清理，再停止 publisher/API/Coordinator，
-   最后停止工厂和本地依赖。强制死亡后的旧 attempt 必须撤销并取得实际停止证明；
-   `cleanup_failed` 不等于普通终态，先核对保留资源再由管理员恢复工厂/Worker。
+## 单机提交服务的启动与停止
 
-平台配置私有 `KF_OJ_ARTIFACT_ROOT`、有界字节/文件容量以及
-`KF_OJ_JUDGE_ADMISSION`（完整可信 JSON）；其工具链、编译/运行上限、总体作业期限、
-并发/prefetch/retry 必须与 Coordinator/Worker 一致。单机使用并发1、prefetch1，
-不能仅提高 Worker 数量绕过节点容量。源码最多256KiB，测试点最多256个；
-stdout/stderr 各不超过 file_bytes，合计不超过 workdir_bytes。
+`kf-worker judge-submission` 是受控本地适配入口；常驻
+`kf-worker serve --config` 使用有界 AMQP 通知和认证后的 Coordinator claim。
+配置见[判题工程说明](../judge/README.md#单机持久化协调与常驻-worker)。
 
-迁移账号与平台账号分开配置，命令均在 `backend/` 运行：
+Worker 校验不可变清单摘要，将 C17/C++20 映射到固定 GNU 命令，编译一次。
+产物经完整清理后封印并计算 SHA-256；每个测试点单独申请 helper、stdin 和工作区。
+期望输出留在比较端。Worker 用 `sha2 0.10.9` 校验输入与产物；Sandbox 的同版本
+开发依赖仅生成独立 VM 测试数据，Engine 不依赖加密或 OS 库。
+
+### 启动顺序
+
+1. 用独立迁移账号执行 Backend Alembic。平台与协调器登录账号分别继承各自的
+   NOLOGIN 角色；平台只插入初始评测，执行状态由 Coordinator 写入。
+2. 为平台准备私有工件目录，通过应用服务导入不可变题目并创建测试账号。
+3. 验证 GNU 镜像、Root 配置、工厂服务和任务 cgroup 的实际限额，启动工厂。
+4. 独立启动 API、Coordinator、outbox publisher 和普通 Worker。HTTP/AMQP 使用
+   数值 loopback，PostgreSQL 使用 loopback/Unix socket；启动入口不创建表。
+5. 检查 Coordinator 数据库权限与 readiness，再在独立 VM 验证执行隔离。
+   Root 工厂不持有平台/MQ/数据库口令，用户运行镜像不含服务文件。
+
+平台配置包括私有 `KF_OJ_ARTIFACT_ROOT`、工件容量和可信
+`KF_OJ_JUDGE_ADMISSION`。工具链、编译/运行预算、作业期限、并发/prefetch/retry
+必须与 Coordinator/Worker 一致。单机并发 1、prefetch 1，共享任务身份池。
+源码最多 256 KiB，测试点最多 256 个；stdout/stderr 各不超过 file_bytes，
+合计不超过 workdir_bytes。增加 Worker 数量不会扩大节点槽位。
+
+以下开发命令均在 `backend/` 运行；迁移账号与平台账号分别配置：
 
 ```sh
 uv run --locked alembic upgrade head           # 私有迁移账号，仅执行受控 schema 操作
@@ -91,70 +91,77 @@ uv run --locked uvicorn kf_oj.api.app:create_app --factory --host 127.0.0.1 --po
 uv run --locked python -m kf_oj.infra.messaging.publisher
 ```
 
-每个账号操作/导入目录都由管理员准备，不从浏览器接受私有路径。导入格式见
-[题目模块](../backend/src/kf_oj/modules/problems/README.md)，不可变版本以 UUID
-在题库/题面链接和提交请求中传递。更新题目需导入新版本，不覆盖已有提交的题目版本。
-临时验收使用合成数据和测试口令，实际业务数据与服务配置都保存在仓库外的私有目录。
+账号和导入目录由管理员准备，浏览器不能传入私有路径。导入格式见
+[题目模块](../backend/src/kf_oj/modules/problems/README.md)。题库、题面和提交使用
+不可变版本 UUID；更新需发布新版本。临时验收使用合成数据和测试口令，业务数据与
+配置放在仓库外。
 
-取消另需 API 私有配置 `KF_OJ_COORDINATOR_URL=http://127.0.0.1:8100` 与
-`KF_OJ_COORDINATOR_TOKEN`（Coordinator 的 platform_token）。所有服务令牌私下生成，
-不可互用或放进前端环境。Coordinator/Worker 私有 JSON 为0600、单链接、有界文件；
-Root 镜像/配置/二进制由 root 持有，任务委派子树独立于监督器自身 cgroup。
-运行前实际读回整体节点、服务和任务 memory/swap/pids/CPU/文件/运行期限上限，
-并通过真实隔离门控；配置解析、readiness、存活探测都不能替代执行验收。
+取消功能还需 API 配置 `KF_OJ_COORDINATOR_URL=http://127.0.0.1:8100` 和
+`KF_OJ_COORDINATOR_TOKEN`，后者对应 Coordinator 的 platform_token。
+独立生成服务令牌，保存在私有配置中。Coordinator/Worker JSON 为 0600、单链接、
+有界文件；Root 持有镜像、配置和二进制。运行前读回节点、服务和任务的
+memory/swap/pids/CPU/文件/期限上限。
 
-前端从 `frontend/` 启动 `pnpm dev`，默认127.0.0.1:5173；平台明确允许相同浏览器
-Origin，`/api` 同源代理。生产需另行配置 HTTPS、安全 cookie、SPA 回退与 `/api`
-反向代理，本仓库不自动部署。用户以受控账号登录，在题面选择支持语言、提交源码，
-随后查看同一 submission UUID 的持久化状态。等待/取消中/系统失败都不等于成功成绩。
+开发前端在 `frontend/` 运行 `pnpm dev`，默认 127.0.0.1:5173。
+平台明确允许相同 Origin，`/api` 使用同源代理。生产入口还需 HTTPS、安全 Cookie、
+SPA 回退和 API 反向代理。登录后在题面提交源码，按同一 submission UUID 查看状态；
+等待、取消中和系统失败各有独立状态。
 
-broker 暂停时 API 仍能持久化 queued/outbox；恢复后 publisher confirm 与 Coordinator
-补偿重新投递。Worker/Coordinator 重启使用原私有配置、工件、日志与 DB，不删除
-attempt 或强改状态。旧租约不能覆盖新结果，有限基础设施重试最终收敛。
-容量满时返回429或503；先确认待执行/清理状态，恢复服务或由管理员扩充经过核对的
-存储容量，不删除仍被提交/题目引用的工件。`kf-artifacts --limit 100` 仅回收满足年龄
-要求的无引用工件和已标记删除项；它不会通过删除用户源码来腾出容量。
-恢复 Root 必须核对 journal/inode/实际排空；未知资源保留，管理员处理自己确认的
-故障来源后再重启。不要递归清空任务目录，也不要把 cleanup_failed 改成已成功。
+### 停止与故障恢复
 
-这些入口和顺序不表示生产部署已完成。隔离/超限与用户程序仅在无 NIC、无宿主共享
-挂载、无业务凭据且整体上限已读回的独立测试 VM 内验收。开发 Compose 仍只提供可信
-数据库和 broker，不在宿主或业务服务器运行用户代码。workflow 如需启用由指定
-GitHub 私有仓库承载，并设置有限并发；Gitea 只保存逐阶段工程提交。
+先向 Worker 发送 SIGTERM，使当前任务取消并清理，再停止 publisher/API/Coordinator，
+最后停止工厂和本地依赖。强制死亡后的旧 attempt 必须撤销并取得停止证明。
+`cleanup_failed` 保留未确认资源，管理员检查故障来源后再恢复工厂/Worker。
+不要递归清空任务目录或强改结果。
 
+broker 暂停期间，API 保留 queued/outbox；恢复后 publisher confirm 与 Coordinator
+补偿重新投递。重启 Worker/Coordinator 时保留配置、工件、日志、DB 和 attempt。
+旧租约不能覆盖新结果，基础设施重试有次数上限。
+
+容量满时返回 429 或 503。先检查待执行和清理状态，再恢复服务或核对扩容。
+`kf-artifacts --limit 100` 只回收达到年龄要求的无引用工件和已标记删除项，
+保留仍被题目或提交引用的源码。Root 恢复还需核对 journal、inode 和实际排空。
 
 ## 四语言节点的受控升级
 
-新增公开示例 `judge.admission.example.json` 为显式 v1/v2 注册表，
-`sandbox.managed.runtime.example.json` 为一槽位的共享 Root 配置；原 v1 示例保持原语义。
-所有 `aaaaaaaa…` 镜像摘要均是无权限占位值，不能当作已验镜像。管理员制作固定镜像后，
-对 manifest.json 的实际字节计算 SHA-256，逐文件验证版本/字节/权限，并将相同完整身份
-写入准入注册表与 Root runtime_images。Root 镜像路径仅在私有可信配置中保存。
-配置解析通过或 check-runtime 可见仍不允许跳过实际隔离门控。
+`judge.admission.example.json` 是显式 v1/v2 注册表，
+`sandbox.managed.runtime.example.json` 使用一槽位共享 Root 配置。
+原 v1 示例语义保留。示例中的 `aaaaaaaa…` 是无权限占位摘要，必须换成固定镜像
+manifest.json 的实际 SHA-256，并逐文件验证版本、字节和权限。
+准入注册表与 Root runtime_images 使用同一完整身份；Root 镜像路径仅放入私有配置。
 
-1. 停止创建新提交/消费投递，向所有普通 Worker 发 SIGTERM；保留 DB、清单、工件和 journal。
-2. 取得工厂实际 stopped/cleanup_complete 证明，读回空任务 cgroup 和 owned 资源；
-   未排空或存在未知资源时停止升级，保留证据，不递归清空任务目录。
-3. 使用独立迁移账号执行 Backend Alembic upgrade；新语言数据存在时旧迁移降级会拒绝，
-   不删除数据以实现回退。平台与 Coordinator 继续使用各自最小权限角色，Worker 无 DB 账号。
-4. 安装固定版本的 Backend/Coordinator/Worker/Sandbox；同时更新三个普通服务的同一
-   `judge_admission`/`admission` 注册表，Root 配置单独由管理员持有。旧消费者不混用新协议。
-5. 为整体节点、控制面各服务、工厂和任务设置有限 CPU/memory/swap/pids/文件/期限，
-   读回内核值。节点至少预留一份512MiB编译任务以及独立控制面；Java运行示例总预算384MiB，
-   Xmx不能代替整体预算。并发1/prefetch1，共享UID池，不因第二Worker存在而扩大节点槽位。
-6. 在独立无NIC、无宿主共享挂载、无业务凭据 VM 用合成题目验证四语言、故障与实际排空，
-   再恢复工厂/Coordinator/API/publisher/Worker。生产启用需单独安排，仓库不自动部署。
+1. 停止创建提交和消费投递，向普通 Worker 发 SIGTERM，保留 DB、清单、工件和 journal。
+2. 确认工厂 stopped/cleanup_complete，读回空任务 cgroup 和 owned 资源。
+   发现未知资源或未排空时停止升级并保留证据。
+3. 用独立账号执行 Backend Alembic upgrade。含新语言数据时旧迁移拒绝降级；
+   保留这些数据。平台与 Coordinator 使用各自最小权限角色，Worker 无 DB 账号。
+4. 安装固定版本 Backend/Coordinator/Worker/Sandbox，同时更新普通服务的同一
+   `judge_admission`/`admission`。Root 配置单独保管，旧消费者不混用新协议。
+5. 设置并读回节点、控制面、工厂和任务的 CPU/memory/swap/pids/文件/期限上限。
+   至少预留一份 512 MiB 编译任务和独立控制面；Java 运行示例总预算 384 MiB，
+   Xmx 只是堆上限。并发 1、prefetch 1，使用共享 UID 池。
+6. 在断网、无宿主共享挂载、无业务凭据的受限独立 VM 验证四语言、故障和排空，
+   再恢复服务。生产启用单独安排。
 
-请求不在线安装 Python/Java 依赖，不运行 pip/uvx，不接收自定义解释器参数/JAR/agents。
-Worker 私有配置可设置 `control_timeout_ms`（1000–5000，缺省2000）作为 Coordinator
-单次控制请求的期限。资源受限节点应依据实际领取/续租/停止耗时选择，并核对租约和
-停止恢复；这不改变学生阶段/作业期限、重试次数或工件下载的固定2秒期限，连接仍限1秒。
-Python main.py 仅标准库；Java Main.java 使用默认包 Main，最多256个有界编译class。
-题目语言与预算以公开版本配置为准，旧题目和草稿保留，Rust继续明确不支持。
-新版检查阶段CE/运行RE/真实限额与SystemError的区别见 [判题说明](../judge/README.md#python--java-与明确协议版本)。
+Python `main.py` 仅支持标准库。Java `Main.java` 使用默认包 Main，最多 256 个
+有界编译 class。请求不在线安装依赖，不运行 pip/uvx，不接收解释器参数、JAR 或 agents。
+题目版本决定语言和预算，旧题目、草稿和报告保留；Rust 暂不支持。
+CE、RE、真实超限与 SystemError 的区别见
+[判题说明](../judge/README.md#python--java-与明确协议版本)。
 
-停止/故障恢复沿原单机流程：停止Worker使任务全树排空，旧租约/report拒绝后恢复；
-publisher/broker中断保留outbox，有限重试而非清空记录。恢复旧软件前应先排空v2任务，
-保留不可变v2版本和报告供兼容消费者读取；不能把旧配置静默转换为宽松新能力。
-这些公开配置不含业务令牌。数据库/AMQP/服务令牌分别在仓库外私下生成，Root不持有它们。
-需要CI时只在GitHub私有仓库 `KiriAky107/KF-OnlineJudge` 运行并设置有限并发，Gitea保存源码。
+Worker 的 `control_timeout_ms` 可设为 1000 到 5000，缺省 2000。
+按实际领取、续租和停止耗时选择，并核对租约与恢复流程。
+该值不改变学生阶段/作业期限、重试次数、工件下载的固定 2 秒期限或 1 秒连接期限。
+
+回退旧软件前先排空 v2 任务，保留 v2 不可变版本和报告供兼容消费者读取。
+恢复时沿用停止与故障流程，保持 outbox 和有限重试。
+公开示例不含业务令牌；数据库、AMQP 和服务令牌分别在仓库外生成，Root 不持有它们。
+
+## 验收与 CI
+
+所有学生源码、隔离、超限和故障测试都在无 NIC、无宿主共享挂载、无业务凭据且
+整体上限已读回的独立 VM 运行。配置解析、readiness 和存活探测不能替代执行验收。
+仓库不自动部署生产。
+
+需要 workflow 时，在 GitHub 私有仓库 `KiriAky107/KF-OnlineJudge` 设置有限并发执行。
+Gitea 保存工程提交，不运行 workflow。
