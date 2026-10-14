@@ -419,6 +419,11 @@ checks. Each helper keeps its fixed CPU, memory, process and privilege limits.
 These operator deadlines do not change student execution budgets. An expired or
 failed query keeps admission closed.
 
+The broker helper has a 64 MiB per-file ceiling for Erlang JIT mappings.
+[OTP 27.3.4](https://github.com/erlang/otp/blob/OTP-27.3.4/erts/emulator/beam/jit/beam_jit_main.cpp)
+starts with a 32 MiB JIT block. Broker JSON output remains limited to 32 KiB; other
+operator helpers keep the 16 MiB file ceiling.
+
 ## Observe resources and queues
 
 `python3.13 -m scripts.release.node_observation` uses a finite read-only Root cap0,

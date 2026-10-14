@@ -21,6 +21,10 @@ PROFILES = {
 }
 
 
+# OTP 27 reserves a 32 MiB dual-mapped JIT block before serving CLI queries.
+FILE_LIMIT_MIB = {"broker-health": 64}
+
+
 def guarded(name: str) -> None:
     _, uid, memory, pids, cpu, _ = PROFILES[name]
     if (
@@ -58,7 +62,7 @@ def guarded(name: str) -> None:
             raise DeliveryError("operator helper/node budgets differ")
     for key, maximum in (
         (resource.RLIMIT_CORE, 0),
-        (resource.RLIMIT_FSIZE, 16 * 1024**2),
+        (resource.RLIMIT_FSIZE, FILE_LIMIT_MIB.get(name, 16) * 1024**2),
         (resource.RLIMIT_NOFILE, 256),
         (resource.RLIMIT_STACK, 16 * 1024**2),
     ):
@@ -133,7 +137,7 @@ def run(
         "TasksMax": str(pids),
         "CPUQuota": str(cpu) + "%",
         "LimitCORE": "0",
-        "LimitFSIZE": "16M",
+        "LimitFSIZE": str(FILE_LIMIT_MIB.get(name, 16)) + "M",
         "LimitNOFILE": "256",
         "LimitSTACK": "16M",
         "RuntimeMaxSec": str(seconds),
