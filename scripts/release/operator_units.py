@@ -6,9 +6,8 @@ import resource
 import subprocess
 from pathlib import Path
 
-from . import configuration, install, preflight, service_install
+from . import preflight
 from .policy import DeliveryError, invalid_constant, unique_object
-from .services import python_environment
 
 PROFILES = {
     "node-health": ("root", 0, 128, 16, 50, 300),
@@ -87,6 +86,9 @@ def run(
     notification_probe: bool = False,
     action: str | None = None,
 ) -> dict:
+    from . import configuration, install, service_install
+    from .services import python_environment
+
     if os.getuid() != 0 or os.geteuid() != 0 or name not in PROFILES:
         raise DeliveryError("fixed root operator helper required")
     if name == "node-maintenance":

@@ -158,6 +158,7 @@ STARTUP_MODULES = (
     "__init__.py",
     "configuration.py",
     "install.py",
+    "layout.py",
     "journal.py",
     "manifest.py",
     "policy.py",
@@ -169,6 +170,7 @@ STARTUP_MODULES = (
     "proxy_service.py",
     "service_install.py",
     "services.py",
+    "service_profiles.py",
 )
 
 

@@ -405,7 +405,7 @@ def install_snapshot(source: Path, expected: str, cookie: Path, cookie_sha: str)
     ):
         raise DeliveryError("dependency snapshot is not the selected binding")
     payload = install.RELEASES / selected["release_id"] / "payload"
-    for name in ("dependencies.py", "dependency_install.py"):
+    for name in ("dependencies.py", "dependency_policy.py", "dependency_install.py", "layout.py"):
         shipped = payload / "delivery/scripts/release" / name
         preflight.protected(shipped)
         if digest(shipped) != digest(Path(__file__).parent / name):

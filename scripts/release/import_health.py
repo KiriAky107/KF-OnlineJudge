@@ -4,7 +4,8 @@ import argparse
 import os
 from pathlib import Path
 
-from . import install, operator_units, service_bootstrap
+from . import operator_units, service_bootstrap
+from .layout import RELEASES
 from .policy import DeliveryError
 
 
@@ -26,7 +27,7 @@ def main() -> None:
         if status.get("NSpid", "").split()[-1:] != ["1"] or interfaces != {"lo"}:
             raise DeliveryError("private import observation view required")
         payload = Path(__file__).resolve().parents[3]
-        if payload.parent.parent != install.RELEASES or payload.name != "payload":
+        if payload.parent.parent != RELEASES or payload.name != "payload":
             raise DeliveryError("installed import observer required")
         command, env = service_bootstrap.python_command("problem-import", payload.parent.name)
         command[-1] = "kf_oj.workers.problem_status"

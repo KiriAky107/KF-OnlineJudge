@@ -178,6 +178,8 @@ def initialize(password_file: Path, password_sha: str) -> dict:
     for name in (
         "credentials.py",
         "dependencies.py",
+        "dependency_policy.py",
+        "layout.py",
         "dependency_install.py",
         "dependency_initialize.py",
     ):

@@ -9,9 +9,9 @@ import subprocess
 from pathlib import Path
 
 from . import manifest, preflight
+from .layout import RELEASES as RELEASES
 from .policy import DeliveryError, canonical, digest, fields, read_json, sha256
 
-RELEASES = Path("/opt/kf-onlinejudge/releases")
 CURRENT = Path("/opt/kf-onlinejudge/current")
 IMAGES = Path("/var/lib/kf-judge/images")
 ACTIVE = Path("/etc/kf-onlinejudge/active.json")

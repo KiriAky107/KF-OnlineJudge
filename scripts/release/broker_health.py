@@ -7,7 +7,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from . import dependencies, operator_units, preflight
+from . import dependency_policy as dependencies
+from . import operator_units, preflight
 from .policy import DeliveryError, canonical, fields, integer
 
 CTL = Path("/usr/lib/rabbitmq/sbin/rabbitmqctl")

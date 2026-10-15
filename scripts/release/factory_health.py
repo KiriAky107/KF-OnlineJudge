@@ -5,7 +5,8 @@ import os
 import re
 from pathlib import Path
 
-from . import install, operator_units, preflight
+from . import operator_units, preflight
+from .layout import RELEASES
 from .policy import DeliveryError
 
 
@@ -17,7 +18,7 @@ def main() -> None:
         operator_units.guarded("factory-health")
         payload = Path(__file__).resolve().parents[3]
         if (
-            payload.parent.parent != install.RELEASES
+            payload.parent.parent != RELEASES
             or payload.name != "payload"
             or not re.fullmatch(r"sd-[0-9a-f]{12}", payload.parent.name)
         ):

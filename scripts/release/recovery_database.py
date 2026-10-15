@@ -268,6 +268,8 @@ def recover_locked(recovery_id: str, data_sha: str, password_file: Path, passwor
         "restore.py",
         "restore_policy.py",
         "dependencies.py",
+        "dependency_policy.py",
+        "layout.py",
     ):
         if digest(payload / "delivery/scripts/release" / name) != digest(
             Path(__file__).parent / name

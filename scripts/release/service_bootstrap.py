@@ -10,7 +10,7 @@ from pathlib import Path
 
 from . import credentials, preflight
 from .policy import DeliveryError, sha256
-from .services import PROFILES
+from .service_profiles import PROFILES
 
 ROLES = {
     "coordinator": (

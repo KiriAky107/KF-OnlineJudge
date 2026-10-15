@@ -178,7 +178,13 @@ def install_units(source: Path, expected: str) -> dict:
     # A separately trusted operator cannot install a new launcher against an
     # older delivery that lacks that launcher or has different bytes.
     payload = install.RELEASES / selected["release_id"] / "payload"
-    for name in ("services.py", "service_bootstrap.py", "service_install.py"):
+    for name in (
+        "services.py",
+        "service_profiles.py",
+        "service_bootstrap.py",
+        "service_install.py",
+        "layout.py",
+    ):
         shipped = payload / "delivery/scripts/release" / name
         preflight.protected(shipped)
         if digest(shipped) != digest(Path(__file__).parent / name):

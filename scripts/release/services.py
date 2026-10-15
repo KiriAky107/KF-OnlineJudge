@@ -8,14 +8,7 @@ from pathlib import Path
 
 from . import configuration, install, journal, manifest
 from .policy import DeliveryError, canonical, digest
-
-PROFILES = {
-    "api": ("kf-oj", 256, 32, 100, "api.env", None),
-    "coordinator": ("kf-coordinator", 128, 16, 100, None, "coordinator.json"),
-    "outbox": ("kf-oj", 128, 16, 100, "outbox.env", None),
-    "problem-import": ("kf-oj", 128, 16, 100, "import.env", None),
-    "worker": ("kf-worker", 128, 32, 100, None, "worker.json"),
-}
+from .service_profiles import PROFILES as PROFILES
 
 
 def python_environment(payload: Path) -> str:
@@ -139,7 +132,7 @@ def generate(
     bundle: Path, expected: str, source: Path, expected_receipt: str, output: Path
 ) -> dict:
     data = manifest.verify(bundle, expected)
-    for name in ("services.py", "service_bootstrap.py"):
+    for name in ("services.py", "service_profiles.py", "service_bootstrap.py", "layout.py"):
         shipped = bundle / "payload/delivery/scripts/release" / name
         if not shipped.is_file() or digest(shipped) != digest(Path(__file__).parent / name):
             raise DeliveryError("bundle lacks the matching ordinary service launch modules")

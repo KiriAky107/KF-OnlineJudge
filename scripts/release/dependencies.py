@@ -12,26 +12,12 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import configuration, install, preflight, service_install
+from .dependency_policy import QUEUE as QUEUE
+from .dependency_policy import QUEUE_ARGUMENTS as QUEUE_ARGUMENTS
+from .dependency_policy import STORAGE as STORAGE
 from .policy import DeliveryError, canonical, digest
 from .services import python_environment
 
-QUEUE = "kf.judge.evaluations.v1"
-QUEUE_ARGUMENTS = {
-    "x-max-length": 64,
-    "x-max-length-bytes": 32768,
-    "x-overflow": "reject-publish",
-    "x-message-ttl": 600000,
-}
-STORAGE = {
-    "postgres": {
-        "path": "/var/lib/kf-onlinejudge/postgres",
-        "filesystem_bytes": 2 * 1024**3,
-    },
-    "rabbitmq": {
-        "path": "/var/lib/kf-onlinejudge/rabbitmq",
-        "filesystem_bytes": 512 * 1024**2,
-    },
-}
 CONFIGURATION_ROOT = Path("/etc/kf-dependencies")
 
 
@@ -386,10 +372,11 @@ def generate(connections_path: Path, output: Path) -> dict:
         raise DeliveryError("dependency composition requires root operator")
     selected, original = service_install.current_receipt()
     payload = install.RELEASES / selected["release_id"] / "payload"
-    installed = payload / "delivery/scripts/release/dependencies.py"
-    preflight.protected(installed)
-    if digest(installed) != digest(Path(__file__)):
-        raise DeliveryError("dependency composition differs from selected delivery")
+    for name in ("dependencies.py", "dependency_policy.py", "layout.py"):
+        installed = payload / "delivery/scripts/release" / name
+        preflight.protected(installed)
+        if digest(installed) != digest(Path(__file__).parent / name):
+            raise DeliveryError("dependency composition differs from selected delivery")
     configuration.private(connections_path)
     from .policy import read_json
 

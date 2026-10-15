@@ -2273,3 +2273,38 @@ def test_broker_query_selector_never_accepts_extra_commands_or_flags(monkeypatch
     monkeypatch.setattr(broker_health.subprocess, "run", unexpected)
     with pytest.raises(policy.DeliveryError, match="unknown broker metadata query"):
         broker_health.command(name)
+
+
+@pytest.mark.parametrize(
+    "name", ["factory_health", "outbox_health", "import_health", "broker_health"]
+)
+def test_readonly_helper_import_does_not_load_installation_or_configuration_tools(name):
+    # A fresh interpreter catches transitive imports hidden by this test module's
+    # own installer imports. Importing is safe here; helper main() is not run.
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import importlib,json,sys; importlib.import_module(sys.argv[1]); "
+            "print(json.dumps(sorted(sys.modules)))",
+            "scripts.release." + name,
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    loaded = set(json.loads(result.stdout))
+    assert not loaded.intersection(
+        {
+            "scripts.release.install",
+            "scripts.release.configuration",
+            "scripts.release.manifest",
+            "scripts.release.services",
+            "scripts.release.service_install",
+            "scripts.release.dependencies",
+            "sqlalchemy",
+            "pydantic",
+        }
+    )

@@ -164,7 +164,7 @@ def generate(output: Path) -> dict:
         raise DeliveryError("Root factory composition requires trusted operator")
     selected, original = service_install.current_receipt()
     payload = install.RELEASES / selected["release_id"] / "payload"
-    for name in ("factory_service.py", "services.py"):
+    for name in ("factory_service.py", "services.py", "service_profiles.py", "layout.py"):
         installed = payload / "delivery/scripts/release" / name
         preflight.protected(installed)
         if digest(installed) != digest(Path(__file__).parent / name):
@@ -211,7 +211,7 @@ def install_unit(source: Path, expected: str) -> dict:
     ):
         raise DeliveryError("factory unit does not belong to selected configuration")
     payload = install.RELEASES / selected["release_id"] / "payload"
-    for name in ("factory_service.py", "services.py"):
+    for name in ("factory_service.py", "services.py", "service_profiles.py", "layout.py"):
         shipped = payload / "delivery/scripts/release" / name
         preflight.protected(shipped)
         if digest(shipped) != digest(Path(__file__).parent / name):
