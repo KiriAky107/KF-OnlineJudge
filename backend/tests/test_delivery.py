@@ -1759,6 +1759,7 @@ def test_readiness_rejects_wrong_or_excess_database_authority(field, value):
         "set_role": False,
         "connection_limit": 8,
         "privileges": node_health.PRIVILEGES["coordinator"].copy(),
+        "functions": node_health.function_privileges("coordinator"),
     }
     node_health.validate_role("coordinator", observed)
     observed[field] = value
@@ -2421,3 +2422,69 @@ def test_readonly_helper_import_does_not_load_installation_or_configuration_tool
             "pydantic",
         }
     )
+
+
+def test_readiness_database_handshake_uses_only_explicit_local_transport(monkeypatch):
+    import asyncio
+
+    import asyncpg
+
+    class ReachedLocalConnection(Exception):
+        pass
+
+    async def connect(raw, **kwargs):
+        assert raw == "synthetic-local-dsn"
+        assert kwargs["ssl"] is False
+        assert kwargs["timeout"] == 5 and kwargs["command_timeout"] == 2
+        assert kwargs["server_settings"]["default_transaction_read_only"] == "on"
+        assert kwargs["server_settings"]["statement_timeout"] == "2000"
+        raise ReachedLocalConnection
+
+    monkeypatch.setattr(asyncpg, "connect", connect)
+    with pytest.raises(ReachedLocalConnection):
+        asyncio.run(node_health.roles({"database": {"api": "synthetic-local-dsn"}}))
+
+
+@pytest.mark.parametrize(
+    "change", [None, "table_read", "column_write", "unlogged", "missing_entry"]
+)
+def test_identity_readiness_requires_only_the_audited_authority_entrypoint(change):
+    observed = {
+        "login": "kf_identity_operator",
+        "database": "kf_onlinejudge",
+        "canlogin": True,
+        "superuser": False,
+        "createdb": False,
+        "createrole": False,
+        "replication": False,
+        "bypassrls": False,
+        "member": True,
+        "inherited": True,
+        "set_role": False,
+        "connection_limit": 8,
+        "privileges": {
+            "accounts:SELECT": False,
+            "accounts:is_administrator:UPDATE": False,
+            "accounts:password_hash:SELECT": False,
+            "sessions:token_hash:SELECT": False,
+            "evaluations:SELECT": False,
+            "evaluations:state:UPDATE": False,
+        },
+        "functions": {
+            "public.kf_manage_account_authority(text,text)": True,
+            "public.kf_manage_account_authority_unlogged(text,text)": False,
+        },
+    }
+    if change == "table_read":
+        observed["privileges"]["accounts:SELECT"] = True
+    elif change == "column_write":
+        observed["privileges"]["accounts:is_administrator:UPDATE"] = True
+    elif change == "unlogged":
+        observed["functions"]["public.kf_manage_account_authority_unlogged(text,text)"] = True
+    elif change == "missing_entry":
+        observed["functions"]["public.kf_manage_account_authority(text,text)"] = False
+    if change is None:
+        node_health.validate_role("identity", observed)
+    else:
+        with pytest.raises(policy.DeliveryError, match="role authority"):
+            node_health.validate_role("identity", observed)

@@ -51,12 +51,24 @@ PRIVILEGES = {
         "accounts:SELECT": False,
     },
     "identity": {
-        "accounts:SELECT": True,
-        "accounts:is_administrator:UPDATE": True,
+        "accounts:SELECT": False,
+        "accounts:is_administrator:UPDATE": False,
+        "accounts:password_hash:SELECT": False,
+        "sessions:token_hash:SELECT": False,
         "evaluations:SELECT": False,
         "evaluations:state:UPDATE": False,
     },
 }
+AUTHORITY_FUNCTIONS = (
+    "public.kf_manage_account_authority(text,text)",
+    "public.kf_manage_account_authority_unlogged(text,text)",
+)
+
+
+def function_privileges(role: str) -> dict:
+    return {
+        name: role == "identity" and name == AUTHORITY_FUNCTIONS[0] for name in AUTHORITY_FUNCTIONS
+    }
 
 
 def binding() -> tuple[dict, dict, Path]:
@@ -260,6 +272,7 @@ def validate_role(role: str, observed: dict) -> None:
         "set_role": False,
         "connection_limit": 8,
         "privileges": PRIVILEGES[role],
+        "functions": function_privileges(role),
     }
     if canonical(observed) != canonical(expected):
         raise DeliveryError("database role authority differs")
@@ -272,7 +285,11 @@ async def roles(endpoints: dict) -> dict:
     for role, requirements in PRIVILEGES.items():
         connection = await asyncpg.connect(
             endpoints["database"][role],
-            timeout=2,
+            # Connections are restricted to numeric loopback or a private Unix
+            # socket; PostgreSQL has TLS disabled. Avoid home-certificate lookup
+            # inside ProtectHome and allow the bounded local SCRAM handshake.
+            ssl=False,
+            timeout=5,
             command_timeout=2,
             server_settings={
                 "application_name": "kf-node-health",
@@ -304,6 +321,12 @@ async def roles(endpoints: dict) -> dict:
                     else "SELECT has_column_privilege(current_user,$1,$2,$3)",
                     *parts,
                 )
+            observed["functions"] = {
+                name: await connection.fetchval(
+                    "SELECT has_function_privilege(current_user,$1,'EXECUTE')", name
+                )
+                for name in AUTHORITY_FUNCTIONS
+            }
             validate_role(role, observed)
             result[role] = {"authority_verified": True}
         finally:

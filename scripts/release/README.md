@@ -420,6 +420,11 @@ its memory, process and privilege limits remain fixed. These operator budgets
 do not change student execution budgets. Startup opens admission only after all
 required readiness queries succeed.
 
+Database authority queries use the fixed local TCP/Unix endpoints with TLS disabled
+and a five-second connection deadline. SQL remains read-only with a two-second
+statement limit. The identity operator needs EXECUTE on the audited authority
+function, with no direct account/session access or unlogged authority entrypoint.
+
 Broker metadata uses one fixed read-only RPC with a five-second remote deadline
 and a 30-second CLI process deadline, within the helper's 45-second limit. It reads
 queue metadata, vhost limits, usernames/tags and permissions; it does not read
