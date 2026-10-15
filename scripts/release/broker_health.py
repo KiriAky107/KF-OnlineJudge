@@ -4,56 +4,33 @@ import argparse
 import json
 import stat
 import subprocess
-import tempfile
 from pathlib import Path
 
+from . import broker_snapshot, operator_units, preflight
 from . import dependency_policy as dependencies
-from . import operator_units, preflight
 from .policy import DeliveryError, canonical, fields, integer
 
-CTL = Path("/usr/lib/rabbitmq/sbin/rabbitmqctl")
-QUERIES = {
-    "queues": [
-        "list_queues",
-        "-p",
-        "kf",
-        "name",
-        "durable",
-        "auto_delete",
-        "exclusive",
-        "type",
-        "state",
-        "arguments",
-        "messages_ready",
-        "messages_unacknowledged",
-        "message_bytes",
-        "consumers",
-        "policy",
-        "operator_policy",
-        "effective_policy_definition",
-    ],
-    "vhost_limits": ["list_vhost_limits", "--global"],
-    "users": ["list_users"],
-    "permissions": ["list_permissions", "-p", "kf"],
-}
+CTL = broker_snapshot.CTL
 
 
 def queue_arguments(value) -> dict:
     if isinstance(value, dict):
-        result = value
-    elif isinstance(value, list) and len(value) == 4:
+        result = dict(value)
+    elif isinstance(value, list) and len(value) in (4, 5):
         result = {}
         for row in value:
             if not isinstance(row, list) or len(row) != 3 or row[0] in result:
                 raise DeliveryError("duplicate/unknown broker argument")
             name, kind, argument = row
-            if name not in dependencies.QUEUE_ARGUMENTS or kind != (
-                "longstr" if name == "x-overflow" else "long"
+            if name not in {*dependencies.QUEUE_ARGUMENTS, "x-queue-type"} or kind != (
+                "longstr" if name in {"x-overflow", "x-queue-type"} else "long"
             ):
                 raise DeliveryError("broker argument type differs")
             result[name] = argument
     else:
         raise DeliveryError("broker argument shape differs")
+    if "x-queue-type" in result and result.pop("x-queue-type") != "classic":
+        raise DeliveryError("actual broker queue type differs")
     if canonical(result) != canonical(dependencies.QUEUE_ARGUMENTS):
         raise DeliveryError("actual broker queue budgets differ")
     return result
@@ -148,49 +125,6 @@ def validate_snapshot(value: dict) -> dict:
     }
 
 
-def command(name: str):
-    if name not in QUERIES:
-        raise DeliveryError("unknown broker metadata query")
-    # A file-backed capped stream prevents malicious metadata/log output from
-    # allocating an unbounded capture buffer. The unit adds a hard file limit.
-    env = {
-        "PATH": "/usr/bin:/bin",
-        "LC_ALL": "C.UTF-8",
-        "HOME": dependencies.STORAGE["rabbitmq"]["path"],
-        "ERL_EPMD_ADDRESS": "127.0.0.1",
-        "RABBITMQ_NODENAME": "kf@localhost",
-        "RABBITMQ_CTL_ERL_ARGS": (
-            "+S 1:1 +A 2 +P 1024 +Q 1024 -kernel inet_dist_use_interface {127,0,0,1}"
-        ),
-    }
-    with tempfile.TemporaryFile() as output:
-        try:
-            result = subprocess.run(
-                [
-                    str(CTL),
-                    "-q",
-                    "-n",
-                    "kf@localhost",
-                    "--timeout",
-                    "5",
-                    *QUERIES[name],
-                    "--formatter=json",
-                ],
-                stdout=output,
-                stderr=subprocess.DEVNULL,
-                timeout=8,
-                env=env,
-            )
-        except subprocess.TimeoutExpired as error:
-            raise DeliveryError("broker " + name + " query exceeded deadline") from error
-        if result.returncode:
-            raise DeliveryError("broker " + name + " query failed")
-        if output.tell() > 32768:
-            raise DeliveryError("broker " + name + " query output exceeds bound")
-        output.seek(0)
-        return operator_units.decode(output.read(32769))
-
-
 def observe() -> dict:
     operator_units.guarded("broker-health")
     preflight.protected(CTL)
@@ -202,8 +136,7 @@ def observe() -> dict:
         or (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) != (1204, 1204, 0o400)
     ):
         raise DeliveryError("ordinary private broker cookie required")
-    data = {name: command(name) for name in QUERIES}
-    return validate_snapshot(data)
+    return validate_snapshot(broker_snapshot.command())
 
 
 def main() -> None:

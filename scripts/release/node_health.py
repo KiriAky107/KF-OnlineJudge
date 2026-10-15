@@ -66,6 +66,7 @@ def binding() -> tuple[dict, dict, Path]:
         "availability.py",
         "node_health.py",
         "broker_health.py",
+        "broker_snapshot.py",
         "factory_health.py",
         "import_health.py",
         "operator_units.py",

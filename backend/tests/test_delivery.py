@@ -2233,46 +2233,159 @@ def test_proxy_render_is_fixed_to_a_selected_snapshot_without_business_credentia
     assert "EnvironmentFile=" not in text and "LoadCredential=" not in text
 
 
-@pytest.mark.parametrize("name", ["queues", "vhost_limits", "users", "permissions"])
 @pytest.mark.parametrize("failure", ["deadline", "exit", "output"])
-def test_broker_query_failure_identifies_fixed_operation_without_leaking_process_data(
-    monkeypatch, name, failure
-):
-    import subprocess
+def test_broker_snapshot_failure_keeps_process_details_private(monkeypatch, failure):
     from types import SimpleNamespace
 
-    from scripts.release import broker_health
+    from scripts.release import broker_snapshot
 
     secret = "synthetic-private-process-detail"
 
     def failed(command, *, stdout, stderr, timeout, env):
-        assert stderr == subprocess.DEVNULL
-        assert timeout == 8
-        assert command[-1] == "--formatter=json"
+        assert stderr == subprocess.DEVNULL and timeout == 30
+        assert command == [
+            str(broker_snapshot.CTL),
+            "-q",
+            "-n",
+            "kf@localhost",
+            "--timeout",
+            "5",
+            "eval",
+            broker_snapshot.SNAPSHOT_EXPRESSION,
+            "--formatter=json",
+        ]
+        assert env["ERL_EPMD_ADDRESS"] == "127.0.0.1"
+        assert "rpc:call(node(), erlang, apply," in command[7]
+        assert command[7].endswith("end, []], 5000).")
         if failure == "deadline":
             raise subprocess.TimeoutExpired([secret], timeout, stderr=secret.encode())
         if failure == "output":
             stdout.write(b"x" * 32769)
         return SimpleNamespace(returncode=1 if failure == "exit" else 0)
 
-    monkeypatch.setattr(broker_health.subprocess, "run", failed)
+    monkeypatch.setattr(broker_snapshot.subprocess, "run", failed)
     suffix = {"deadline": "exceeded deadline", "exit": "failed", "output": "output exceeds bound"}
     with pytest.raises(policy.DeliveryError) as raised:
-        broker_health.command(name)
-    assert str(raised.value) == "broker " + name + " query " + suffix[failure]
+        broker_snapshot.command()
+    assert str(raised.value) == "broker snapshot query " + suffix[failure]
     assert secret not in str(raised.value)
 
 
+@pytest.mark.parametrize("change", [None, "node", "result", "rpc_failure", "extra", "duplicate"])
+def test_broker_snapshot_accepts_only_the_pinned_node_envelope(monkeypatch, change):
+    from types import SimpleNamespace
+
+    from scripts.release import broker_snapshot
+
+    snapshot = {"queues": [], "vhost_limits": [], "users": [], "permissions": []}
+    envelope = {"result": "ok", "node": "kf@localhost", "value": json.dumps(snapshot)}
+    if change == "node":
+        envelope["node"] = "other@localhost"
+    elif change == "result":
+        envelope["result"] = "error"
+    elif change == "rpc_failure":
+        envelope["value"] = ["badrpc", "timeout"]
+    elif change == "extra":
+        envelope["unknown"] = True
+    raw = json.dumps(envelope).encode()
+    if change == "duplicate":
+        raw = b'{"node":"kf@localhost",' + raw[1:]
+
+    def query(command, *, stdout, **kwargs):
+        stdout.write(raw)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(broker_snapshot.subprocess, "run", query)
+    if change is None:
+        assert broker_snapshot.command() == snapshot
+    else:
+        with pytest.raises(policy.DeliveryError):
+            broker_snapshot.command()
+
+
 @pytest.mark.parametrize("name", ["delete_queue", "users --delete", None])
-def test_broker_query_selector_never_accepts_extra_commands_or_flags(monkeypatch, name):
-    from scripts.release import broker_health
+def test_broker_snapshot_has_no_command_or_expression_selector(monkeypatch, name):
+    from scripts.release import broker_snapshot
 
     def unexpected(*args, **kwargs):
-        pytest.fail("unknown selector launched a process")
+        pytest.fail("caller text launched a process")
 
-    monkeypatch.setattr(broker_health.subprocess, "run", unexpected)
-    with pytest.raises(policy.DeliveryError, match="unknown broker metadata query"):
-        broker_health.command(name)
+    monkeypatch.setattr(broker_snapshot.subprocess, "run", unexpected)
+    with pytest.raises(TypeError):
+        broker_snapshot.command(name)
+
+
+@pytest.mark.parametrize(
+    "kind,value", [("longstr", "classic"), ("longstr", "quorum"), ("long", "classic")]
+)
+def test_broker_arguments_allow_only_exact_automatic_classic_type(kind, value):
+    args = [
+        [k, "longstr" if k == "x-overflow" else "long", v]
+        for k, v in dependencies.QUEUE_ARGUMENTS.items()
+    ]
+    args.append(["x-queue-type", kind, value])
+    if (kind, value) == ("longstr", "classic"):
+        assert broker_health.queue_arguments(args) == dependencies.QUEUE_ARGUMENTS
+        supplied = {**dependencies.QUEUE_ARGUMENTS, "x-queue-type": "classic"}
+        assert broker_health.queue_arguments(supplied) == dependencies.QUEUE_ARGUMENTS
+        assert supplied["x-queue-type"] == "classic"
+        args[-1] = args[0].copy()
+    with pytest.raises(policy.DeliveryError):
+        broker_health.queue_arguments(args)
+
+
+@pytest.mark.parametrize(
+    "name", ["broker-health", "factory-health", "import-health", "outbox-health"]
+)
+@pytest.mark.parametrize("cpu", ["100000 100000", "max 100000", "200000 100000"])
+def test_fixed_health_guard_still_requires_exact_helper_and_node_cpu(monkeypatch, name, cpu):
+    import resource
+
+    from scripts.release import operator_units
+
+    _, uid, memory, pids, expected_cpu, _ = operator_units.PROFILES[name]
+    assert expected_cpu == 100
+    monkeypatch.setattr(operator_units.os, "getuid", lambda: uid)
+    monkeypatch.setattr(operator_units.os, "geteuid", lambda: uid)
+    monkeypatch.setattr(operator_units.os, "getgid", lambda: uid)
+    monkeypatch.setattr(operator_units.os, "getgroups", lambda: [uid])
+    group = Path("/sys/fs/cgroup/kfonlinejudge.slice/kf-" + name + ".service")
+    monkeypatch.setattr(operator_units.preflight, "current_cgroup", lambda: group)
+    observed = {
+        "memory.max": str(memory * 1024**2),
+        "memory.swap.max": "0",
+        "pids.max": str(pids),
+        "cpu.max": cpu,
+    }
+    node = {
+        "memory.max": str(3840 * 1024**2),
+        "memory.swap.max": "0",
+        "pids.max": "384",
+        "cpu.max": "200000 100000",
+    }
+
+    def read(path, *args, **kwargs):
+        if str(path) == "/proc/self/status":
+            return "NoNewPrivs: 1\n" + "\n".join(
+                k + ": 0" for k in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb")
+            )
+        return (observed if path.parent == group else node)[path.name]
+
+    monkeypatch.setattr(Path, "read_text", read)
+    limits = {
+        resource.RLIMIT_CORE: 0,
+        resource.RLIMIT_FSIZE: operator_units.FILE_LIMIT_MIB.get(name, 16) * 1024**2,
+        resource.RLIMIT_NOFILE: 256,
+        resource.RLIMIT_STACK: 16 * 1024**2,
+    }
+    monkeypatch.setattr(
+        operator_units.resource, "getrlimit", lambda key: (limits[key], limits[key])
+    )
+    if cpu == "100000 100000":
+        operator_units.guarded(name)
+    else:
+        with pytest.raises(policy.DeliveryError, match="budgets differ"):
+            operator_units.guarded(name)
 
 
 @pytest.mark.parametrize(

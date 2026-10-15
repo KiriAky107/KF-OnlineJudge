@@ -415,9 +415,16 @@ end-to-end target still requires measured acceptance.
 Fixed health helpers include interpreter startup in their wall-clock deadline.
 Outbox and import queries have 60 seconds each; factory status has 30 seconds and
 broker metadata has 45 seconds. Node readiness has 300 seconds for the sequential
-checks. Each helper keeps its fixed CPU, memory, process and privilege limits.
-These operator deadlines do not change student execution budgets. An expired or
-failed query keeps admission closed.
+checks. Each ordinary helper has one CPU within the node's two-CPU ceiling;
+its memory, process and privilege limits remain fixed. These operator budgets
+do not change student execution budgets. Startup opens admission only after all
+required readiness queries succeed.
+
+Broker metadata uses one fixed read-only RPC with a five-second remote deadline
+and a 30-second CLI process deadline, within the helper's 45-second limit. It reads
+queue metadata, vhost limits, usernames/tags and permissions; it does not read
+messages or password hashes. Readiness requires exactly the configured classic
+queue and budgets, including RabbitMQ's optional `x-queue-type=classic` argument.
 
 The broker helper has a 64 MiB per-file ceiling for Erlang JIT mappings.
 [OTP 27.3.4](https://github.com/erlang/otp/blob/OTP-27.3.4/erts/emulator/beam/jit/beam_jit_main.cpp)
