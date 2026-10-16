@@ -1,0 +1,28 @@
+[Unit]
+Description=KF bounded Linux helper factory
+After=local-fs.target
+
+[Service]
+Type=exec
+User=root
+Group=root
+# Trusted operator installs this exact binary/config and separate delegated
+# task root. No caller-controlled executable, image or environment is accepted.
+ExecStart=/usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C /usr/lib/kf-judge/kf-sandbox factory --config /etc/kf-judge/runtime.json --lifetime-seconds 3600
+MemoryMax=256M
+MemorySwapMax=0
+TasksMax=32
+CPUQuota=50%
+LimitFSIZE=64M
+RuntimeMaxSec=3700
+TimeoutStopSec=30
+# First stop the factory; guardians cancel live helpers through their normal
+# cleanup path. Remaining processes are terminated at the finite stop deadline.
+KillMode=mixed
+Restart=no
+UMask=0077
+# Requires root namespace/mount/cgroup privileges. Do not set NoNewPrivileges or
+# an inherited seccomp filter: the existing execution gate intentionally refuses.
+
+[Install]
+WantedBy=multi-user.target

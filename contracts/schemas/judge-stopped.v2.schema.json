@@ -1,0 +1,69 @@
+{
+  "$comment": "Multi-runtime protocol. Also validate runtime/source/attempt bindings, startup and node budgets, canonical bounded class sets and result consistency.",
+  "$defs": {
+    "LeaseBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "format": "uuid",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "evaluation_id": {
+          "format": "uuid",
+          "title": "Evaluation Id",
+          "type": "string"
+        },
+        "fencing_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Fencing Version",
+          "type": "integer"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evaluation_id",
+        "attempt_id",
+        "worker_id",
+        "fencing_version"
+      ],
+      "title": "LeaseBinding",
+      "type": "object"
+    }
+  },
+  "$id": "urn:kf-oj:judge-stopped:v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "binding": {
+      "$ref": "#/$defs/LeaseBinding"
+    },
+    "cleanup_complete": {
+      "title": "Cleanup Complete",
+      "type": "boolean"
+    },
+    "kind": {
+      "const": "judge.stopped",
+      "title": "Kind",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "binding",
+    "cleanup_complete"
+  ],
+  "title": "StoppedReport",
+  "type": "object"
+}

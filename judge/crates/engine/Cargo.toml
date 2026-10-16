@@ -7,6 +7,10 @@ license.workspace = true
 
 [dependencies]
 kf-contracts.workspace = true
+serde.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

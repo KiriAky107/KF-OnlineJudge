@@ -1,0 +1,416 @@
+{
+  "$comment": "Multi-runtime protocol. Also validate runtime/source/attempt bindings, startup and node budgets, canonical bounded class sets and result consistency.",
+  "$defs": {
+    "ArtifactReference": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "maximum": 67108864,
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "digest": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest",
+        "bytes"
+      ],
+      "title": "ArtifactReference",
+      "type": "object"
+    },
+    "CaseReport": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "format": "uuid",
+          "title": "Case Id",
+          "type": "string"
+        },
+        "cpu_time_us": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cpu Time Us"
+        },
+        "memory_peak_bytes": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Memory Peak Bytes"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        }
+      },
+      "required": [
+        "case_id",
+        "verdict",
+        "cpu_time_us",
+        "memory_peak_bytes"
+      ],
+      "title": "CaseReport",
+      "type": "object"
+    },
+    "CompilationReport": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu_time_us": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cpu Time Us"
+        },
+        "diagnostics": {
+          "maxLength": 65536,
+          "title": "Diagnostics",
+          "type": "string"
+        },
+        "diagnostics_truncated": {
+          "title": "Diagnostics Truncated",
+          "type": "boolean"
+        },
+        "memory_peak_bytes": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Memory Peak Bytes"
+        },
+        "program": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompiledProgram"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/CompilationStatus"
+        }
+      },
+      "required": [
+        "status",
+        "program",
+        "diagnostics",
+        "diagnostics_truncated",
+        "cpu_time_us",
+        "memory_peak_bytes"
+      ],
+      "title": "CompilationReport",
+      "type": "object"
+    },
+    "CompilationStatus": {
+      "enum": [
+        "succeeded",
+        "compilation_error",
+        "compilation_limit",
+        "cancelled",
+        "system_error"
+      ],
+      "title": "CompilationStatus",
+      "type": "string"
+    },
+    "CompiledProgram": {
+      "additionalProperties": false,
+      "description": "Sealed file identities bound to a particular source, runtime and lease attempt.",
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/LeaseBinding"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/ProgramFile"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "title": "Files",
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProgramKind"
+        },
+        "source": {
+          "$ref": "#/$defs/ArtifactReference"
+        },
+        "toolchain": {
+          "$ref": "#/$defs/RuntimeIdentity"
+        }
+      },
+      "required": [
+        "kind",
+        "binding",
+        "source",
+        "toolchain",
+        "files"
+      ],
+      "title": "CompiledProgram",
+      "type": "object"
+    },
+    "FailureCode": {
+      "enum": [
+        "artifact_unavailable",
+        "sandbox_unavailable",
+        "cleanup_failed",
+        "lease_lost",
+        "job_deadline"
+      ],
+      "title": "FailureCode",
+      "type": "string"
+    },
+    "LeaseBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "format": "uuid",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "evaluation_id": {
+          "format": "uuid",
+          "title": "Evaluation Id",
+          "type": "string"
+        },
+        "fencing_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Fencing Version",
+          "type": "integer"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evaluation_id",
+        "attempt_id",
+        "worker_id",
+        "fencing_version"
+      ],
+      "title": "LeaseBinding",
+      "type": "object"
+    },
+    "ProgramFile": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactReference"
+        },
+        "path": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "artifact"
+      ],
+      "title": "ProgramFile",
+      "type": "object"
+    },
+    "ProgramKind": {
+      "enum": [
+        "native_executable",
+        "python_source",
+        "java_classes"
+      ],
+      "title": "ProgramKind",
+      "type": "string"
+    },
+    "RuntimeIdentity": {
+      "additionalProperties": false,
+      "description": "An exact identity matched against trusted configuration, never a host path.",
+      "properties": {
+        "image_digest": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Image Digest",
+          "type": "string"
+        },
+        "image_kind": {
+          "enum": [
+            "linux_gnu_cxx_x86_64_v1",
+            "linux_cpython313_x86_64_v1",
+            "linux_openjdk21_x86_64_v1"
+          ],
+          "title": "Image Kind",
+          "type": "string"
+        },
+        "image_revision": {
+          "maximum": 4294967295,
+          "minimum": 1,
+          "title": "Image Revision",
+          "type": "integer"
+        },
+        "runtime_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$",
+          "title": "Runtime Version",
+          "type": "string"
+        },
+        "toolchain_id": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+          "title": "Toolchain Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "toolchain_id",
+        "image_kind",
+        "image_revision",
+        "image_digest",
+        "runtime_version"
+      ],
+      "title": "RuntimeIdentity",
+      "type": "object"
+    },
+    "Verdict": {
+      "enum": [
+        "accepted",
+        "wrong_answer",
+        "compilation_error",
+        "runtime_error",
+        "time_limit_exceeded",
+        "memory_limit_exceeded",
+        "output_limit_exceeded",
+        "cancelled",
+        "system_error"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "$id": "urn:kf-oj:judge-result:v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "binding": {
+      "$ref": "#/$defs/LeaseBinding"
+    },
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/CaseReport"
+      },
+      "maxItems": 256,
+      "title": "Cases",
+      "type": "array"
+    },
+    "cleanup_complete": {
+      "title": "Cleanup Complete",
+      "type": "boolean"
+    },
+    "compilation": {
+      "$ref": "#/$defs/CompilationReport"
+    },
+    "failure_code": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FailureCode"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "kind": {
+      "const": "judge.result",
+      "title": "Kind",
+      "type": "string"
+    },
+    "manifest_digest": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Digest",
+      "type": "string"
+    },
+    "run_cpu_time_us": {
+      "anyOf": [
+        {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Run Cpu Time Us"
+    },
+    "run_memory_peak_bytes": {
+      "anyOf": [
+        {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Run Memory Peak Bytes"
+    },
+    "schema_version": {
+      "const": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "verdict": {
+      "$ref": "#/$defs/Verdict"
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "binding",
+    "manifest_digest",
+    "compilation",
+    "cases",
+    "verdict",
+    "cleanup_complete",
+    "failure_code",
+    "run_cpu_time_us",
+    "run_memory_peak_bytes"
+  ],
+  "title": "JudgementReport",
+  "type": "object"
+}

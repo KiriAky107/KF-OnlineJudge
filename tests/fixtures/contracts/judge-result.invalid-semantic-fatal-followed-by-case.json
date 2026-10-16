@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "judge.result",
+  "binding": {
+    "evaluation_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+    "attempt_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000007",
+    "worker_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000008",
+    "fencing_version": 1
+  },
+  "manifest_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "compilation": {
+    "status": "succeeded",
+    "program": {
+      "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "bytes": 4096
+    },
+    "diagnostics": "",
+    "diagnostics_truncated": false,
+    "cpu_time_us": 100000,
+    "memory_peak_bytes": 16777216
+  },
+  "cases": [
+    {
+      "case_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000004",
+      "verdict": "system_error",
+      "cpu_time_us": 100,
+      "memory_peak_bytes": 262144
+    },
+    {
+      "case_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000005",
+      "verdict": "accepted",
+      "cpu_time_us": 200,
+      "memory_peak_bytes": 524288
+    },
+    {
+      "case_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000006",
+      "verdict": "accepted",
+      "cpu_time_us": 300,
+      "memory_peak_bytes": 524288
+    }
+  ],
+  "verdict": "system_error",
+  "cleanup_complete": true,
+  "failure_code": "sandbox_unavailable",
+  "run_cpu_time_us": 600,
+  "run_memory_peak_bytes": 524288
+}

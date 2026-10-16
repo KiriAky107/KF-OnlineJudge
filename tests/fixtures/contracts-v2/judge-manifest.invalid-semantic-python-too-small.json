@@ -1,0 +1,80 @@
+{
+  "schema_version": 2,
+  "kind": "judge.manifest",
+  "evaluation_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+  "submission_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000002",
+  "problem_version_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000003",
+  "language": "python313",
+  "toolchain": {
+    "toolchain_id": "cpython313-v1",
+    "image_kind": "linux_cpython313_x86_64_v1",
+    "image_revision": 1,
+    "image_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runtime_version": "3.13.16"
+  },
+  "source": {
+    "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bytes": 124
+  },
+  "cases": [
+    {
+      "case_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000004",
+      "input": {
+        "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "bytes": 0
+      },
+      "expected": {
+        "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "bytes": 0
+      }
+    },
+    {
+      "case_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000005",
+      "input": {
+        "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "bytes": 1
+      },
+      "expected": {
+        "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "bytes": 1
+      }
+    },
+    {
+      "case_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000006",
+      "input": {
+        "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "bytes": 2
+      },
+      "expected": {
+        "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "bytes": 2
+      }
+    }
+  ],
+  "comparison": "exact_bytes",
+  "compile_limits": {
+    "cpu_time_us": 10000000,
+    "wall_time_us": 30000000,
+    "memory_bytes": 536870912,
+    "stack_bytes": 16777216,
+    "processes": 32,
+    "open_files": 128,
+    "stdout_bytes": 1048576,
+    "stderr_bytes": 1048576,
+    "file_bytes": 67108864,
+    "workdir_bytes": 268435456
+  },
+  "run_limits": {
+    "cpu_time_us": 1000000,
+    "wall_time_us": 3000000,
+    "memory_bytes": 16777216,
+    "stack_bytes": 8388608,
+    "processes": 8,
+    "open_files": 64,
+    "stdout_bytes": 1048576,
+    "stderr_bytes": 1048576,
+    "file_bytes": 16777216,
+    "workdir_bytes": 67108864
+  },
+  "job_wall_time_us": 60000000
+}

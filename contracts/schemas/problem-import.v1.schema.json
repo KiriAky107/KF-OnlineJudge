@@ -1,0 +1,423 @@
+{
+  "$defs": {
+    "CandidatePreview": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "format": "uuid",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "case_count": {
+          "maximum": 256,
+          "minimum": 1,
+          "title": "Case Count",
+          "type": "integer"
+        },
+        "judging_schema_version": {
+          "maximum": 2,
+          "minimum": 1,
+          "title": "Judging Schema Version",
+          "type": "integer"
+        },
+        "language_configurations": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PublicLanguageConfiguration"
+          },
+          "maxItems": 4,
+          "title": "Language Configurations",
+          "type": "array"
+        },
+        "languages": {
+          "items": {
+            "$ref": "#/$defs/Language"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "title": "Languages",
+          "type": "array"
+        },
+        "legacy_budget": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LegacyImportBudget"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "samples": {
+          "items": {
+            "$ref": "#/$defs/PublicSample"
+          },
+          "maxItems": 10,
+          "title": "Samples",
+          "type": "array"
+        },
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+          "title": "Slug",
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 262144,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "slug",
+        "title",
+        "statement",
+        "samples",
+        "judging_schema_version",
+        "languages",
+        "legacy_budget",
+        "case_count"
+      ],
+      "title": "CandidatePreview",
+      "type": "object"
+    },
+    "ImportFailure": {
+      "enum": [
+        "invalid_archive",
+        "invalid_manifest",
+        "invalid_data",
+        "digest_mismatch",
+        "policy_rejected",
+        "upload_interrupted",
+        "upload_deadline",
+        "validation_deadline",
+        "validation_unavailable",
+        "storage_unavailable",
+        "authority_revoked",
+        "expired"
+      ],
+      "title": "ImportFailure",
+      "type": "string"
+    },
+    "ImportState": {
+      "enum": [
+        "uploading",
+        "uploaded",
+        "validating",
+        "ready",
+        "failed",
+        "published",
+        "discarded",
+        "expired"
+      ],
+      "title": "ImportState",
+      "type": "string"
+    },
+    "Language": {
+      "enum": [
+        "c17",
+        "cpp20",
+        "python313",
+        "java21"
+      ],
+      "title": "Language",
+      "type": "string"
+    },
+    "LegacyImportBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "compile_limits": {
+          "$ref": "#/$defs/RunLimits"
+        },
+        "job_wall_time_us": {
+          "maximum": 3600000000,
+          "minimum": 1000,
+          "title": "Job Wall Time Us",
+          "type": "integer"
+        },
+        "run_limits": {
+          "$ref": "#/$defs/RunLimits"
+        }
+      },
+      "required": [
+        "compile_limits",
+        "run_limits",
+        "job_wall_time_us"
+      ],
+      "title": "LegacyImportBudget",
+      "type": "object"
+    },
+    "PreparationKind": {
+      "enum": [
+        "compile",
+        "syntax_check"
+      ],
+      "title": "PreparationKind",
+      "type": "string"
+    },
+    "PublicLanguageConfiguration": {
+      "additionalProperties": false,
+      "properties": {
+        "compile_limits": {
+          "$ref": "#/$defs/RunLimits"
+        },
+        "entrypoint": {
+          "title": "Entrypoint",
+          "type": "string"
+        },
+        "job_wall_time_us": {
+          "title": "Job Wall Time Us",
+          "type": "integer"
+        },
+        "language": {
+          "$ref": "#/$defs/Language"
+        },
+        "preparation_kind": {
+          "$ref": "#/$defs/PreparationKind"
+        },
+        "run_limits": {
+          "$ref": "#/$defs/RunLimits"
+        },
+        "runtime_version": {
+          "title": "Runtime Version",
+          "type": "string"
+        },
+        "source_name": {
+          "title": "Source Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "language",
+        "runtime_version",
+        "source_name",
+        "entrypoint",
+        "preparation_kind",
+        "compile_limits",
+        "run_limits",
+        "job_wall_time_us"
+      ],
+      "title": "PublicLanguageConfiguration",
+      "type": "object"
+    },
+    "PublicSample": {
+      "additionalProperties": false,
+      "properties": {
+        "encoding": {
+          "const": "base64",
+          "default": "base64",
+          "title": "Encoding",
+          "type": "string"
+        },
+        "input": {
+          "maxLength": 87384,
+          "title": "Input",
+          "type": "string"
+        },
+        "output": {
+          "maxLength": 87384,
+          "title": "Output",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "output"
+      ],
+      "title": "PublicSample",
+      "type": "object"
+    },
+    "RunLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu_time_us": {
+          "maximum": 60000000,
+          "minimum": 1000,
+          "title": "Cpu Time Us",
+          "type": "integer"
+        },
+        "file_bytes": {
+          "maximum": 67108864,
+          "minimum": 1,
+          "title": "File Bytes",
+          "type": "integer"
+        },
+        "memory_bytes": {
+          "maximum": 2147483648,
+          "minimum": 1,
+          "title": "Memory Bytes",
+          "type": "integer"
+        },
+        "open_files": {
+          "maximum": 1024,
+          "minimum": 3,
+          "title": "Open Files",
+          "type": "integer"
+        },
+        "processes": {
+          "maximum": 128,
+          "minimum": 1,
+          "title": "Processes",
+          "type": "integer"
+        },
+        "stack_bytes": {
+          "maximum": 268435456,
+          "minimum": 1,
+          "title": "Stack Bytes",
+          "type": "integer"
+        },
+        "stderr_bytes": {
+          "maximum": 16777216,
+          "minimum": 1,
+          "title": "Stderr Bytes",
+          "type": "integer"
+        },
+        "stdout_bytes": {
+          "maximum": 16777216,
+          "minimum": 1,
+          "title": "Stdout Bytes",
+          "type": "integer"
+        },
+        "wall_time_us": {
+          "maximum": 120000000,
+          "minimum": 1000,
+          "title": "Wall Time Us",
+          "type": "integer"
+        },
+        "workdir_bytes": {
+          "maximum": 268435456,
+          "minimum": 1,
+          "title": "Workdir Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cpu_time_us",
+        "wall_time_us",
+        "memory_bytes",
+        "stack_bytes",
+        "processes",
+        "open_files",
+        "stdout_bytes",
+        "stderr_bytes",
+        "file_bytes",
+        "workdir_bytes"
+      ],
+      "title": "RunLimits",
+      "type": "object"
+    }
+  },
+  "$id": "urn:kf-oj:problem-import:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "archive_bytes": {
+      "maximum": 67108864,
+      "minimum": 1,
+      "title": "Archive Bytes",
+      "type": "integer"
+    },
+    "candidate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CandidatePreview"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "candidate_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Candidate Id"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "expected_archive_digest": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Expected Archive Digest",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "failure_code": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ImportFailure"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operation_id": {
+      "format": "uuid",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "published_version_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Published Version Id"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "$ref": "#/$defs/ImportState"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "operation_id",
+    "state",
+    "expected_archive_digest",
+    "archive_bytes",
+    "created_at",
+    "expires_at",
+    "updated_at",
+    "failure_code",
+    "candidate_id",
+    "published_version_id",
+    "candidate"
+  ],
+  "title": "ProblemImportDetail",
+  "type": "object"
+}

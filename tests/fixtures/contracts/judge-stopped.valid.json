@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "kind": "judge.stopped",
+  "binding": {
+    "evaluation_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+    "attempt_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000007",
+    "worker_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000008",
+    "fencing_version": 1
+  },
+  "cleanup_complete": true
+}

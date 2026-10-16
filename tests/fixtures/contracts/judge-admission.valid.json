@@ -1,0 +1,36 @@
+{
+  "max_concurrent_jobs": 1,
+  "prefetch": 1,
+  "max_retries": 2,
+  "max_job_wall_time_us": 60000000,
+  "max_package_bytes": 67108864,
+  "compile_ceiling": {
+    "cpu_time_us": 10000000,
+    "wall_time_us": 30000000,
+    "memory_bytes": 536870912,
+    "stack_bytes": 16777216,
+    "processes": 32,
+    "open_files": 128,
+    "stdout_bytes": 1048576,
+    "stderr_bytes": 1048576,
+    "file_bytes": 67108864,
+    "workdir_bytes": 268435456
+  },
+  "run_ceiling": {
+    "cpu_time_us": 1000000,
+    "wall_time_us": 3000000,
+    "memory_bytes": 67108864,
+    "stack_bytes": 8388608,
+    "processes": 8,
+    "open_files": 64,
+    "stdout_bytes": 1048576,
+    "stderr_bytes": 1048576,
+    "file_bytes": 16777216,
+    "workdir_bytes": 67108864
+  },
+  "toolchain": {
+    "toolchain_id": "gnu-cxx-v1",
+    "image_kind": "linux_gnu_cxx_x86_64_v1",
+    "image_revision": 1
+  }
+}

@@ -5,7 +5,21 @@ import json
 from pathlib import Path
 
 from kf_oj.api.app import create_app
+from kf_oj.contracts.admin_problems import (
+    CreateProblemImport,
+    ProblemImportCapabilities,
+    ProblemImportDetail,
+)
 from kf_oj.contracts.judge import JudgeTaskNotification
+from kf_oj.contracts.judging import WIRE_MODELS
+from kf_oj.contracts.judging_v2 import WIRE_MODELS as WIRE_MODELS_V2
+from kf_oj.contracts.problem_maintenance import (
+    ChangeProblemAvailability,
+    MaintenanceAuditPage,
+    MaintenanceReceipt,
+    PublishCandidate,
+)
+from kf_oj.contracts.submission_performance import SubmissionPerformance
 from kf_oj.core.settings import Settings
 
 
@@ -23,6 +37,45 @@ def main() -> None:
             Settings(_env_file=None, environment="test")
         ).openapi(),
     }
+    for name, model in WIRE_MODELS.items():
+        document = model.model_json_schema()
+        document["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+        document["$id"] = f"urn:kf-oj:{name}:v1"
+        document["$comment"] = (
+            "Structural schema; also run versioned model validation for cross-field "
+            "budgets, result consistency, UUID canonical form and UTF-8 byte limits."
+        )
+        outputs[root / f"contracts/schemas/{name}.v1.schema.json"] = document
+    performance = SubmissionPerformance.model_json_schema()
+    performance["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    performance["$id"] = "urn:kf-oj:submission-performance:v1"
+    performance["$comment"] = (
+        "Anonymous bounded aggregates, decimal raw units and strict same-snapshot "
+        "counts; also run model validation and server-side ownership/environment checks."
+    )
+    outputs[root / "contracts/schemas/submission-performance.v1.schema.json"] = performance
+    for name, model in {
+        "problem-publish": PublishCandidate,
+        "problem-availability": ChangeProblemAvailability,
+        "problem-maintenance": MaintenanceReceipt,
+        "problem-maintenance-audit": MaintenanceAuditPage,
+        "problem-import-create": CreateProblemImport,
+        "problem-import": ProblemImportDetail,
+        "problem-import-capabilities": ProblemImportCapabilities,
+    }.items():
+        document = model.model_json_schema()
+        document["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+        document["$id"] = f"urn:kf-oj:{name}:v1"
+        outputs[root / f"contracts/schemas/{name}.v1.schema.json"] = document
+    for name, model in WIRE_MODELS_V2.items():
+        document = model.model_json_schema()
+        document["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+        document["$id"] = f"urn:kf-oj:{name}:v2"
+        document["$comment"] = (
+            "Multi-runtime protocol. Also validate runtime/source/attempt bindings, startup "
+            "and node budgets, canonical bounded class sets and result consistency."
+        )
+        outputs[root / f"contracts/schemas/{name}.v2.schema.json"] = document
     stale = []
     for path, document in outputs.items():
         content = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"

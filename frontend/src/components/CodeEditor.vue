@@ -10,6 +10,7 @@ import 'monaco-editor/features/linesOperations/register'
 import 'monaco-editor/features/wordOperations/register'
 import 'monaco-editor/languages/definitions/cpp/register'
 import 'monaco-editor/languages/definitions/python/register'
+import 'monaco-editor/languages/definitions/java/register'
 import 'monaco-editor/languages/definitions/rust/register'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 const props = defineProps<{
@@ -28,7 +29,10 @@ let subscription: monaco.IDisposable | undefined
 ).MonacoEnvironment = { getWorker: () => new EditorWorker() }
 onMounted(() => {
   if (!container.value) return
-  model = monaco.editor.createModel(props.modelValue, props.language)
+  model = monaco.editor.createModel(
+    props.modelValue,
+    props.language === 'c' ? 'cpp' : props.language,
+  )
   editor = monaco.editor.create(container.value, {
     model,
     theme: props.theme,
@@ -57,7 +61,7 @@ watch(
 watch(
   () => props.language,
   (value) => {
-    if (model) monaco.editor.setModelLanguage(model, value)
+    if (model) monaco.editor.setModelLanguage(model, value === 'c' ? 'cpp' : value)
   },
 )
 watch(

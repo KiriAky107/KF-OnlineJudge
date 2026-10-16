@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "kind": "judge.lease",
+  "binding": {
+    "evaluation_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+    "attempt_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000007",
+    "worker_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000008",
+    "fencing_version": 1
+  },
+  "lease_token": "0000000000000000000000000000000000000000000000000000000000000000",
+  "attempt_number": 1,
+  "expires_at_unix_ms": 1800000000000,
+  "manifest_digest": "effeeb1bfa6e1b48bf22f7d21ebf0a3aec9f09de98f31195e50a3369d4db0f4d"
+}

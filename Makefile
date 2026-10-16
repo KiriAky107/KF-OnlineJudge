@@ -57,7 +57,7 @@ format:
 	cd frontend && $(PNPM) format
 
 api:
-	cd backend && $(UV) run --locked uvicorn kf_oj.api.app:create_app --factory --reload --host 127.0.0.1 --port 8000
+	cd backend && $(UV) run --locked uvicorn kf_oj.api.app:create_app --factory --reload --host 127.0.0.1 --port 8000 --no-proxy-headers --limit-concurrency 32 --backlog 64
 
 frontend:
 	cd frontend && $(PNPM) dev

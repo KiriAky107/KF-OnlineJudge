@@ -1,0 +1,72 @@
+{
+  "schema_version": 2,
+  "kind": "judge.result",
+  "binding": {
+    "evaluation_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+    "attempt_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000007",
+    "worker_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000008",
+    "fencing_version": 1
+  },
+  "manifest_digest": "a912272651e29ed9b5bb75e368b357cf3f9d789cf62cf1106991158be75ce8c0",
+  "compilation": {
+    "status": "succeeded",
+    "program": {
+      "kind": "native_executable",
+      "binding": {
+        "evaluation_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+        "attempt_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000007",
+        "worker_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000008",
+        "fencing_version": 1
+      },
+      "source": {
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bytes": 124
+      },
+      "toolchain": {
+        "toolchain_id": "gnu-cxx-v1",
+        "image_kind": "linux_gnu_cxx_x86_64_v1",
+        "image_revision": 1,
+        "image_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "runtime_version": "gnu-cxx-v1"
+      },
+      "files": [
+        {
+          "path": "main",
+          "artifact": {
+            "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "bytes": 4096
+          }
+        }
+      ]
+    },
+    "diagnostics": "",
+    "diagnostics_truncated": false,
+    "cpu_time_us": 100000,
+    "memory_peak_bytes": 16777216
+  },
+  "cases": [
+    {
+      "case_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000004",
+      "verdict": "accepted",
+      "cpu_time_us": 100,
+      "memory_peak_bytes": 262144
+    },
+    {
+      "case_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000005",
+      "verdict": "accepted",
+      "cpu_time_us": 200,
+      "memory_peak_bytes": 524288
+    },
+    {
+      "case_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000006",
+      "verdict": "accepted",
+      "cpu_time_us": 300,
+      "memory_peak_bytes": 524288
+    }
+  ],
+  "verdict": "accepted",
+  "cleanup_complete": true,
+  "failure_code": null,
+  "run_cpu_time_us": 600,
+  "run_memory_peak_bytes": 524288
+}

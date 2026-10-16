@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import UiIcon from '../components/UiIcon.vue'
+import { useSession } from '../composables/useSession'
+const { user, refresh } = useSession()
+onMounted(() => {
+  void refresh().catch(() => {})
+})
 const route = useRoute()
 const mobileOpen = ref(false)
 const links = [
@@ -51,11 +56,15 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
           >
         </nav>
         <div class="header-account">
-          <el-tooltip content="页面使用示例内容，业务服务逐步接入" placement="bottom"
-            ><span class="preview-label">界面预览</span></el-tooltip
-          ><RouterLink to="/login"
+          <template v-if="user"
+            ><span>{{ user.username }}</span
+            ><RouterLink to="/logout"
+              ><el-button size="small" round>退出登录</el-button></RouterLink
+            ></template
+          >
+          <RouterLink v-else to="/login"
             ><el-button type="primary" size="small" round>登录</el-button></RouterLink
-          ><RouterLink to="/register"><el-button size="small" round>注册</el-button></RouterLink>
+          >
         </div>
       </div>
     </header>

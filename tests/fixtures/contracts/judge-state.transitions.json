@@ -1,0 +1,33 @@
+{
+  "queued": [
+    "claimed",
+    "cancelled"
+  ],
+  "claimed": [
+    "compiling",
+    "cancelling",
+    "failed",
+    "queued"
+  ],
+  "compiling": [
+    "running",
+    "finished",
+    "cancelling",
+    "failed",
+    "queued"
+  ],
+  "running": [
+    "finished",
+    "cancelling",
+    "failed",
+    "queued"
+  ],
+  "cancelling": [
+    "cancelled",
+    "failed",
+    "queued"
+  ],
+  "finished": [],
+  "cancelled": [],
+  "failed": []
+}

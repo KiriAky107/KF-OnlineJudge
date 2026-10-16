@@ -1,0 +1,32 @@
+[Unit]
+Description=KF-OnlineJudge bounded problem import service
+After=postgresql.service
+
+[Service]
+Type=exec
+User=kf-oj
+Group=kf-oj
+WorkingDirectory=/opt/kf-onlinejudge/backend
+EnvironmentFile=/etc/kf-onlinejudge/import-worker.env
+Environment=KF_OJ_IMPORT_WORKER_CGROUP=/sys/fs/cgroup/system.slice/kf-problem-import.service
+ExecStart=/opt/kf-onlinejudge/backend/.venv/bin/kf-problem-import-worker
+MemoryMax=128M
+MemorySwapMax=0
+TasksMax=16
+CPUQuota=100%
+LimitFSIZE=64M
+LimitNOFILE=64
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/kf-onlinejudge/imports /var/lib/kf-onlinejudge/artifacts
+KillMode=control-group
+TimeoutStopSec=10
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -10,5 +10,5 @@ fn execution_entrypoint_fails_closed() {
     assert!(output.stdout.is_empty());
     let error: serde_json::Value =
         serde_json::from_slice(&output.stderr).expect("structured refusal");
-    assert_eq!(error["error"], "sandbox_not_implemented");
+    assert_eq!(error["error"], "execution_configuration_required");
 }

@@ -1,0 +1,196 @@
+{
+  "$defs": {
+    "Language": {
+      "enum": [
+        "c17",
+        "cpp20",
+        "python313",
+        "java21"
+      ],
+      "title": "Language",
+      "type": "string"
+    },
+    "ProblemImportLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_bytes": {
+          "default": 67108864,
+          "title": "Archive Bytes",
+          "type": "integer"
+        },
+        "archive_format": {
+          "const": "single_level_zip",
+          "default": "single_level_zip",
+          "title": "Archive Format",
+          "type": "string"
+        },
+        "candidate_lifetime_seconds": {
+          "default": 86400,
+          "title": "Candidate Lifetime Seconds",
+          "type": "integer"
+        },
+        "chunk_bytes": {
+          "default": 1048576,
+          "title": "Chunk Bytes",
+          "type": "integer"
+        },
+        "filename_ascii_bytes": {
+          "default": 128,
+          "title": "Filename Ascii Bytes",
+          "type": "integer"
+        },
+        "files": {
+          "default": 534,
+          "title": "Files",
+          "type": "integer"
+        },
+        "global_concurrency": {
+          "const": 1,
+          "default": 1,
+          "title": "Global Concurrency",
+          "type": "integer"
+        },
+        "languages": {
+          "default": [
+            "c17",
+            "cpp20",
+            "python313",
+            "java21"
+          ],
+          "items": {
+            "$ref": "#/$defs/Language"
+          },
+          "title": "Languages",
+          "type": "array"
+        },
+        "manifest_name": {
+          "const": "problem.json",
+          "default": "problem.json",
+          "title": "Manifest Name",
+          "type": "string"
+        },
+        "manifest_schema_versions": {
+          "default": [
+            1,
+            2
+          ],
+          "items": {
+            "enum": [
+              1,
+              2
+            ],
+            "type": "integer"
+          },
+          "title": "Manifest Schema Versions",
+          "type": "array"
+        },
+        "owner_candidates": {
+          "default": 10,
+          "title": "Owner Candidates",
+          "type": "integer"
+        },
+        "owner_concurrency": {
+          "const": 1,
+          "default": 1,
+          "title": "Owner Concurrency",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "staging_bytes": {
+          "default": 268435456,
+          "title": "Staging Bytes",
+          "type": "integer"
+        },
+        "total_candidates": {
+          "default": 32,
+          "title": "Total Candidates",
+          "type": "integer"
+        },
+        "unpacked_bytes": {
+          "default": 67108864,
+          "title": "Unpacked Bytes",
+          "type": "integer"
+        },
+        "upload_chunks": {
+          "default": 4096,
+          "title": "Upload Chunks",
+          "type": "integer"
+        },
+        "upload_deadline_seconds": {
+          "default": 30,
+          "title": "Upload Deadline Seconds",
+          "type": "integer"
+        },
+        "validation_deadline_seconds": {
+          "default": 60,
+          "title": "Validation Deadline Seconds",
+          "type": "integer"
+        }
+      },
+      "title": "ProblemImportLimits",
+      "type": "object"
+    }
+  },
+  "$id": "urn:kf-oj:problem-import-capabilities:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "limits": {
+      "$ref": "#/$defs/ProblemImportLimits",
+      "default": {
+        "archive_bytes": 67108864,
+        "archive_format": "single_level_zip",
+        "candidate_lifetime_seconds": 86400,
+        "chunk_bytes": 1048576,
+        "filename_ascii_bytes": 128,
+        "files": 534,
+        "global_concurrency": 1,
+        "languages": [
+          "c17",
+          "cpp20",
+          "python313",
+          "java21"
+        ],
+        "manifest_name": "problem.json",
+        "manifest_schema_versions": [
+          1,
+          2
+        ],
+        "owner_candidates": 10,
+        "owner_concurrency": 1,
+        "schema_version": 1,
+        "staging_bytes": 268435456,
+        "total_candidates": 32,
+        "unpacked_bytes": 67108864,
+        "upload_chunks": 4096,
+        "upload_deadline_seconds": 30,
+        "validation_deadline_seconds": 60
+      }
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "uploads_available": {
+      "title": "Uploads Available",
+      "type": "boolean"
+    },
+    "validation_available": {
+      "title": "Validation Available",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "uploads_available",
+    "validation_available"
+  ],
+  "title": "ProblemImportCapabilities",
+  "type": "object"
+}

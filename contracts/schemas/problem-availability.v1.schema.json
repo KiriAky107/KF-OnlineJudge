@@ -1,0 +1,34 @@
+{
+  "$id": "urn:kf-oj:problem-availability:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "expected_active_version_id": {
+      "format": "uuid",
+      "title": "Expected Active Version Id",
+      "type": "string"
+    },
+    "expected_enabled": {
+      "title": "Expected Enabled",
+      "type": "boolean"
+    },
+    "operation_id": {
+      "format": "uuid",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "operation_id",
+    "expected_active_version_id",
+    "expected_enabled"
+  ],
+  "title": "ChangeProblemAvailability",
+  "type": "object"
+}

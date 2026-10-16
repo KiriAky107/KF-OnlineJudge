@@ -4,6 +4,296 @@
  */
 
 export interface paths {
+    "/api/v1/admin/maintenance-audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audit */
+        get: operations["audit_api_v1_admin_maintenance_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page */
+        get: operations["page_api_v1_admin_problem_imports_get"];
+        put?: never;
+        /** Create */
+        post: operations["create_api_v1_admin_problem_imports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-imports/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Capabilities */
+        get: operations["capabilities_api_v1_admin_problem_imports_capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-imports/{operation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_admin_problem_imports__operation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-imports/{operation_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Upload */
+        put: operations["upload_api_v1_admin_problem_imports__operation_id__archive_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-imports/{operation_id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Discard */
+        post: operations["discard_api_v1_admin_problem_imports__operation_id__discard_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-maintenance/{operation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Receipt */
+        get: operations["receipt_api_v1_admin_problem_maintenance__operation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-publications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish */
+        post: operations["publish_api_v1_admin_problem_publications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-slugs/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** By Slug */
+        get: operations["by_slug_api_v1_admin_problem_slugs__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page */
+        get: operations["page_api_v1_admin_problems_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problems/{problem_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_admin_problems__problem_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problems/{problem_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable */
+        post: operations["disable_api_v1_admin_problems__problem_id__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problems/{problem_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore */
+        post: operations["restore_api_v1_admin_problems__problem_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problems/{problem_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Versions */
+        get: operations["versions_api_v1_admin_problems__problem_id__versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login */
+        post: operations["login_api_v1_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout_api_v1_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Me */
+        get: operations["me_api_v1_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health/live": {
         parameters: {
             query?: never;
@@ -24,10 +314,318 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/evaluations/{evaluation_id}/attempts/{attempt_id}/artifacts/{digest}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Artifact */
+        get: operations["artifact_api_v1_internal_evaluations__evaluation_id__attempts__attempt_id__artifacts__digest__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/evaluations/{evaluation_id}/attempts/{attempt_id}/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Manifest */
+        get: operations["manifest_api_v1_internal_evaluations__evaluation_id__attempts__attempt_id__manifest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/problems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Problems */
+        get: operations["list_problems_api_v1_problems_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/problems/versions/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Problem Version */
+        get: operations["problem_version_api_v1_problems_versions__version_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** History */
+        get: operations["history_api_v1_submissions_get"];
+        put?: never;
+        /** Create */
+        post: operations["create_api_v1_submissions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_submissions__submission_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel */
+        post: operations["cancel_api_v1_submissions__submission_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/performance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Performance */
+        get: operations["performance_api_v1_submissions__submission_id__performance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Source */
+        get: operations["source_api_v1_submissions__submission_id__source_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AccountCapabilities */
+        AccountCapabilities: {
+            /**
+             * Authorization Version
+             * @default 1
+             */
+            authorization_version: string;
+            /**
+             * Problem Maintenance
+             * @default false
+             */
+            problem_maintenance: boolean;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** ArtifactReference */
+        ArtifactReference: {
+            /** Bytes */
+            bytes: number;
+            /** Digest */
+            digest: string;
+        };
+        /** CancellationAccepted */
+        CancellationAccepted: {
+            /**
+             * Accepted
+             * @default true
+             * @constant
+             */
+            accepted: true;
+            /**
+             * Evaluation Id
+             * Format: uuid
+             */
+            evaluation_id: string;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
+        /** CandidatePreview */
+        CandidatePreview: {
+            /**
+             * Candidate Id
+             * Format: uuid
+             */
+            candidate_id: string;
+            /** Case Count */
+            case_count: number;
+            /** Judging Schema Version */
+            judging_schema_version: number;
+            /**
+             * Language Configurations
+             * @default []
+             */
+            language_configurations: components["schemas"]["PublicLanguageConfiguration"][];
+            /** Languages */
+            languages: components["schemas"]["kf_oj__contracts__judging_v2__Language"][];
+            legacy_budget: components["schemas"]["LegacyImportBudget"] | null;
+            /** Samples */
+            samples: components["schemas"]["PublicSample"][];
+            /** Slug */
+            slug: string;
+            /** Statement */
+            statement: string;
+            /** Title */
+            title: string;
+        };
+        /** ChangeProblemAvailability */
+        ChangeProblemAvailability: {
+            /**
+             * Expected Active Version Id
+             * Format: uuid
+             */
+            expected_active_version_id: string;
+            /** Expected Enabled */
+            expected_enabled: boolean;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /**
+         * CompilationStatus
+         * @enum {string}
+         */
+        CompilationStatus: "succeeded" | "compilation_error" | "compilation_limit" | "cancelled" | "system_error";
+        /** CreateProblemImport */
+        CreateProblemImport: {
+            /** Archive Bytes */
+            archive_bytes: number;
+            /** Archive Digest */
+            archive_digest: string;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** CreateSubmission */
+        CreateSubmission: {
+            /**
+             * Idempotency Key
+             * Format: uuid
+             */
+            idempotency_key: string;
+            language: components["schemas"]["Language-Input"];
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /** Source */
+            source: string;
+        };
+        /** CurrentUser */
+        CurrentUser: {
+            capabilities?: components["schemas"]["AccountCapabilities"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Username */
+            username: string;
+        };
+        /**
+         * FailureCode
+         * @enum {string}
+         */
+        FailureCode: "artifact_unavailable" | "sandbox_unavailable" | "cleanup_failed" | "lease_lost" | "job_deadline";
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
         /** HealthResponse */
         HealthResponse: {
             /**
@@ -43,6 +641,923 @@ export interface components {
             /** Version */
             version: string;
         };
+        /**
+         * ImportFailure
+         * @enum {string}
+         */
+        ImportFailure: "invalid_archive" | "invalid_manifest" | "invalid_data" | "digest_mismatch" | "policy_rejected" | "upload_interrupted" | "upload_deadline" | "validation_deadline" | "validation_unavailable" | "storage_unavailable" | "authority_revoked" | "expired";
+        /**
+         * ImportState
+         * @enum {string}
+         */
+        ImportState: "uploading" | "uploaded" | "validating" | "ready" | "failed" | "published" | "discarded" | "expired";
+        /** JobManifest */
+        JobManifest: {
+            /** Cases */
+            cases: components["schemas"]["TestCase"][];
+            /**
+             * Comparison
+             * @constant
+             */
+            comparison: "exact_bytes";
+            compile_limits: components["schemas"]["RunLimits"];
+            /**
+             * Evaluation Id
+             * Format: uuid
+             */
+            evaluation_id: string;
+            /** Job Wall Time Us */
+            job_wall_time_us: number;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "judge.manifest";
+            language: components["schemas"]["kf_oj__contracts__judging__Language"];
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            run_limits: components["schemas"]["RunLimits"];
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            source: components["schemas"]["ArtifactReference"];
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            toolchain: components["schemas"]["Toolchain"];
+        };
+        /**
+         * Language
+         * @enum {string}
+         */
+        "Language-Input": "c17" | "cpp20" | "python313" | "java21";
+        /** LegacyImportBudget */
+        LegacyImportBudget: {
+            compile_limits: components["schemas"]["RunLimits"];
+            /** Job Wall Time Us */
+            job_wall_time_us: number;
+            run_limits: components["schemas"]["RunLimits"];
+        };
+        /** LoginRequest */
+        LoginRequest: {
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
+            /** Username */
+            username: string;
+        };
+        /** LoginResponse */
+        LoginResponse: {
+            /** Csrf Token */
+            csrf_token: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            user: components["schemas"]["CurrentUser"];
+        };
+        /** MaintainedProblem */
+        MaintainedProblem: {
+            /** Active Version Id */
+            active_version_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Revision */
+            revision: number;
+            /** Slug */
+            slug: string;
+            /** Title */
+            title: string | null;
+        };
+        /** MaintainedProblemPage */
+        MaintainedProblemPage: {
+            /** Items */
+            items: components["schemas"]["MaintainedProblem"][];
+            /** Next After */
+            next_after: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** MaintainedVersion */
+        MaintainedVersion: {
+            /** Case Count */
+            case_count: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Languages */
+            languages: components["schemas"]["kf_oj__contracts__judging_v2__Language"][];
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Revision */
+            revision: number;
+            /** Slug */
+            slug: string;
+            /** Title */
+            title: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** MaintainedVersionPage */
+        MaintainedVersionPage: {
+            /** Items */
+            items: components["schemas"]["MaintainedVersion"][];
+            /** Next Before */
+            next_before: number | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** MaintenanceAuditEvent */
+        MaintenanceAuditEvent: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "upload_created" | "upload_received" | "import_ready" | "import_failed" | "import_discarded" | "import_expired" | "published" | "disabled" | "restored" | "authority_bootstrap" | "authority_grant" | "authority_revoke" | "authority_enable" | "authority_disable";
+            /** Actor Id */
+            actor_id: string | null;
+            /**
+             * Actor Kind
+             * @enum {string}
+             */
+            actor_kind: "account" | "operator";
+            /** Authorization Version */
+            authorization_version: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /** Operator Name */
+            operator_name: string | null;
+            /**
+             * Result
+             * @default committed
+             * @constant
+             */
+            result: "committed";
+            /** Target Id */
+            target_id: string | null;
+        };
+        /** MaintenanceAuditPage */
+        MaintenanceAuditPage: {
+            /** Items */
+            items: components["schemas"]["MaintenanceAuditEvent"][];
+            /** Next Before */
+            next_before: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** MaintenanceReceipt */
+        MaintenanceReceipt: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "publish" | "disable" | "restore";
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            problem: components["schemas"]["MaintainedProblem"];
+            /** Published Version Id */
+            published_version_id?: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** PerformanceBucket */
+        PerformanceBucket: {
+            /** Count */
+            count: number;
+            /** End */
+            end: string;
+            /** Start */
+            start: string;
+            /** Upper Inclusive */
+            upper_inclusive: boolean;
+        };
+        /** PerformanceMetric */
+        PerformanceMetric: {
+            /** Available */
+            available: boolean;
+            /** Buckets */
+            buckets: components["schemas"]["PerformanceBucket"][];
+            /** Current */
+            current: string | null;
+            /** Oldest Sample At */
+            oldest_sample_at: string | null;
+            /** Reason */
+            reason: ("not_accepted" | "measurement_missing" | "environment_unverified" | "insufficient_samples") | null;
+            /** Sample Count */
+            sample_count: number;
+            /** Strictly Slower Count */
+            strictly_slower_count: number | null;
+            /** Tied Count */
+            tied_count: number | null;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "cpu_microseconds" | "bytes";
+            /** Window Truncated */
+            window_truncated: boolean;
+        };
+        /**
+         * PreparationKind
+         * @enum {string}
+         */
+        PreparationKind: "compile" | "syntax_check";
+        /** ProblemDetail */
+        ProblemDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Language Configurations
+             * @default []
+             */
+            language_configurations: components["schemas"]["PublicLanguageConfiguration"][];
+            /** Languages */
+            languages: components["schemas"]["kf_oj__contracts__judging_v2__Language"][];
+            /** Revision */
+            revision: number;
+            run_limits: components["schemas"]["RunLimits"] | null;
+            /** Samples */
+            samples: components["schemas"]["PublicSample"][];
+            /** Slug */
+            slug: string;
+            /** Statement */
+            statement: string;
+            /** Title */
+            title: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** ProblemImportCapabilities */
+        ProblemImportCapabilities: {
+            /**
+             * @default {
+             *       "archive_bytes": 67108864,
+             *       "archive_format": "single_level_zip",
+             *       "candidate_lifetime_seconds": 86400,
+             *       "chunk_bytes": 1048576,
+             *       "filename_ascii_bytes": 128,
+             *       "files": 534,
+             *       "global_concurrency": 1,
+             *       "languages": [
+             *         "c17",
+             *         "cpp20",
+             *         "python313",
+             *         "java21"
+             *       ],
+             *       "manifest_name": "problem.json",
+             *       "manifest_schema_versions": [
+             *         1,
+             *         2
+             *       ],
+             *       "owner_candidates": 10,
+             *       "owner_concurrency": 1,
+             *       "schema_version": 1,
+             *       "staging_bytes": 268435456,
+             *       "total_candidates": 32,
+             *       "unpacked_bytes": 67108864,
+             *       "upload_chunks": 4096,
+             *       "upload_deadline_seconds": 30,
+             *       "validation_deadline_seconds": 60
+             *     }
+             */
+            limits: components["schemas"]["ProblemImportLimits"];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Uploads Available */
+            uploads_available: boolean;
+            /** Validation Available */
+            validation_available: boolean;
+        };
+        /** ProblemImportDetail */
+        ProblemImportDetail: {
+            /** Archive Bytes */
+            archive_bytes: number;
+            candidate: components["schemas"]["CandidatePreview"] | null;
+            /** Candidate Id */
+            candidate_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expected Archive Digest */
+            expected_archive_digest: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            failure_code: components["schemas"]["ImportFailure"] | null;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /** Published Version Id */
+            published_version_id: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            state: components["schemas"]["ImportState"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** ProblemImportLimits */
+        ProblemImportLimits: {
+            /**
+             * Archive Bytes
+             * @default 67108864
+             */
+            archive_bytes: number;
+            /**
+             * Archive Format
+             * @default single_level_zip
+             * @constant
+             */
+            archive_format: "single_level_zip";
+            /**
+             * Candidate Lifetime Seconds
+             * @default 86400
+             */
+            candidate_lifetime_seconds: number;
+            /**
+             * Chunk Bytes
+             * @default 1048576
+             */
+            chunk_bytes: number;
+            /**
+             * Filename Ascii Bytes
+             * @default 128
+             */
+            filename_ascii_bytes: number;
+            /**
+             * Files
+             * @default 534
+             */
+            files: number;
+            /**
+             * Global Concurrency
+             * @default 1
+             * @constant
+             */
+            global_concurrency: 1;
+            /**
+             * Languages
+             * @default [
+             *       "c17",
+             *       "cpp20",
+             *       "python313",
+             *       "java21"
+             *     ]
+             */
+            languages: components["schemas"]["kf_oj__contracts__judging_v2__Language"][];
+            /**
+             * Manifest Name
+             * @default problem.json
+             * @constant
+             */
+            manifest_name: "problem.json";
+            /**
+             * Manifest Schema Versions
+             * @default [
+             *       1,
+             *       2
+             *     ]
+             */
+            manifest_schema_versions: (1 | 2)[];
+            /**
+             * Owner Candidates
+             * @default 10
+             */
+            owner_candidates: number;
+            /**
+             * Owner Concurrency
+             * @default 1
+             * @constant
+             */
+            owner_concurrency: 1;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Staging Bytes
+             * @default 268435456
+             */
+            staging_bytes: number;
+            /**
+             * Total Candidates
+             * @default 32
+             */
+            total_candidates: number;
+            /**
+             * Unpacked Bytes
+             * @default 67108864
+             */
+            unpacked_bytes: number;
+            /**
+             * Upload Chunks
+             * @default 4096
+             */
+            upload_chunks: number;
+            /**
+             * Upload Deadline Seconds
+             * @default 30
+             */
+            upload_deadline_seconds: number;
+            /**
+             * Validation Deadline Seconds
+             * @default 60
+             */
+            validation_deadline_seconds: number;
+        };
+        /** ProblemImportPage */
+        ProblemImportPage: {
+            /** Items */
+            items: components["schemas"]["ProblemImportSummary"][];
+            /** Next After */
+            next_after: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** ProblemImportSummary */
+        ProblemImportSummary: {
+            /** Archive Bytes */
+            archive_bytes: number;
+            /** Candidate Id */
+            candidate_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expected Archive Digest */
+            expected_archive_digest: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            failure_code: components["schemas"]["ImportFailure"] | null;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /** Published Version Id */
+            published_version_id: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            state: components["schemas"]["ImportState"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** ProblemPage */
+        ProblemPage: {
+            /** Items */
+            items: components["schemas"]["ProblemSummary"][];
+            /** Next After */
+            next_after: string | null;
+        };
+        /** ProblemSummary */
+        ProblemSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Languages */
+            languages: components["schemas"]["kf_oj__contracts__judging_v2__Language"][];
+            /** Revision */
+            revision: number;
+            /** Slug */
+            slug: string;
+            /** Title */
+            title: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** PublicCaseResult */
+        PublicCaseResult: {
+            /** Cpu Time Us */
+            cpu_time_us: number | null;
+            /** Memory Peak Bytes */
+            memory_peak_bytes: number | null;
+            /** Position */
+            position: number;
+            verdict: components["schemas"]["Verdict"];
+        };
+        /** PublicJudgement */
+        PublicJudgement: {
+            /** Cases */
+            cases: components["schemas"]["PublicCaseResult"][];
+            /** Cleanup Complete */
+            cleanup_complete: boolean;
+            compilation_status: components["schemas"]["CompilationStatus"];
+            /** Cpu Time Us */
+            cpu_time_us: number | null;
+            /** Diagnostics */
+            diagnostics: string;
+            /** Diagnostics Truncated */
+            diagnostics_truncated: boolean;
+            /** Memory Peak Bytes */
+            memory_peak_bytes: number | null;
+        };
+        /** PublicLanguageConfiguration */
+        PublicLanguageConfiguration: {
+            compile_limits: components["schemas"]["RunLimits"];
+            /** Entrypoint */
+            entrypoint: string;
+            /** Job Wall Time Us */
+            job_wall_time_us: number;
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
+            preparation_kind: components["schemas"]["PreparationKind"];
+            run_limits: components["schemas"]["RunLimits"];
+            /** Runtime Version */
+            runtime_version: string;
+            /** Source Name */
+            source_name: string;
+        };
+        /** PublicSample */
+        PublicSample: {
+            /**
+             * Encoding
+             * @default base64
+             * @constant
+             */
+            encoding: "base64";
+            /** Input */
+            input: string;
+            /** Output */
+            output: string;
+        };
+        /** PublishCandidate */
+        PublishCandidate: {
+            /**
+             * Candidate Id
+             * Format: uuid
+             */
+            candidate_id: string;
+            /** Expected Active Version Id */
+            expected_active_version_id: string | null;
+            /**
+             * Import Operation Id
+             * Format: uuid
+             */
+            import_operation_id: string;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** RunLimits */
+        RunLimits: {
+            /** Cpu Time Us */
+            cpu_time_us: number;
+            /** File Bytes */
+            file_bytes: number;
+            /** Memory Bytes */
+            memory_bytes: number;
+            /** Open Files */
+            open_files: number;
+            /** Processes */
+            processes: number;
+            /** Stack Bytes */
+            stack_bytes: number;
+            /** Stderr Bytes */
+            stderr_bytes: number;
+            /** Stdout Bytes */
+            stdout_bytes: number;
+            /** Wall Time Us */
+            wall_time_us: number;
+            /** Workdir Bytes */
+            workdir_bytes: number;
+        };
+        /** SubmissionCreated */
+        SubmissionCreated: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Evaluation Id
+             * Format: uuid
+             */
+            evaluation_id: string;
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "claimed" | "compiling" | "running" | "cancelling" | "finished" | "cancelled" | "failed";
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
+        /** SubmissionDetail */
+        SubmissionDetail: {
+            /** Attempts */
+            attempts: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Evaluation Id
+             * Format: uuid
+             */
+            evaluation_id: string;
+            failure_code: components["schemas"]["FailureCode"] | null;
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            result: components["schemas"]["PublicJudgement"] | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "claimed" | "compiling" | "running" | "cancelling" | "finished" | "cancelled" | "failed";
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            verdict: components["schemas"]["Verdict"] | null;
+        };
+        /** SubmissionPage */
+        SubmissionPage: {
+            /** Items */
+            items: components["schemas"]["SubmissionSummary"][];
+            /** Next After */
+            next_after: string | null;
+        };
+        /** SubmissionPerformance */
+        SubmissionPerformance: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Comparison Group */
+            comparison_group: string | null;
+            cpu: components["schemas"]["PerformanceMetric"];
+            /**
+             * Kind
+             * @default judge.performance
+             * @constant
+             */
+            kind: "judge.performance";
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
+            memory: components["schemas"]["PerformanceMetric"];
+            /**
+             * Minimum Samples
+             * @default 5
+             * @constant
+             */
+            minimum_samples: 5;
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Window Limit
+             * @default 10000
+             * @constant
+             */
+            window_limit: 10000;
+        };
+        /** SubmissionSource */
+        SubmissionSource: {
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
+            /** Source */
+            source: string;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
+        /** SubmissionSummary */
+        SubmissionSummary: {
+            /** Attempts */
+            attempts: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Evaluation Id
+             * Format: uuid
+             */
+            evaluation_id: string;
+            failure_code: components["schemas"]["FailureCode"] | null;
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "claimed" | "compiling" | "running" | "cancelling" | "finished" | "cancelled" | "failed";
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            verdict: components["schemas"]["Verdict"] | null;
+        };
+        /** TestCase */
+        TestCase: {
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            expected: components["schemas"]["ArtifactReference"];
+            input: components["schemas"]["ArtifactReference"];
+        };
+        /** Toolchain */
+        Toolchain: {
+            /**
+             * Image Kind
+             * @constant
+             */
+            image_kind: "linux_gnu_cxx_x86_64_v1";
+            /** Image Revision */
+            image_revision: number;
+            /** Toolchain Id */
+            toolchain_id: string;
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+        };
+        /**
+         * Verdict
+         * @enum {string}
+         */
+        Verdict: "accepted" | "wrong_answer" | "compilation_error" | "runtime_error" | "time_limit_exceeded" | "memory_limit_exceeded" | "output_limit_exceeded" | "cancelled" | "system_error";
+        /**
+         * Language
+         * @enum {string}
+         */
+        kf_oj__contracts__judging__Language: "c17" | "cpp20";
+        /**
+         * Language
+         * @enum {string}
+         */
+        kf_oj__contracts__judging_v2__Language: "c17" | "cpp20" | "python313" | "java21";
     };
     responses: never;
     parameters: never;
@@ -52,6 +1567,555 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    audit_api_v1_admin_maintenance_audit_get: {
+        parameters: {
+            query?: {
+                before?: string | null;
+                limit?: number;
+                action?: ("upload_created" | "upload_received" | "import_ready" | "import_failed" | "import_discarded" | "import_expired" | "published" | "disabled" | "restored" | "authority_bootstrap" | "authority_grant" | "authority_revoke" | "authority_enable" | "authority_disable") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceAuditPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    page_api_v1_admin_problem_imports_get: {
+        parameters: {
+            query?: {
+                after?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemImportPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_api_v1_admin_problem_imports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProblemImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemImportSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    capabilities_api_v1_admin_problem_imports_capabilities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemImportCapabilities"];
+                };
+            };
+        };
+    };
+    detail_api_v1_admin_problem_imports__operation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemImportDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_api_v1_admin_problem_imports__operation_id__archive_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/zip": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemImportSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discard_api_v1_admin_problem_imports__operation_id__discard_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemImportSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    receipt_api_v1_admin_problem_maintenance__operation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_api_v1_admin_problem_publications_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishCandidate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    by_slug_api_v1_admin_problem_slugs__slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintainedProblem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    page_api_v1_admin_problems_get: {
+        parameters: {
+            query?: {
+                after?: string | null;
+                limit?: number;
+                enabled?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintainedProblemPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detail_api_v1_admin_problems__problem_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintainedProblem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disable_api_v1_admin_problems__problem_id__disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeProblemAvailability"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_api_v1_admin_problems__problem_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeProblemAvailability"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    versions_api_v1_admin_problems__problem_id__versions_get: {
+        parameters: {
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                problem_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintainedVersionPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_api_v1_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_api_v1_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    me_api_v1_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentUser"];
+                };
+            };
+        };
+    };
     liveness: {
         parameters: {
             query?: never;
@@ -68,6 +2132,331 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    artifact_api_v1_internal_evaluations__evaluation_id__attempts__attempt_id__artifacts__digest__get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Worker-ID": string;
+                "X-Fencing-Version": number;
+            };
+            path: {
+                evaluation_id: string;
+                attempt_id: string;
+                digest: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    manifest_api_v1_internal_evaluations__evaluation_id__attempts__attempt_id__manifest_get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Worker-ID": string;
+                "X-Fencing-Version": number;
+            };
+            path: {
+                evaluation_id: string;
+                attempt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobManifest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_problems_api_v1_problems_get: {
+        parameters: {
+            query?: {
+                after?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    problem_version_api_v1_problems_versions__version_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    history_api_v1_submissions_get: {
+        parameters: {
+            query?: {
+                after?: string | null;
+                limit?: number;
+                problem_version_id?: string | null;
+                language?: components["schemas"]["Language-Input"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_api_v1_submissions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detail_api_v1_submissions__submission_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_api_v1_submissions__submission_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancellationAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    performance_api_v1_submissions__submission_id__performance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionPerformance"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    source_api_v1_submissions__submission_id__source_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionSource"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

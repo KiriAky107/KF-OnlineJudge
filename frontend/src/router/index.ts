@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useSession } from '../composables/useSession'
 export const router = createRouter({
   history: createWebHistory(),
   scrollBehavior: (to, _from, saved) => saved ?? (to.hash ? { el: to.hash } : { top: 0 }),
@@ -94,6 +95,16 @@ export const router = createRouter({
       component: () => import('../views/NotFoundView.vue'),
     },
   ],
+})
+router.beforeEach(async (to) => {
+  if (to.path === '/submissions' || to.path.startsWith('/submissions/') || to.path === '/logout') {
+    try {
+      if (await useSession().refresh()) return true
+    } catch {
+      return { path: '/login', query: { next: to.fullPath, unavailable: '1' } }
+    }
+    return { path: '/login', query: { next: to.fullPath } }
+  }
 })
 router.afterEach((to) => {
   document.title = `${String(to.meta.title ?? '首页')} · KF OnlineJudge`

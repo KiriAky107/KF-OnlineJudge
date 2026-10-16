@@ -17,9 +17,15 @@ dependencies = [
     "asyncpg>=0.30,<1",
     "alembic>=1.15,<2",
     "aio-pika>=9.5,<10",
+    "argon2-cffi>=25.1,<26",
+    "httpx>=0.28,<1",
 ]
 
 [project.scripts]
+ kf-problem-import-worker = "kf_oj.workers.problem_import:main"
+kf-accounts = "kf_oj.modules.identity.cli:main"
+kf-problems = "kf_oj.modules.problems.cli:main"
+kf-artifacts = "kf_oj.infra.artifacts.cli:main"
 kf-learning-worker = "kf_oj.workers.learning:main"
 kf-outbox-publisher = "kf_oj.workers.outbox:main"
 
@@ -27,7 +33,6 @@ kf-outbox-publisher = "kf_oj.workers.outbox:main"
 dev = [
     "ruff>=0.11,<1",
     "pytest>=8.3,<10",
-    "httpx>=0.28,<1",
     "jsonschema>=4.23,<5",
 ]
 

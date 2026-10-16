@@ -1,0 +1,936 @@
+//! Ordinary transport adapter. AMQP is a bounded wake-up; claim is sole authority.
+use crate::pipeline::{ArtifactPort, Attempt};
+use crate::{pipeline_v2::RuntimeAttempt, runtime_specs::AuthorizedJob};
+use futures_lite::{StreamExt, future::block_on};
+use kf_contracts::judging_v2 as v2;
+use kf_contracts::judging_versions::{
+    self as versions, JobManifest as VersionedManifest, NodeAdmission,
+};
+use kf_contracts::{JudgeTaskNotification, SchemaVersion, judging::*};
+use kf_engine::{
+    submission::{StageFailure, judge_submission},
+    submission_v2,
+};
+use kf_sandbox::{artifacts::StagePublication, factory::FactoryClient};
+use lapin::{Connection, ConnectionProperties, options::*, types::FieldTable};
+use reqwest::blocking::Client;
+use serde::Deserialize;
+use sha2::{Digest as _, Sha256};
+use std::{
+    fs,
+    io::{self, Read},
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+const QUEUE: &str = "kf.judge.evaluations.v1";
+/// Transport projection after strict versioned wire decoding. It never changes
+/// the authorized manifest or its canonical bytes.
+#[derive(Clone)]
+struct Grant {
+    version: u16,
+    binding: LeaseBinding,
+    lease_token: LeaseToken,
+    attempt_number: u32,
+    expires_at_unix_ms: u64,
+    manifest_digest: Digest,
+}
+impl From<versions::LeaseGrant> for Grant {
+    fn from(wire: versions::LeaseGrant) -> Self {
+        macro_rules! fields {
+            ($g:ident, $version:literal) => {
+                Self {
+                    version: $version,
+                    binding: $g.binding,
+                    lease_token: $g.lease_token,
+                    attempt_number: $g.attempt_number,
+                    expires_at_unix_ms: $g.expires_at_unix_ms,
+                    manifest_digest: $g.manifest_digest,
+                }
+            };
+        }
+        match wire {
+            versions::LeaseGrant::V1(g) => fields!(g, 1),
+            versions::LeaseGrant::V2(g) => fields!(g, 2),
+        }
+    }
+}
+#[derive(Debug)]
+struct TransportError {
+    operation: &'static str,
+    category: &'static str,
+}
+impl std::fmt::Display for TransportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.operation, self.category)
+    }
+}
+impl std::error::Error for TransportError {}
+fn transport_error(operation: &'static str, category: &'static str) -> io::Error {
+    io::Error::other(TransportError {
+        operation,
+        category,
+    })
+}
+fn error() -> io::Error {
+    io::Error::other("worker operation refused")
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Config {
+    pub worker_id: Identifier,
+    pub service_token: LeaseToken,
+    pub coordinator_url: String,
+    pub platform_url: String,
+    pub amqp_url: String,
+    pub socket: PathBuf,
+    pub staging: PathBuf,
+    pub admission: NodeAdmission,
+    #[serde(default = "default_control_timeout_ms")]
+    pub control_timeout_ms: u64,
+}
+fn default_control_timeout_ms() -> u64 {
+    2000
+}
+impl Config {
+    fn control_timeout(&self) -> io::Result<Duration> {
+        (1000..=5000)
+            .contains(&self.control_timeout_ms)
+            .then(|| Duration::from_millis(self.control_timeout_ms))
+            .ok_or_else(error)
+    }
+    pub fn load(path: &Path) -> io::Result<Self> {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let m = fs::symlink_metadata(path)?;
+        if !m.is_file()
+            || m.nlink() != 1
+            || m.permissions().mode() & 0o777 != 0o600
+            || m.len() > 32768
+        {
+            return Err(error());
+        }
+        let c: Self = serde_json::from_slice(&fs::read(path)?).map_err(|_| error())?;
+        for (raw, scheme) in [
+            (&c.coordinator_url, "http"),
+            (&c.platform_url, "http"),
+            (&c.amqp_url, "amqp"),
+        ] {
+            let u = reqwest::Url::parse(raw).map_err(|_| error())?;
+            if u.scheme() != scheme
+                || !u.host_str().is_some_and(|s| {
+                    s.trim_matches(['[', ']'])
+                        .parse::<std::net::IpAddr>()
+                        .is_ok_and(|i| i.is_loopback())
+                })
+                || u.query().is_some()
+                || u.fragment().is_some()
+                || (scheme == "http"
+                    && (!u.username().is_empty() || u.password().is_some() || u.path() != "/"))
+            {
+                return Err(error());
+            }
+        }
+        if !c.socket.is_absolute()
+            || !c.staging.is_absolute()
+            || c.admission.max_concurrent_jobs() != 1
+            || c.admission.prefetch() != 1
+        {
+            return Err(error());
+        }
+        c.admission.validate().map_err(|_| error())?;
+        c.control_timeout()?;
+        amqp_uri(&c.amqp_url)?;
+        Ok(c)
+    }
+}
+fn amqp_uri(raw: &str) -> io::Result<lapin::uri::AMQPUri> {
+    let url = reqwest::Url::parse(raw).map_err(|_| error())?;
+    let host = url.host_str().ok_or_else(error)?.trim_matches(['[', ']']);
+    if url.scheme() != "amqp"
+        || !host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+    {
+        return Err(error());
+    }
+    let mut uri: lapin::uri::AMQPUri = raw.parse().map_err(|_| error())?;
+    // Locked URI parser uses domain() and otherwise substitutes localhost for IPs.
+    uri.authority.host = host.into();
+    // Python publisher treats an empty/root path as default vhost; normalize identically.
+    if url.path().is_empty() || url.path() == "/" {
+        uri.vhost = "/".into();
+    }
+    Ok(uri)
+}
+#[derive(Clone)]
+struct Remote {
+    client: Client,
+    artifact_client: Client,
+    base: String,
+    service: String,
+}
+impl Remote {
+    fn new(c: &Config) -> io::Result<Self> {
+        let timeout = c.control_timeout()?;
+        let build = |timeout| {
+            Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .connect_timeout(Duration::from_secs(1))
+                .timeout(timeout)
+                .build()
+                .map_err(|_| error())
+        };
+        let client = build(timeout)?;
+        // Operator control-plane allowance never extends artifact fetches or execution budgets.
+        let artifact_client = if timeout == Duration::from_secs(2) {
+            client.clone()
+        } else {
+            build(Duration::from_secs(2))?
+        };
+        Ok(Self {
+            client,
+            artifact_client,
+            base: c.coordinator_url.trim_end_matches('/').into(),
+            service: c.service_token.expose_secret().into(),
+        })
+    }
+    fn post<T: serde::Serialize>(
+        &self,
+        route: &str,
+        body: &T,
+        grant: Option<&Grant>,
+    ) -> io::Result<reqwest::blocking::Response> {
+        let mut r = self
+            .client
+            .post(format!("{}{route}", self.base))
+            .bearer_auth(&self.service)
+            .json(body);
+        if let Some(g) = grant {
+            r = r.header("x-lease-token", g.lease_token.expose_secret());
+        }
+        r.send().map_err(|_| error())
+    }
+    fn bytes(mut r: reqwest::blocking::Response, max: usize) -> io::Result<Vec<u8>> {
+        if !r.status().is_success() || r.content_length().is_some_and(|n| n > max as u64) {
+            return Err(error());
+        }
+        let mut b = Vec::new();
+        (&mut r).take(max as u64 + 1).read_to_end(&mut b)?;
+        if b.len() > max {
+            return Err(error());
+        }
+        Ok(b)
+    }
+    fn pending(&self) -> io::Result<Vec<Pending>> {
+        let r = self
+            .client
+            .get(format!("{}/internal/pending-stops", self.base))
+            .bearer_auth(&self.service)
+            .send()
+            .map_err(|_| transport_error("coordinator_pending", "send"))?;
+        let b = Self::bytes(r, 16384)?;
+        let v: Vec<Pending> = serde_json::from_slice(&b)
+            .map_err(|_| transport_error("coordinator_pending", "decode"))?;
+        if v.len() > 16
+            || v.iter().any(|p| {
+                p.case_count == 0 || p.case_count > MAX_CASES || !matches!(p.schema_version, 1 | 2)
+            })
+        {
+            return Err(error());
+        }
+        Ok(v)
+    }
+    fn reconcile(&self, c: &Config) -> io::Result<bool> {
+        let pending = self.pending()?;
+        if pending.is_empty() {
+            return Ok(true);
+        }
+        StagePublication::recover(&c.staging)?;
+        let clean = FactoryClient::new(c.socket.clone())
+            .stopped()
+            .unwrap_or(false);
+        for p in pending {
+            if p.binding.worker_id != c.worker_id {
+                return Err(error());
+            }
+            let r = p.stopped(clean)?;
+            if self.post("/internal/stopped", &r, None)?.status().as_u16() != 204 {
+                return Err(error());
+            }
+        }
+        Ok(clean)
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Pending {
+    #[serde(default = "legacy_version")]
+    schema_version: u16,
+    binding: LeaseBinding,
+    case_count: usize,
+}
+fn legacy_version() -> u16 {
+    1
+}
+impl Pending {
+    fn stopped(self, clean: bool) -> io::Result<versions::StoppedReport> {
+        match self.schema_version {
+            1 => Ok(versions::StoppedReport::V1(StoppedReport {
+                schema_version: SchemaVersion,
+                kind: StoppedKind::Value,
+                binding: self.binding,
+                cleanup_complete: clean,
+            })),
+            2 => Ok(versions::StoppedReport::V2(v2::StoppedReport {
+                schema_version: v2::SchemaVersion,
+                kind: StoppedKind::Value,
+                binding: self.binding,
+                cleanup_complete: clean,
+            })),
+            _ => Err(error()),
+        }
+    }
+}
+struct RemoteArtifacts {
+    client: Client,
+    base: String,
+    grant: Grant,
+}
+impl RemoteArtifacts {
+    fn headers(&self, r: reqwest::blocking::RequestBuilder) -> reqwest::blocking::RequestBuilder {
+        r.bearer_auth(self.grant.lease_token.expose_secret())
+            .header(
+                "x-worker-id",
+                self.grant.binding.worker_id.as_uuid().to_string(),
+            )
+            .header("x-fencing-version", self.grant.binding.fencing_version)
+    }
+    fn url(&self, suffix: &str) -> String {
+        format!(
+            "{}/api/v1/internal/evaluations/{}/attempts/{}{suffix}",
+            self.base,
+            self.grant.binding.evaluation_id.as_uuid(),
+            self.grant.binding.attempt_id.as_uuid()
+        )
+    }
+    fn manifest(&self) -> io::Result<VersionedManifest> {
+        let response = self
+            .headers(self.client.get(self.url("/manifest")))
+            .send()
+            .map_err(|_| error())?;
+        authorized_manifest(&Remote::bytes(response, MAX_WIRE_BYTES)?, &self.grant)
+    }
+}
+fn authorized_manifest(raw: &[u8], grant: &Grant) -> io::Result<VersionedManifest> {
+    let m: VersionedManifest = decode_wire(raw).map_err(|_| error())?;
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(m.canonical_bytes().map_err(|_| error())?)
+    );
+    if digest != grant.manifest_digest.as_str()
+        || m.evaluation_id() != grant.binding.evaluation_id
+        || m.version() != grant.version
+    {
+        return Err(error());
+    }
+    Ok(m)
+}
+impl ArtifactPort for RemoteArtifacts {
+    fn read(&mut self, reference: &ArtifactReference) -> io::Result<Vec<u8>> {
+        let r = self
+            .headers(
+                self.client
+                    .get(self.url(&format!("/artifacts/{}", reference.digest.as_str()))),
+            )
+            .send()
+            .map_err(|_| error())?;
+        let bytes = Remote::bytes(r, reference.bytes as usize)?;
+        if bytes.len() as u64 != reference.bytes
+            || format!("{:x}", Sha256::digest(&bytes)) != reference.digest.as_str()
+        {
+            return Err(error());
+        }
+        Ok(bytes)
+    }
+}
+fn lease_deadline(ms: u64) -> io::Result<Instant> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| error())?
+        .as_millis() as u64;
+    let remaining = ms
+        .checked_sub(now)
+        .filter(|v| *v >= 500 && *v <= 300000)
+        .ok_or_else(error)?;
+    Ok(Instant::now() + Duration::from_millis(remaining))
+}
+fn execute(c: &Config, r: &Remote, g: Grant, stop: &AtomicBool) -> io::Result<()> {
+    if g.binding.worker_id != c.worker_id {
+        return Err(error());
+    }
+    let artifacts = RemoteArtifacts {
+        client: r.artifact_client.clone(),
+        base: c.platform_url.trim_end_matches('/').into(),
+        grant: g.clone(),
+    };
+    let m = artifacts.manifest()?;
+    c.admission
+        .admit(&m, g.attempt_number)
+        .map_err(|_| error())?;
+    let cancel = AtomicBool::new(false);
+    let done = AtomicBool::new(false);
+    let initial = lease_deadline(g.expires_at_unix_ms)?;
+    std::thread::scope(|scope| {
+        let renew = scope.spawn(|| {
+            let mut deadline = initial;
+            let mut next = Instant::now() + Duration::from_secs(1);
+            while !done.load(Ordering::Acquire) {
+                if stop.load(Ordering::Acquire) || Instant::now() >= deadline {
+                    cancel.store(true, Ordering::Release);
+                    break;
+                }
+                if Instant::now() >= next {
+                    let result = (|| {
+                        let response = r.post("/internal/renew", &g.binding, Some(&g))?;
+                        let b = Remote::bytes(response, 1024)?;
+                        let v: serde_json::Value =
+                            serde_json::from_slice(&b).map_err(|_| error())?;
+                        lease_deadline(v["expires_at_unix_ms"].as_u64().ok_or_else(error)?)
+                    })();
+                    match result {
+                        Ok(d) => deadline = d,
+                        Err(_) => {
+                            cancel.store(true, Ordering::Release);
+                            break;
+                        }
+                    }
+                    next = Instant::now() + Duration::from_secs(1);
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        });
+        let result = (|| {
+            let mut sequence = 0u64;
+            let mut control = |stage, index| {
+                sequence += 1;
+                let report = stage_report(&m, g.binding.clone(), sequence, stage, index);
+                for _ in 0..2 {
+                    match r.post("/internal/stage", &report, Some(&g)) {
+                        Ok(response) if response.status().as_u16() == 204 => return Ok(()),
+                        Ok(response) if response.status().as_u16() == 409 => break,
+                        _ => {}
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                cancel.store(true, Ordering::Release);
+                Err(StageFailure {
+                    code: FailureCode::LeaseLost,
+                    cleanup_complete: true,
+                })
+            };
+            let mut report = match &m {
+                VersionedManifest::V1(manifest) => {
+                    let mut adapter = Attempt::new(
+                        artifacts,
+                        c.socket.clone(),
+                        c.staging.clone(),
+                        manifest.job_wall_time_us,
+                        &cancel,
+                    )?
+                    .with_control(&mut control);
+                    versions::JudgementReport::V1(
+                        judge_submission(
+                            &mut adapter,
+                            manifest,
+                            g.binding.clone(),
+                            g.manifest_digest.clone(),
+                        )
+                        .map_err(|_| error())?
+                        .report,
+                    )
+                }
+                VersionedManifest::V2(manifest) => {
+                    let authorized = AuthorizedJob::admit(
+                        manifest.clone(),
+                        g.binding.clone(),
+                        g.manifest_digest.clone(),
+                        g.attempt_number,
+                        &c.admission,
+                    )
+                    .map_err(|_| error())?;
+                    let mut adapter = RuntimeAttempt::new(
+                        authorized,
+                        artifacts,
+                        c.socket.clone(),
+                        c.staging.clone(),
+                        &cancel,
+                    )?
+                    .with_control(&mut control);
+                    versions::JudgementReport::V2(
+                        submission_v2::judge_submission(
+                            &mut adapter,
+                            manifest,
+                            g.binding.clone(),
+                            g.manifest_digest.clone(),
+                        )
+                        .map_err(|_| error())?
+                        .report,
+                    )
+                }
+            };
+            transport_cancellation_versioned(&mut report);
+            report
+                .validate_for_manifest(&m, &g.manifest_digest)
+                .map_err(|_| error())?;
+            // Same immutable report only; a transport ambiguity never becomes success.
+            for _ in 0..3 {
+                match r.post("/internal/report", &report, Some(&g)) {
+                    Ok(response) if response.status().as_u16() == 204 => return Ok(()),
+                    Ok(response) if response.status().as_u16() == 409 => break,
+                    _ => {}
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            Err(error())
+        })();
+        done.store(true, Ordering::Release);
+        renew.join().map_err(|_| error())?;
+        result
+    })
+}
+fn stage_report(
+    m: &VersionedManifest,
+    binding: LeaseBinding,
+    sequence: u64,
+    stage: Stage,
+    case_index: Option<u16>,
+) -> versions::StageReport {
+    match m {
+        VersionedManifest::V1(_) => versions::StageReport::V1(StageReport {
+            schema_version: SchemaVersion,
+            kind: StageKind::Value,
+            binding,
+            sequence,
+            stage,
+            case_index,
+        }),
+        VersionedManifest::V2(manifest) => versions::StageReport::V2(v2::StageReport {
+            schema_version: v2::SchemaVersion,
+            kind: StageKind::Value,
+            binding,
+            sequence,
+            stage,
+            case_index,
+            preparation_kind: manifest.language.contract().preparation_kind,
+        }),
+    }
+}
+fn transport_cancellation_versioned(report: &mut versions::JudgementReport) {
+    match report {
+        versions::JudgementReport::V1(r) => transport_cancellation(r),
+        versions::JudgementReport::V2(r) => {
+            if r.verdict == Verdict::Cancelled {
+                r.verdict = Verdict::SystemError;
+                r.failure_code = Some(FailureCode::LeaseLost);
+                if r.compilation.status == CompilationStatus::Cancelled {
+                    r.compilation.status = CompilationStatus::SystemError;
+                }
+            }
+        }
+    }
+}
+// A task stopped by service shutdown/transport loss is an infrastructure failure.
+// User cancellation is authoritative in Coordinator and completes via actual stop proof.
+fn transport_cancellation(report: &mut JudgementReport) {
+    if report.verdict == Verdict::Cancelled {
+        report.verdict = Verdict::SystemError;
+        report.failure_code = Some(FailureCode::LeaseLost);
+        if report.compilation.status == CompilationStatus::Cancelled {
+            report.compilation.status = CompilationStatus::SystemError;
+        }
+    }
+}
+async fn bounded<T>(
+    operation: &'static str,
+    future: impl std::future::Future<Output = lapin::Result<T>>,
+) -> io::Result<T> {
+    tokio::time::timeout(Duration::from_secs(5), future)
+        .await
+        .map_err(|_| transport_error(operation, "deadline"))?
+        .map_err(|failure| {
+            transport_error(
+                operation,
+                match failure {
+                    lapin::Error::IOError(_) => "io",
+                    lapin::Error::ProtocolError(_) => "protocol",
+                    lapin::Error::MissingHeartbeatError => "heartbeat",
+                    _ => "refused",
+                },
+            )
+        })
+}
+async fn consume(c: &Config, r: &Remote, stop: &AtomicBool) -> io::Result<()> {
+    if !r.reconcile(c)? {
+        return Err(error());
+    }
+    let connection = bounded(
+        "amqp_connect",
+        Connection::connect_uri(amqp_uri(&c.amqp_url)?, ConnectionProperties::default()),
+    )
+    .await?;
+    let channel = bounded("amqp_channel", connection.create_channel()).await?;
+    bounded("amqp_qos", channel.basic_qos(1, BasicQosOptions::default())).await?;
+    let mut arguments = FieldTable::default();
+    arguments.insert("x-max-length".into(), 64i32.into());
+    arguments.insert("x-max-length-bytes".into(), 32768i32.into());
+    arguments.insert(
+        "x-overflow".into(),
+        lapin::types::AMQPValue::LongString("reject-publish".into()),
+    );
+    arguments.insert("x-message-ttl".into(), 600000i32.into());
+    bounded(
+        "amqp_declare",
+        channel.queue_declare(
+            QUEUE,
+            QueueDeclareOptions {
+                durable: true,
+                ..Default::default()
+            },
+            arguments,
+        ),
+    )
+    .await?;
+    let mut consumer = bounded(
+        "amqp_consume",
+        channel.basic_consume(
+            QUEUE,
+            "kf-worker",
+            BasicConsumeOptions::default(),
+            FieldTable::default(),
+        ),
+    )
+    .await?;
+    while !stop.load(Ordering::Acquire) {
+        // A bounded read wait also reconciles revoked/expired attempts with no message.
+        let delivery = tokio::time::timeout(Duration::from_secs(1), consumer.next()).await;
+        let delivery = match delivery {
+            Err(_) => {
+                if !r.reconcile(c)? {
+                    return Err(error());
+                }
+                continue;
+            }
+            Ok(None) => break,
+            Ok(Some(v)) => v.map_err(|_| transport_error("amqp_read", "refused"))?,
+        };
+        let notice: JudgeTaskNotification = match decode_wire(&delivery.data) {
+            Ok(v) => v,
+            Err(_) => {
+                bounded(
+                    "amqp_reject",
+                    delivery.reject(BasicRejectOptions { requeue: false }),
+                )
+                .await?;
+                continue;
+            }
+        };
+        let grant = r.post("/internal/claim", &notice, None)?;
+        match grant.status().as_u16() {
+            200 => {
+                let g: versions::LeaseGrant =
+                    decode_wire(&Remote::bytes(grant, MAX_WIRE_BYTES)?).map_err(|_| error())?;
+                let result = execute(c, r, g.into(), stop);
+                if result.is_err() && !r.reconcile(c)? {
+                    return Err(error());
+                }
+                // If report was unconfirmed, DB expiry/recovery owns the next notification.
+                bounded("amqp_ack", delivery.ack(BasicAckOptions::default())).await?;
+            }
+            204 | 429 => bounded("amqp_ack", delivery.ack(BasicAckOptions::default())).await?,
+            _ => return Err(error()),
+        }
+    }
+    bounded("amqp_close", connection.close(200, "worker stopped")).await?;
+    Ok(())
+}
+pub fn run(c: Config, stop: Arc<AtomicBool>) -> io::Result<()> {
+    StagePublication::recover(&c.staging)?;
+    let remote = Remote::new(&c)?;
+    let mut failures = 0u32;
+    while !stop.load(Ordering::Acquire) {
+        let result = block_on(consume(&c, &remote, &stop));
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
+        if result.is_ok() {
+            failures = 0;
+        } else {
+            failures = failures.saturating_add(1).min(5);
+            let code = result
+                .err()
+                .and_then(|e| e.into_inner())
+                .and_then(|e| e.downcast::<TransportError>().ok());
+            if let Some(code) = code {
+                eprintln!("worker transport unavailable: {code}");
+            } else {
+                eprintln!("worker transport unavailable: refused");
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(2u64.pow(failures).min(30));
+        while Instant::now() < deadline && !stop.load(Ordering::Acquire) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    // A still-live lease may take a bounded expiry interval to become pending.
+    let _ = remote.reconcile(&c);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn config_value() -> serde_json::Value {
+        serde_json::json!({
+            "worker_id": "11111111-1111-4111-8111-111111111111",
+            "service_token": "a".repeat(64),
+            "coordinator_url": "http://127.0.0.1/",
+            "platform_url": "http://127.0.0.1/",
+            "amqp_url": "amqp://fixture:temporary@127.0.0.1/",
+            "socket": "/private/control.sock",
+            "staging": "/private/staging",
+            "admission": serde_json::from_slice::<serde_json::Value>(include_bytes!(
+                "../../../../tests/fixtures/contracts/judge-admission.valid.json"
+            )).unwrap()
+        })
+    }
+    #[test]
+    fn trusted_control_allowance_defaults_and_refuses_unbounded_values() {
+        let value = config_value();
+        let c: Config = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(c.control_timeout().unwrap(), Duration::from_secs(2));
+        for ms in [1000, 5000] {
+            let mut v = value.clone();
+            v["control_timeout_ms"] = ms.into();
+            let c: Config = serde_json::from_value(v).unwrap();
+            assert_eq!(c.control_timeout().unwrap(), Duration::from_millis(ms));
+        }
+        for ms in [0, 999, 5001, u64::MAX] {
+            let mut v = value.clone();
+            v["control_timeout_ms"] = ms.into();
+            let c: Config = serde_json::from_value(v).unwrap();
+            assert!(Remote::new(&c).is_err());
+        }
+        for invalid in [serde_json::Value::Null, "5000".into(), (-1).into()] {
+            let mut v = value.clone();
+            v["control_timeout_ms"] = invalid;
+            assert!(serde_json::from_value::<Config>(v).is_err());
+        }
+    }
+    #[test]
+    fn private_config_loader_enforces_control_allowance_before_startup() {
+        use std::io::{Seek, Write};
+        use std::os::unix::fs::OpenOptionsExt;
+        let path = std::env::temp_dir().join(format!("kf-worker-config-{}", uuid::Uuid::new_v4()));
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        for ms in [None, Some(5000), Some(0), Some(5001)] {
+            let mut value = config_value();
+            if let Some(ms) = ms {
+                value["control_timeout_ms"] = ms.into();
+            }
+            file.set_len(0).unwrap();
+            file.rewind().unwrap();
+            file.write_all(&serde_json::to_vec(&value).unwrap())
+                .unwrap();
+            file.flush().unwrap();
+            let loaded = Config::load(&path);
+            assert_eq!(loaded.is_ok(), matches!(ms, None | Some(5000)));
+        }
+        drop(file);
+        fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn real_delayed_control_response_does_not_extend_artifact_transport() {
+        use std::io::Write;
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for _ in 0..3 {
+                let end = Instant::now() + Duration::from_secs(12);
+                let mut connection = loop {
+                    match listener.accept() {
+                        Ok((connection, _)) => break connection,
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < end);
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(e) => panic!("test listener: {e}"),
+                    }
+                };
+                connection
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                let mut request = [0u8; 4096];
+                assert!(connection.read(&mut request).unwrap() > 0);
+                std::thread::sleep(Duration::from_secs(3));
+                let _ = connection.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                );
+            }
+        });
+        let mut value = config_value();
+        value["coordinator_url"] = url.clone().into();
+        let c: Config = serde_json::from_value(value.clone()).unwrap();
+        let default = Remote::new(&c).unwrap();
+        assert!(
+            default
+                .post("/internal/claim", &serde_json::json!({}), None)
+                .is_err()
+        );
+        value["control_timeout_ms"] = 5000.into();
+        let c: Config = serde_json::from_value(value).unwrap();
+        let configured = Remote::new(&c).unwrap();
+        let response = configured
+            .post("/internal/claim", &serde_json::json!({}), None)
+            .unwrap();
+        assert_eq!(Remote::bytes(response, 2).unwrap(), b"{}");
+        assert!(configured.artifact_client.get(url).send().is_err());
+        server.join().unwrap();
+    }
+    #[test]
+    fn versioned_manifest_is_bound_to_lease_generation_digest_and_identity() {
+        for (raw, version) in [
+            (
+                &include_bytes!("../../../../tests/fixtures/contracts/judge-manifest.valid.json")[..],
+                1,
+            ),
+            (
+                &include_bytes!(
+                    "../../../../tests/fixtures/contracts-v2/judge-manifest.valid-python313.json"
+                )[..],
+                2,
+            ),
+        ] {
+            let m: VersionedManifest = decode_wire(raw).unwrap();
+            let base: versions::LeaseGrant = decode_wire(include_bytes!(
+                "../../../../tests/fixtures/contracts-v2/judge-lease.valid.json"
+            ))
+            .unwrap();
+            let mut g: Grant = base.into();
+            g.version = version;
+            g.binding.evaluation_id = m.evaluation_id();
+            g.manifest_digest = format!("{:x}", Sha256::digest(m.canonical_bytes().unwrap()))
+                .try_into()
+                .unwrap();
+            assert_eq!(authorized_manifest(raw, &g).unwrap(), m);
+            g.version = 3 - version;
+            assert!(authorized_manifest(raw, &g).is_err());
+            g.version = version;
+            g.manifest_digest = "f".repeat(64).try_into().unwrap();
+            assert!(authorized_manifest(raw, &g).is_err());
+        }
+    }
+    #[test]
+    fn preparation_stage_and_pending_stop_retain_exact_protocol_generation() {
+        let raw = include_bytes!(
+            "../../../../tests/fixtures/contracts-v2/judge-manifest.valid-python313.json"
+        );
+        let m: VersionedManifest = decode_wire(raw).unwrap();
+        let g: versions::LeaseGrant = decode_wire(include_bytes!(
+            "../../../../tests/fixtures/contracts-v2/judge-lease.valid.json"
+        ))
+        .unwrap();
+        let mut g: Grant = g.into();
+        g.binding.evaluation_id = m.evaluation_id();
+        let report = stage_report(&m, g.binding.clone(), 1, Stage::Compiling, None);
+        report.validate_for_manifest(&m).unwrap();
+        let value = serde_json::to_value(report).unwrap();
+        assert_eq!(value["schema_version"], 2);
+        assert_eq!(value["preparation_kind"], "syntax_check");
+        for version in [1, 2, 3] {
+            let mut pending = serde_json::json!({"binding":g.binding,"case_count":2});
+            if version != 1 {
+                pending["schema_version"] = serde_json::json!(version);
+            }
+            let p: Pending = serde_json::from_value(pending).unwrap();
+            if version == 3 {
+                assert!(p.stopped(true).is_err());
+                continue;
+            }
+            let stopped = serde_json::to_value(p.stopped(true).unwrap()).unwrap();
+            assert_eq!(stopped["schema_version"], version);
+            assert_eq!(
+                stopped,
+                serde_json::json!({"schema_version":version,"kind":"judge.stopped","binding":g.binding,"cleanup_complete":true})
+            );
+        }
+        let mut legacy: VersionedManifest = decode_wire(include_bytes!(
+            "../../../../tests/fixtures/contracts/judge-manifest.valid.json"
+        ))
+        .unwrap();
+        if let VersionedManifest::V1(m) = &mut legacy {
+            m.evaluation_id = g.binding.evaluation_id;
+        }
+        let report = stage_report(&legacy, g.binding, 1, Stage::Compiling, None);
+        let value = serde_json::to_value(&report).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert!(value.get("preparation_kind").is_none());
+        report.validate_for_manifest(&legacy).unwrap();
+    }
+    #[test]
+    fn amqp_numeric_authority_and_default_vhost_are_preserved() {
+        for (raw, host, vhost) in [
+            ("amqp://fixture:temporary@127.0.0.2:5672/", "127.0.0.2", "/"),
+            (
+                "amqp://fixture:temporary@127.0.0.1:5672/%2f",
+                "127.0.0.1",
+                "/",
+            ),
+            ("amqp://fixture:temporary@[::1]:5672/named", "::1", "named"),
+        ] {
+            let uri = amqp_uri(raw).unwrap();
+            assert_eq!(uri.authority.host, host);
+            assert_eq!(uri.vhost, vhost);
+        }
+        assert!(amqp_uri("amqp://fixture:temporary@example.invalid/").is_err());
+        assert!(amqp_uri("amqp://fixture:temporary@192.0.2.1/").is_err());
+    }
+    #[test]
+    fn stopped_transport_cannot_claim_user_cancellation() {
+        let mut report: JudgementReport = decode_wire(include_bytes!(
+            "../../../../tests/fixtures/contracts/judge-result.valid.json"
+        ))
+        .unwrap();
+        transport_cancellation(&mut report);
+        assert_eq!(report.verdict, Verdict::Accepted);
+        assert_eq!(report.failure_code, None);
+        report.cases.last_mut().unwrap().verdict = Verdict::Cancelled;
+        report.verdict = Verdict::Cancelled;
+        report.validate().unwrap();
+        transport_cancellation(&mut report);
+        assert_eq!(report.failure_code, Some(FailureCode::LeaseLost));
+        assert_eq!(report.verdict, Verdict::SystemError);
+        report.validate().unwrap();
+        report.cases.clear();
+        report.run_cpu_time_us = None;
+        report.run_memory_peak_bytes = None;
+        report.compilation.program = None;
+        report.compilation.status = CompilationStatus::Cancelled;
+        report.verdict = Verdict::Cancelled;
+        report.failure_code = None;
+        report.validate().unwrap();
+        transport_cancellation(&mut report);
+        assert_eq!(report.compilation.status, CompilationStatus::SystemError);
+        report.validate().unwrap();
+    }
+}
