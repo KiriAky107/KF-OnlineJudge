@@ -326,6 +326,46 @@ def test_kernel_observation_does_not_replace_unavailable_or_invalid_counters_wit
         node_observation.number(value)
 
 
+def test_node_observation_requests_kernel_io_accounting_without_relaxing_limits(monkeypatch):
+    from scripts.release import operator_units, service_install
+
+    payload = installer.RELEASES / ("sd-" + "a" * 12) / "payload"
+    monkeypatch.setattr(operator_units.os, "getuid", lambda: 0)
+    monkeypatch.setattr(operator_units.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(
+        installer,
+        "selection",
+        lambda **_: {"release_id": payload.parent.name, "configuration_id": "cfg-" + "b" * 24},
+    )
+    monkeypatch.setattr(
+        service_install,
+        "systemctl",
+        lambda *args: "LoadState=not-found\nActiveState=inactive\nMainPID=0\n",
+    )
+    calls = []
+
+    def dispatch(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, b'{"complete":true}', b"")
+
+    monkeypatch.setattr(operator_units.subprocess, "run", dispatch)
+    assert operator_units.run("node-observation", payload) == {"complete": True}
+    assert len(calls) == 1
+    command = calls[0]
+    assert "--property=IOAccounting=yes" in command
+    for setting in (
+        "MemoryMax=128M",
+        "MemorySwapMax=0",
+        "TasksMax=16",
+        "CPUQuota=25%",
+        "RuntimeMaxSec=360",
+        "NoNewPrivileges=yes",
+        "CapabilityBoundingSet=",
+        "ProtectControlGroups=yes",
+    ):
+        assert "--property=" + setting in command
+
+
 def test_postgres_recovery_retains_narrow_existing_role_authorities():
     assert recovery_identity.properties("kf_platform") == (
         True,

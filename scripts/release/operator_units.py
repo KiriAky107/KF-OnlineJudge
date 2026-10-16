@@ -158,6 +158,11 @@ def run(
         "RestrictAddressFamilies": "AF_UNIX AF_INET",
         "WorkingDirectory": str(payload),
     }
+    if name == "node-observation":
+        # The unified io controller may be disabled until a unit requests
+        # accounting. Enable it through systemd before reading io.stat for
+        # this slice and its services; keep missing counters a hard failure.
+        properties["IOAccounting"] = "yes"
     for key, value in properties.items():
         command.append("--property=" + key + "=" + value)
     if name in {"import-health", "outbox-health"}:
