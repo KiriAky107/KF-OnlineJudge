@@ -14,6 +14,7 @@ from .policy import DeliveryError, canonical, digest, fields, read_json, sha256
 
 UNIT = "kf-sandbox-factory.service"
 UNITS = Path("/etc/kf-judge/units")
+START_TIMEOUT_SECONDS = 1800
 
 
 def validate_receipt(value: dict) -> dict:
@@ -143,7 +144,7 @@ def render(receipt: dict) -> bytes:
         "LimitFSIZE=64M",
         "LimitNOFILE=256",
         "LimitSTACK=16M",
-        "TimeoutStartSec=1800",
+        f"TimeoutStartSec={START_TIMEOUT_SECONDS}",
         "RuntimeMaxSec=3700",
         "TimeoutStopSec=40",
         "KillMode=mixed",
@@ -164,7 +165,12 @@ def generate(output: Path) -> dict:
         raise DeliveryError("Root factory composition requires trusted operator")
     selected, original = service_install.current_receipt()
     payload = install.RELEASES / selected["release_id"] / "payload"
-    for name in ("factory_service.py", "services.py", "service_profiles.py", "layout.py"):
+    for name in (
+        "factory_service.py",
+        "services.py",
+        "service_profiles.py",
+        "layout.py",
+    ):
         installed = payload / "delivery/scripts/release" / name
         preflight.protected(installed)
         if digest(installed) != digest(Path(__file__).parent / name):
@@ -211,7 +217,12 @@ def install_unit(source: Path, expected: str) -> dict:
     ):
         raise DeliveryError("factory unit does not belong to selected configuration")
     payload = install.RELEASES / selected["release_id"] / "payload"
-    for name in ("factory_service.py", "services.py", "service_profiles.py", "layout.py"):
+    for name in (
+        "factory_service.py",
+        "services.py",
+        "service_profiles.py",
+        "layout.py",
+    ):
         shipped = payload / "delivery/scripts/release" / name
         preflight.protected(shipped)
         if digest(shipped) != digest(Path(__file__).parent / name):

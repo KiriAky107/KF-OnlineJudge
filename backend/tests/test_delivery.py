@@ -486,6 +486,44 @@ def test_startup_cannot_launch_services_when_recovery_admission_is_refused(monke
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    ("name", "ready_after", "succeeds"),
+    [("sandbox-factory", 131, True), ("sandbox-factory", 1811, False), ("api", 131, False)],
+)
+def test_startup_waits_for_declared_factory_preparation_without_extending_other_services(
+    monkeypatch, name, ready_after, succeeds
+):
+    maintenance = object.__new__(lifecycle.Maintenance)
+    maintenance.selected = {"release_id": "sd-" + "a" * 12, "configuration_id": "cfg-" + "b" * 24}
+    maintenance.record = {"events": [], "root_cleanup_confirmed": True}
+    clock = [0.0]
+    confirmed = []
+    monkeypatch.setattr(lifecycle.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(lifecycle.time, "sleep", lambda _: clock.__setitem__(0, clock[0] + 1))
+    monkeypatch.setattr(lifecycle.install, "selection", lambda **_: maintenance.selected)
+    monkeypatch.setattr(lifecycle.service_install, "systemctl", lambda *args: "")
+    monkeypatch.setattr(maintenance, "save", lambda phase: None)
+    monkeypatch.setattr(
+        maintenance,
+        "unit",
+        lambda _: {
+            "ActiveState": "active" if clock[0] >= ready_after else "activating",
+            "SubState": "running" if clock[0] >= ready_after else "start-pre",
+            "MainPID": "123" if clock[0] >= ready_after else "0",
+        },
+    )
+    monkeypatch.setattr(lifecycle.node_health, "inspect_unit", lambda *args: confirmed.append(args))
+    if succeeds:
+        maintenance.change(name, "start")
+        assert maintenance.record["events"][-1]["confirmed"] is True
+        assert confirmed == [(name, maintenance.selected)]
+    else:
+        with pytest.raises(policy.DeliveryError, match="bounded lifecycle operation unconfirmed"):
+            maintenance.change(name, "start")
+        assert maintenance.record["events"][-1]["confirmed"] is False
+        assert confirmed == []
+
+
 def test_restoration_keeps_old_runtime_configuration_and_operations_inactive():
     directory = Path("/var/lib/kf-onlinejudge/recovery/rr-" + "1" * 32)
     for domain in restore.HISTORICAL:

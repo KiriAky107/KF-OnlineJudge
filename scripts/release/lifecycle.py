@@ -30,7 +30,15 @@ from .policy import DeliveryError, canonical, digest, fields, read_json, sha256
 
 STATE = Path("/var/lib/kf-onlinejudge/operations")
 LAST = STATE / "maintenance.last.json"
-APPS = ("proxy", "api", "outbox", "worker", "problem-import", "coordinator", "sandbox-factory")
+APPS = (
+    "proxy",
+    "api",
+    "outbox",
+    "worker",
+    "problem-import",
+    "coordinator",
+    "sandbox-factory",
+)
 DEPENDENCIES = ("postgres", "rabbitmq")
 START_ORDER = (
     "sandbox-factory",
@@ -337,7 +345,11 @@ class Maintenance:
         self.record["events"].append({"unit": name, "operation": operation, "confirmed": False})
         self.save("dispatching_" + operation)
         service_install.systemctl("--no-block", operation, "kf-" + name + ".service")
-        deadline = time.monotonic() + (130 if operation == "start" else 50)
+        # Root preparation validates the protected image registry before exec.
+        # Its declared unit timeout also applies here; the enclosing maintenance
+        # helper still enforces its independent overall runtime ceiling.
+        start_seconds = factory_service.START_TIMEOUT_SECONDS if name == "sandbox-factory" else 120
+        deadline = time.monotonic() + (start_seconds + 10 if operation == "start" else 50)
         while True:
             if install.selection(check_configuration=False) != self.selected:
                 raise DeliveryError("selected binding changed during maintenance")
