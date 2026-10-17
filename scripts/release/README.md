@@ -342,7 +342,8 @@ Prepare a separate Root-owned 0700, 16-GiB ext4 volume at
 `/var/lib/kf-onlinejudge/backups`, with `nosuid,nodev,noexec` and no shared mount.
 The fixed backup operator has `CAP_DAC_READ_SEARCH`, no-new-privileges, 256 MiB,
 zero swap, 32 tasks, 50% CPU, a 256-MiB file limit and a 30-minute deadline. Only
-that volume is writable.
+that volume is writable. Backup and restore use `MountFlags=private` so systemd
+does not introduce shared propagation in the operator mount namespace.
 
 Backup domains include PostgreSQL, source/case storage, private import staging,
 retained releases/images, configuration, replay history and operation receipts.

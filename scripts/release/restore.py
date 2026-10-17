@@ -328,6 +328,7 @@ def launch(recovery_id: str, backup_id: str, expected: str) -> dict:
         "PrivateTmp": "yes",
         "PrivateDevices": "yes",
         "ProtectControlGroups": "yes",
+        "MountFlags": "private",
         "RestrictAddressFamilies": "AF_UNIX AF_INET",
         "ReadOnlyPaths": str(backup.ROOT),
         "ReadWritePaths": " ".join(

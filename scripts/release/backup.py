@@ -566,6 +566,7 @@ def launch(args) -> dict:
         "PrivateTmp": "yes",
         "PrivateDevices": "yes",
         "ProtectControlGroups": "yes",
+        "MountFlags": "private",
         "RestrictAddressFamilies": "AF_UNIX",
         "ReadWritePaths": str(ROOT),
     }.items():
