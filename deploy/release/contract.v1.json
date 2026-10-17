@@ -2,7 +2,7 @@
   "schema_version": 1,
   "format": "kf.single-node.directory.v1",
   "platform": "linux_x86_64_v3_glibc244_systemd",
-  "toolchains": {"python": "3.13.16", "rust": "1.99.0", "node": "26.10.0", "pnpm": "11.28.4"},
+  "toolchains": {"python": "3.13.16", "rust": "1.99.0", "node": "26.11.1", "pnpm": "11.28.4"},
   "capacity": {"memory_bytes": 4294967296, "disk_bytes": 12884901888, "execution_slots": 1, "import_slots": 1},
   "layout": {
     "releases": "/opt/kf-onlinejudge/releases",

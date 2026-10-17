@@ -12,7 +12,7 @@ MAX_FILE_BYTES = 256 * 1024 * 1024
 MAX_BUNDLE_BYTES = 4 * 1024**3
 FORMAT = "kf.single-node.directory.v1"
 PLATFORM = "linux_x86_64_v3_glibc244_systemd"
-TOOLCHAINS = {"python": "3.13.16", "rust": "1.99.0", "node": "26.10.0", "pnpm": "11.28.4"}
+TOOLCHAINS = {"python": "3.13.16", "rust": "1.99.0", "node": "26.11.1", "pnpm": "11.28.4"}
 ROOTS = (
     "backend/",
     "python/",

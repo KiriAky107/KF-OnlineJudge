@@ -43,7 +43,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         timeout-minutes: 3
         with:
-          node-version: 26.10.0
+          node-version: 26.11.1
           check-latest: false
           package-manager-cache: false
 
@@ -71,7 +71,7 @@ jobs:
       - name: Check toolchain versions and CI inputs
         timeout-minutes: 1
         run: |
-          test "$(node --version)" = v26.10.0
+          test "$(node --version)" = v26.11.1
           test "$(pnpm --version)" = 11.28.4
           test "$(rustc --version | cut -d ' ' -f 2)" = 1.99.0
           test "$(uv --version | cut -d ' ' -f 2)" = 0.12.24
@@ -172,7 +172,7 @@ jobs:
           report = {'schema_version': 1, 'source_sha': source,
                     'scope': 'Trusted engineering checks only', 'backend': backend,
                     'toolchains': {'python': '3.13.16', 'rust': '1.99.0',
-                                   'node': '26.10.0', 'pnpm': '11.28.4', 'uv': '0.12.24'},
+                                   'node': '26.11.1', 'pnpm': '11.28.4', 'uv': '0.12.24'},
                     'files': files,
                     'not_run': ['real PostgreSQL acceptance', 'independent VM cases',
                                 'user source execution', 'adverse archives and filesystem acceptance',
