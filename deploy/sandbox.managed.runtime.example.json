@@ -14,8 +14,8 @@
   },
   "max_concurrent_runs": 1,
   "per_task_ceiling": {
-    "cpu_time_us": 10000000,
-    "wall_time_us": 30000000,
+    "cpu_time_us": 60000000,
+    "wall_time_us": 120000000,
     "memory_bytes": 536870912,
     "stack_bytes": 16777216,
     "processes": 32,
@@ -49,8 +49,8 @@
         "runtime_version": "gnu-cxx-v1"
       },
       "per_task_ceiling": {
-        "cpu_time_us": 10000000,
-        "wall_time_us": 30000000,
+        "cpu_time_us": 60000000,
+        "wall_time_us": 120000000,
         "memory_bytes": 536870912,
         "stack_bytes": 16777216,
         "processes": 32,
@@ -72,8 +72,8 @@
         "runtime_version": "3.13.16"
       },
       "per_task_ceiling": {
-        "cpu_time_us": 10000000,
-        "wall_time_us": 30000000,
+        "cpu_time_us": 60000000,
+        "wall_time_us": 120000000,
         "memory_bytes": 536870912,
         "stack_bytes": 16777216,
         "processes": 32,
@@ -95,8 +95,8 @@
         "runtime_version": "21.0.12.1+1-LTS"
       },
       "per_task_ceiling": {
-        "cpu_time_us": 10000000,
-        "wall_time_us": 30000000,
+        "cpu_time_us": 60000000,
+        "wall_time_us": 120000000,
         "memory_bytes": 536870912,
         "stack_bytes": 16777216,
         "processes": 32,

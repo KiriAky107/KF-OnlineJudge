@@ -832,10 +832,44 @@ def test_generated_configuration_preserves_wire_policies_and_backend_settings(
     }
 
 
+def test_generated_configuration_retains_accepted_language_budgets(delivery_configuration):
+    """The installed policy must preserve the established runtime startup allowance."""
+    _, raw, _, _, _, _ = delivery_configuration
+    admission = json.loads(raw["admission.json"])
+    root = json.loads(raw["runtime.json"])
+    policies = [admission["legacy"], admission["multi_runtime"]]
+    assert all(p["max_concurrent_jobs"] == p["prefetch"] == 1 for p in policies)
+    assert all(p["max_job_wall_time_us"] == 180_000_000 for p in policies)
+    for cap in admission["multi_runtime"]["capabilities"]:
+        java = cap["language"] == "java21"
+        assert cap["compile_ceiling"]["cpu_time_us"] >= (60_000_000 if java else 30_000_000)
+        assert cap["compile_ceiling"]["wall_time_us"] >= (120_000_000 if java else 60_000_000)
+        assert cap["run_ceiling"]["cpu_time_us"] >= 5_000_000
+        assert cap["run_ceiling"]["wall_time_us"] >= 10_000_000
+        assert cap["run_ceiling"]["memory_bytes"] >= (384 if java else 128) * 1024**2
+        image = next(i for i in root["runtime_images"] if i["runtime_identity"] == cap["toolchain"])
+        for stage in (cap["compile_ceiling"], cap["run_ceiling"]):
+            assert all(value <= image["per_task_ceiling"][key] for key, value in stage.items())
+            assert all(value <= root["per_task_ceiling"][key] for key, value in stage.items())
+
+
 def test_epoch_rebinds_when_kernel_changes(delivery_configuration):
     paths, raw, data, node, endpoints, observed = delivery_configuration
     before = json.loads(raw["measurement.json"])["epoch"]
     observed["kernel"] = "6.19-fixture"
+    with pytest.raises(policy.DeliveryError, match="measurement policy mismatch"):
+        configuration.validate_contents(paths, ROOT, data, attest=True)
+    after = configuration.compose(ROOT, data, node, endpoints, attest=True)
+    assert json.loads(after["measurement.json"])["epoch"] != before
+
+
+def test_epoch_rebinds_when_language_budget_changes(delivery_configuration, monkeypatch):
+    paths, raw, data, node, endpoints, _ = delivery_configuration
+    before = json.loads(raw["measurement.json"])["epoch"]
+    admission, root = configuration.admission_runtime(ROOT, data)
+    java = next(c for c in admission["multi_runtime"]["capabilities"] if c["language"] == "java21")
+    java["compile_ceiling"]["cpu_time_us"] -= 1
+    monkeypatch.setattr(configuration, "admission_runtime", lambda *_: (admission, root))
     with pytest.raises(policy.DeliveryError, match="measurement policy mismatch"):
         configuration.validate_contents(paths, ROOT, data, attest=True)
     after = configuration.compose(ROOT, data, node, endpoints, attest=True)

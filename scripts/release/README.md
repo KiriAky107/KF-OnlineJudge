@@ -77,6 +77,22 @@ a new private batch. API, publisher, import, migration and account operations us
 their required DB authority; Worker receives its own MQ/control identity. Backend
 URLs use asyncpg. The tool preserves supplied passwords and earlier identities.
 
+The generated single-node policy retains the established language budgets:
+
+| Stage | CPU limit | Wall limit | Memory limit |
+| --- | --- | --- | --- |
+| C17/C++20 compilation | 30 s | 60 s | 512 MiB |
+| Python preparation | 30 s | 60 s | 64 MiB |
+| Java compilation | 60 s | 120 s | 512 MiB |
+| C17/C++20/Python execution, per case | 5 s | 10 s | 128 MiB |
+| Java execution, per case | 5 s | 10 s | 384 MiB |
+
+The job wall limit is 180 s and admission remains one job at a time. The Root
+image ceilings cover these limits without changing the task aggregate or its
+single slot. Budgets are bound into the configuration receipt and measurement
+epoch. Installing a changed policy requires a newly generated, explicitly
+attested batch; historical reports keep their original measurement identity.
+
 `install-configuration` validates the entire batch before writing. A batch has a
 content-bound `configuration_id`; installing another for the same source retains
 the first byte-for-byte. `check-configuration` validates installed bytes,
