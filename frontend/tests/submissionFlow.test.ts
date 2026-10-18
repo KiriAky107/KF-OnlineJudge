@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import createClient from 'openapi-fetch'
+import type { paths } from '../src/api/generated/schema'
 import { submissionIntent } from '../src/api/submissionIntent.ts'
 import { boundedPoll } from '../src/api/polling.ts'
-import { ApiError, boundedFetch, unwrap } from '../src/api/transport.ts'
+import { ApiError, boundedFetch, rejectSession401, unwrap } from '../src/api/transport.ts'
 
 function memory() {
   const values = new Map<string, string>()
@@ -248,5 +250,89 @@ test('an old401 cannot expire a newly authenticated session', async () => {
   const current = transport('http://localhost/api/v1/auth/me')
   complete(new Response('{}', { status: 401 }))
   await current
+  assert.equal(expired, 1)
+})
+
+test('session401 is classified before the OpenAPI client reads an unreadable error body', async () => {
+  let reads = 0,
+    cancelled = 0,
+    expired = 0
+  const body = new ReadableStream(
+    {
+      pull(controller) {
+        reads++
+        controller.error(new Error('synthetic error body read failure'))
+      },
+      cancel() {
+        cancelled++
+      },
+    },
+    { highWaterMark: 0 },
+  )
+  const client = createClient<paths>({
+    baseUrl: 'http://localhost',
+    fetch: boundedFetch(
+      async () => new Response(body, { status: 401 }),
+      () => {
+        expired++
+      },
+    ),
+  })
+  client.use({ onResponse: rejectSession401 })
+  await assert.rejects(
+    client.GET('/api/v1/auth/me'),
+    (e) => e instanceof ApiError && e.status === 401,
+  )
+  assert.equal(reads, 0)
+  assert.equal(cancelled, 1)
+  assert.equal(expired, 1)
+})
+
+test('session response classification preserves other endpoints and unavailable or successful sessions', async () => {
+  let response = new Response('{"detail":"denied"}', { status: 401 })
+  const client = createClient<paths>({ baseUrl: 'http://localhost', fetch: async () => response })
+  client.use({ onResponse: rejectSession401 })
+  const other = await client.GET('/api/v1/submissions/{submission_id}', {
+    params: { path: { submission_id: '00000000-0000-4000-8000-000000000001' } },
+  })
+  assert.equal(other.response.status, 401)
+  assert.deepEqual(other.error, { detail: 'denied' })
+  const failure = new Error('synthetic unavailable response body')
+  response = new Response(
+    new ReadableStream({
+      pull(controller) {
+        controller.error(failure)
+      },
+    }),
+    { status: 503 },
+  )
+  await assert.rejects(client.GET('/api/v1/auth/me'), (e) => e === failure)
+  response = new Response('{"username":"synthetic"}', { status: 200 })
+  assert.deepEqual((await client.GET('/api/v1/auth/me')).data, { username: 'synthetic' })
+})
+
+test('session401 middleware retains stale-response authorization fencing', async () => {
+  let version = 0,
+    expired = 0
+  let complete: (response: Response) => void = () => {}
+  const client = createClient<paths>({
+    baseUrl: 'http://localhost',
+    fetch: boundedFetch(
+      async () => new Promise<Response>((resolve) => (complete = resolve)),
+      () => {
+        expired++
+      },
+      () => version,
+    ),
+  })
+  client.use({ onResponse: rejectSession401 })
+  const old = client.GET('/api/v1/auth/me')
+  version++
+  complete(new Response('{}', { status: 401 }))
+  await assert.rejects(old, (e) => e instanceof ApiError && e.status === 401)
+  assert.equal(expired, 0)
+  const current = client.GET('/api/v1/auth/me')
+  complete(new Response('{}', { status: 401 }))
+  await assert.rejects(current, (e) => e instanceof ApiError && e.status === 401)
   assert.equal(expired, 1)
 })

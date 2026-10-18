@@ -1,6 +1,6 @@
 import createClient from 'openapi-fetch'
 import type { paths } from './generated/schema'
-import { boundedFetch } from './transport'
+import { boundedFetch, rejectSession401 } from './transport'
 
 let expired: () => void = () => {}
 let authorizationVersion = 0
@@ -19,6 +19,7 @@ export const api = createClient<paths>({
     () => authorizationVersion,
   ),
 })
+api.use({ onResponse: rejectSession401 })
 
 // Only the bounded administrator ZIP endpoint uses the longer upload deadline.
 // Ordinary login/submission requests keep their existing ten-second budget.
