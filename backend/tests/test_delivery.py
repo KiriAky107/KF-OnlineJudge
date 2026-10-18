@@ -2230,14 +2230,101 @@ def test_failed_gate_closure_requires_known_api_stop_without_forging_owner_clean
 
     monkeypatch.setattr(lifecycle.availability, "write", unavailable)
     monkeypatch.setattr(
-        maintenance, "unit", lambda name: {"ActiveState": "inactive", "MainPID": "0"}
+        lifecycle,
+        "selected_unit",
+        lambda selected, name: {"ActiveState": "inactive", "MainPID": "0"},
     )
     monkeypatch.setattr(lifecycle.service_install, "systemctl", lambda *args: calls.append(args))
     monkeypatch.setattr(
-        maintenance, "empty_cgroup", lambda name: calls.append(("prove_empty", name))
+        lifecycle.Maintenance,
+        "empty_cgroup",
+        lambda name: calls.append(("prove_empty", name)),
     )
     maintenance.close_failed_admission()
     assert calls == [("--no-block", "stop", "kf-api.service"), ("prove_empty", "api")]
+
+
+@pytest.mark.parametrize("failure", ["exit", "timeout", "invalid_output", "cleanup"])
+def test_dispatched_operator_failure_is_distinct_from_preflight_refusal(monkeypatch, failure):
+    # Controller result handling only; real timeout/closure is verified in the VM.
+    from scripts.release import operator_units
+
+    selected = {"release_id": "sd-" + "a" * 12, "configuration_id": "cfg-" + "b" * 24}
+    payload = installer.RELEASES / selected["release_id"] / "payload"
+    monkeypatch.setattr(operator_units.os, "getuid", lambda: 0)
+    monkeypatch.setattr(operator_units.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(installer, "selection", lambda **_: selected)
+    observations = []
+
+    def manager(*args):
+        observations.append(args)
+        if len(observations) > 1 and failure == "cleanup":
+            return "LoadState=loaded\nTransient=yes\nDescription=foreign helper\n"
+        return "LoadState=not-found\nActiveState=inactive\nMainPID=0\n"
+
+    def dispatch(command, **kwargs):
+        assert kwargs["timeout"] == 915
+        assert "--property=RuntimeMaxSec=900" in command
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(command, 915)
+        return subprocess.CompletedProcess(
+            command,
+            1 if failure == "exit" else 0,
+            b"invalid" if failure == "invalid_output" else b'{"success":true}',
+            b"",
+        )
+
+    monkeypatch.setattr(service_install, "systemctl", manager)
+    monkeypatch.setattr(operator_units.subprocess, "run", dispatch)
+    with pytest.raises(operator_units.OperatorExecutionError):
+        operator_units.run("node-maintenance", payload, action="start")
+    assert len(observations) == 2
+
+
+@pytest.mark.parametrize("dispatched", [True, False])
+def test_outer_lifecycle_closes_admission_only_for_dispatched_helper_failure(
+    monkeypatch,
+    dispatched,
+):
+    from scripts.release import operator_units
+
+    selected = {"release_id": "sd-" + "a" * 12, "configuration_id": "cfg-" + "b" * 24}
+    gate = ["open"]
+    monkeypatch.setattr(sys, "argv", ["lifecycle", "--action", "start"])
+    monkeypatch.setattr(lifecycle.os, "getuid", lambda: 0)
+    monkeypatch.setattr(lifecycle.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(installer, "selection", lambda **_: selected)
+    monkeypatch.setattr(installer, "directory", lambda *_: None)
+
+    def failure(*args, **kwargs):
+        error = operator_units.OperatorExecutionError if dispatched else policy.DeliveryError
+        raise error(
+            "operator helper unavailable" if dispatched else "operator helper already active"
+        )
+
+    monkeypatch.setattr(operator_units, "run", failure)
+    monkeypatch.setattr(lifecycle.availability, "write", lambda binding, state: gate.append(state))
+    with pytest.raises(SystemExit) as exit_info:
+        lifecycle.main()
+    assert exit_info.value.code == 1
+    assert gate == (["open", "draining"] if dispatched else ["open"])
+
+
+def test_failed_dispatch_does_not_stop_an_unverified_api_when_gate_write_fails(monkeypatch):
+    calls = []
+
+    def unavailable(*_):
+        raise OSError("publication unavailable")
+
+    def foreign(*_):
+        raise policy.DeliveryError("lifecycle target is not the selected snapshot")
+
+    monkeypatch.setattr(lifecycle.availability, "write", unavailable)
+    monkeypatch.setattr(lifecycle, "selected_unit", foreign)
+    monkeypatch.setattr(service_install, "systemctl", lambda *args: calls.append(args))
+    with pytest.raises(policy.DeliveryError, match="selected snapshot"):
+        lifecycle.close_failed_admission({})
+    assert calls == []
 
 
 def proxy_catalog_shape():

@@ -9,6 +9,11 @@ from pathlib import Path
 from . import preflight
 from .policy import DeliveryError, invalid_constant, unique_object
 
+
+class OperatorExecutionError(DeliveryError):
+    """A fixed helper was dispatched but its result or cleanup was unconfirmed."""
+
+
 PROFILES = {
     "node-health": ("root", 0, 128, 16, 50, 300),
     "broker-health": ("rabbitmq", 1204, 256, 64, 100, 45),
@@ -232,40 +237,44 @@ def run(
         elif notification_probe:
             raise DeliveryError("unexpected broker probe override")
     try:
-        # Pipe output is bounded by the fixed helper and the service file/memory
-        # ceilings; helper tools below cap each pipe before serializing it.
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            timeout=seconds + 15,
-            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-        )
-        if result.returncode or len(result.stderr) > 4096:
-            raise DeliveryError("operator helper unavailable")
-        value = decode(result.stdout)
-        if not isinstance(value, dict):
-            raise DeliveryError("operator helper object required")
-    finally:
-        actual = dict(
-            line.split("=", 1)
-            for line in service_install.systemctl(
-                "show",
-                unit,
-                "--property=LoadState,ActiveState,MainPID,Transient,Description",
-            ).splitlines()
-            if "=" in line
-        )
-        if actual.get("LoadState") != "not-found":
-            if actual.get("Transient") != "yes" or actual.get("Description") != description:
-                raise DeliveryError("foreign operator helper; refused cleanup")
-            service_install.systemctl("stop", unit)
+        try:
+            # Pipe output is bounded by the fixed helper and the service file/memory
+            # ceilings; helper tools below cap each pipe before serializing it.
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                timeout=seconds + 15,
+                env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+            )
+            if result.returncode or len(result.stderr) > 4096:
+                raise DeliveryError("operator helper unavailable")
+            value = decode(result.stdout)
+            if not isinstance(value, dict):
+                raise DeliveryError("operator helper object required")
+        finally:
             actual = dict(
                 line.split("=", 1)
                 for line in service_install.systemctl(
-                    "show", unit, "--property=ActiveState,MainPID"
+                    "show",
+                    unit,
+                    "--property=LoadState,ActiveState,MainPID,Transient,Description",
                 ).splitlines()
                 if "=" in line
             )
-            if actual.get("ActiveState") != "inactive" or actual.get("MainPID") != "0":
-                raise DeliveryError("operator helper cleanup unconfirmed")
+            if actual.get("LoadState") != "not-found":
+                if actual.get("Transient") != "yes" or actual.get("Description") != description:
+                    raise DeliveryError("foreign operator helper; refused cleanup")
+                service_install.systemctl("stop", unit)
+                actual = dict(
+                    line.split("=", 1)
+                    for line in service_install.systemctl(
+                        "show", unit, "--property=ActiveState,MainPID"
+                    ).splitlines()
+                    if "=" in line
+                )
+                if actual.get("ActiveState") != "inactive" or actual.get("MainPID") != "0":
+                    raise DeliveryError("operator helper cleanup unconfirmed")
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        message = str(error) if isinstance(error, DeliveryError) else type(error).__name__
+        raise OperatorExecutionError(message) from error
     return value

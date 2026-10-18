@@ -311,6 +311,10 @@ API returns 503 for an absent, unknown, closed or wrong-bound availability recor
 Reads, logout, cancellation and receipt-bound archive uploads keep their existing
 identity/lease checks. Both startup paths keep admission closed until the opening
 is read back; failed final readiness closes it again.
+If a dispatched maintenance helper exits unsuccessfully or reaches its deadline,
+the outer operator also closes admission. If that record cannot be written, it
+stops only the verified API unit. A refusal before dispatch, such as an already
+active helper, does not change admission or stop another operation.
 
 Drain keeps API available to accepted work and polls Coordinator, outbox, import,
 broker and factory within a finite deadline. Untruncated owner counts, stopped

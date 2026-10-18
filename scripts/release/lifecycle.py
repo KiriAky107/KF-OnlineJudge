@@ -226,6 +226,64 @@ def projection_empty(snapshot: dict) -> bool:
     )
 
 
+def selected_unit(selected: dict, name: str) -> dict:
+    if name not in {*APPS, *DEPENDENCIES}:
+        raise DeliveryError("unknown lifecycle target")
+    path = service_install.SYSTEM_UNITS / ("kf-" + name + ".service")
+    if name in services.PROFILES:
+        directory = service_install.known_link(path)
+        base = service_install.UNITS
+    elif name == "proxy":
+        directory = proxy_install.known_link(path)
+        base = proxy_service.UNITS
+    elif name == "sandbox-factory":
+        directory = factory_service.known_link(path)
+        base = factory_service.UNITS
+    else:
+        directory = dependency_install.known_link(path)
+        base = dependency_install.ROOT
+    if directory != base / (selected["release_id"] + "." + selected["configuration_id"]):
+        raise DeliveryError("lifecycle target is not the selected snapshot")
+    values = dict(
+        line.split("=", 1)
+        for line in service_install.systemctl(
+            "show",
+            path.name,
+            "--property=LoadState,ActiveState,SubState,MainPID,FragmentPath",
+        ).splitlines()
+        if "=" in line
+    )
+    if values.get("LoadState") != "loaded" or values.get("FragmentPath") not in {
+        str(path),
+        str(directory / path.name),
+    }:
+        raise DeliveryError("lifecycle manager target differs")
+    return values
+
+
+def close_failed_admission(selected: dict) -> None:
+    try:
+        availability.write(selected, "draining")
+        return
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    # A full/read-only availability filesystem must not leave a successful
+    # earlier publication accepting mutations. Stop only the verified API
+    # target without depending on another receipt write. Owners retain work
+    # and capacity; this is not a factory cleanup or terminal-state proof.
+    selected_unit(selected, "api")
+    service_install.systemctl("--no-block", "stop", "kf-api.service")
+    deadline = time.monotonic() + 50
+    while True:
+        values = selected_unit(selected, "api")
+        if values["ActiveState"] == "inactive" and values["MainPID"] == "0":
+            Maintenance.empty_cgroup("api")
+            return
+        if time.monotonic() >= deadline or values["ActiveState"] == "failed":
+            raise DeliveryError("admission closure/API stop unconfirmed; operator required")
+        time.sleep(0.5)
+
+
 class Maintenance:
     def __init__(self, selected: dict, paths: dict, payload: Path, action: str):
         self.selected, self.paths, self.payload = selected, paths, payload
@@ -268,40 +326,7 @@ class Maintenance:
                     temporary.unlink()
 
     def unit(self, name: str) -> dict:
-        if name not in {*APPS, *DEPENDENCIES}:
-            raise DeliveryError("unknown lifecycle target")
-        path = service_install.SYSTEM_UNITS / ("kf-" + name + ".service")
-        if name in services.PROFILES:
-            directory = service_install.known_link(path)
-            base = service_install.UNITS
-        elif name == "proxy":
-            directory = proxy_install.known_link(path)
-            base = proxy_service.UNITS
-        elif name == "sandbox-factory":
-            directory = factory_service.known_link(path)
-            base = factory_service.UNITS
-        else:
-            directory = dependency_install.known_link(path)
-            base = dependency_install.ROOT
-        if directory != base / (
-            self.selected["release_id"] + "." + self.selected["configuration_id"]
-        ):
-            raise DeliveryError("lifecycle target is not the selected snapshot")
-        values = dict(
-            line.split("=", 1)
-            for line in service_install.systemctl(
-                "show",
-                path.name,
-                "--property=LoadState,ActiveState,SubState,MainPID,FragmentPath",
-            ).splitlines()
-            if "=" in line
-        )
-        if values.get("LoadState") != "loaded" or values.get("FragmentPath") not in {
-            str(path),
-            str(directory / path.name),
-        }:
-            raise DeliveryError("lifecycle manager target differs")
-        return values
+        return selected_unit(self.selected, name)
 
     @staticmethod
     def empty_cgroup(name: str) -> None:
@@ -515,26 +540,7 @@ class Maintenance:
             raise
 
     def close_failed_admission(self) -> None:
-        try:
-            availability.write(self.selected, "draining")
-            return
-        except (OSError, ValueError, subprocess.SubprocessError):
-            pass
-        # A full/read-only availability filesystem must not leave a successful
-        # earlier publication accepting mutations. Stop only the verified API
-        # target without depending on another receipt write. Owners retain work
-        # and capacity; this is not a factory cleanup or terminal-state proof.
-        self.unit("api")
-        service_install.systemctl("--no-block", "stop", "kf-api.service")
-        deadline = time.monotonic() + 50
-        while True:
-            values = self.unit("api")
-            if values["ActiveState"] == "inactive" and values["MainPID"] == "0":
-                self.empty_cgroup("api")
-                return
-            if time.monotonic() >= deadline or values["ActiveState"] == "failed":
-                raise DeliveryError("admission closure/API stop unconfirmed; operator required")
-            time.sleep(0.5)
+        close_failed_admission(self.selected)
 
 
 def run(action: str) -> dict:
@@ -614,11 +620,17 @@ def main() -> None:
             selected = install.selection(check_configuration=False)
             install.directory(availability.GATE.parent, 0o711)
             install.directory(STATE, 0o700)
-            result = operator_units.run(
-                "node-maintenance",
-                install.RELEASES / selected["release_id"] / "payload",
-                action=args.action,
-            )
+            try:
+                result = operator_units.run(
+                    "node-maintenance",
+                    install.RELEASES / selected["release_id"] / "payload",
+                    action=args.action,
+                )
+            except operator_units.OperatorExecutionError:
+                # A killed helper cannot run its own exception handler. The
+                # outer operator closes admission after the fixed helper exits.
+                close_failed_admission(selected)
+                raise
         print(json.dumps(result, sort_keys=True))
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         parser.exit(
