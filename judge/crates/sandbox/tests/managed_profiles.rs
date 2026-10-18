@@ -358,6 +358,32 @@ fn startup_heap_and_budget_parameters_cannot_be_supplied_by_request() {
 }
 
 #[test]
+fn javac_jit_tier_is_fixed_without_changing_student_runtime() {
+    let original = request(ExecutionProfile::JavaCompile);
+    let index = original
+        .argv
+        .iter()
+        .position(|arg| arg == "-J-XX:TieredStopAtLevel=1")
+        .unwrap();
+    assert!(original.clone().validate(&SpecPolicy::default()).is_ok());
+    for replacement in [
+        "-J-XX:TieredStopAtLevel=0",
+        "-J-XX:TieredStopAtLevel=4",
+        "-J-XX:-TieredCompilation",
+    ] {
+        let mut changed = original.clone();
+        changed.argv[index] = replacement.into();
+        assert!(changed.validate(&SpecPolicy::default()).is_err());
+    }
+    let mut missing = original;
+    missing.argv.remove(index);
+    assert!(missing.validate(&SpecPolicy::default()).is_err());
+    let run = request(ExecutionProfile::JavaRun);
+    assert!(!run.argv.iter().any(|arg| arg.contains("TieredStopAtLevel")));
+    assert!(run.validate(&SpecPolicy::default()).is_ok());
+}
+
+#[test]
 fn root_image_kind_never_promotes_legacy_authority() {
     let legacy: RuntimeConfig = serde_json::from_str(include_str!(
         "../../../../deploy/sandbox.runtime.example.json"

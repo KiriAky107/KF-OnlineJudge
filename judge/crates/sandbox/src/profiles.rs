@@ -73,6 +73,8 @@ pub fn argv(profile: P, limits: &ResourceLimits) -> Result<Vec<String>, &'static
         P::JavaCompile => {
             let mut args = vec!["/usr/lib/jvm/bin/javac".into()];
             args.extend(jvm_options(limits)?.into_iter().map(|a| format!("-J{a}")));
+            // javac is short-lived; avoid C2 work in the compiler's own JVM.
+            args.push("-J-XX:TieredStopAtLevel=1".into());
             args.extend(
                 [
                     "-proc:none",
