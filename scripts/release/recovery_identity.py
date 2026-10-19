@@ -319,7 +319,7 @@ def run_in_unit() -> dict:
             "local all all reject\n"
         ).encode(),
     )
-    write_private(RUNTIME / "pg_ident.conf", b"kf_recovery kf-postgres postgres\n")
+    write_private(RUNTIME / "pg_ident.conf", b"kf_recovery postgres postgres\n")
     preflight.protected(Path("/usr/bin/postgres"))
     version = subprocess.run(
         ["/usr/bin/postgres", "--version"],

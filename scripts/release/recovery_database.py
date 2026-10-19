@@ -344,8 +344,8 @@ def recover_locked(recovery_id: str, data_sha: str, password_file: Path, passwor
     ]
     for key, setting in {
         "Type": "exec",
-        "User": "kf-postgres",
-        "Group": "kf-postgres",
+        "User": "postgres",
+        "Group": "postgres",
         "MemoryMax": "512M",
         "MemorySwapMax": "0",
         "CPUQuota": "100%",
