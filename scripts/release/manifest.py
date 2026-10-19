@@ -45,24 +45,24 @@ _MAX_SCOPED_METADATA = 2 * MAX_METADATA_BYTES
 
 def _bundle_signature(bundle: Path) -> dict[str, tuple[int, ...]]:
     """Observe topology and all metadata that can invalidate a prior byte read."""
-    if not bundle.is_dir() or bundle.is_symlink():
-        raise DeliveryError("bundle directory required")
-    members = set()
-    for path in bundle.iterdir():
-        members.add(path.name)
-        if len(members) > 2:
-            raise DeliveryError("unexpected bundle member")
-    if members != {"manifest.json", "payload"}:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    descriptor = os.open(bundle, flags)
+    members = {}
+    try:
+        root = os.fstat(descriptor)
+        with os.scandir(descriptor) as entries:
+            for entry in entries:
+                members[entry.name] = entry.stat(follow_symlinks=False)
+                if len(members) > 2:
+                    raise DeliveryError("unexpected bundle member")
+    finally:
+        os.close(descriptor)
+    if set(members) != {"manifest.json", "payload"}:
         raise DeliveryError("unexpected bundle member")
     result = {}
 
-    def add(path: Path, *, directory: bool) -> None:
-        info = path.lstat()
-        if not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)):
-            raise DeliveryError("bundle proof requires ordinary directories and files")
-        if not directory and info.st_nlink != 1:
-            raise DeliveryError("bundle proof requires single-link files")
-        result[path.relative_to(bundle).as_posix()] = (
+    def identity(info: os.stat_result) -> tuple[int, ...]:
+        return (
             info.st_dev,
             info.st_ino,
             info.st_mode,
@@ -73,25 +73,42 @@ def _bundle_signature(bundle: Path) -> dict[str, tuple[int, ...]]:
             info.st_mtime_ns,
             info.st_ctime_ns,
         )
+
+    def add(name: str, info: os.stat_result, *, directory: bool) -> None:
+        if not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)):
+            raise DeliveryError("bundle proof requires ordinary directories and files")
+        if not directory and info.st_nlink != 1:
+            raise DeliveryError("bundle proof requires single-link files")
+        result[name] = identity(info)
         if len(result) > MAX_FILES + 3:
             raise DeliveryError("bundle proof entry count limit")
 
-    def failed(error: OSError) -> None:
-        raise error
-
-    add(bundle, directory=True)
-    add(bundle / "manifest.json", directory=False)
+    add(".", root, directory=True)
+    add("manifest.json", members["manifest.json"], directory=False)
     payload = bundle / "payload"
-    add(payload, directory=True)
-    for directory, names, files in os.walk(payload, followlinks=False, onerror=failed):
-        for name in names:
-            path = Path(directory) / name
-            relative_name(path.relative_to(payload).as_posix() + "/.__directory__")
-            add(path, directory=True)
-        for name in files:
-            path = Path(directory) / name
-            relative_name(path.relative_to(payload).as_posix())
-            add(path, directory=False)
+    add("payload", members["payload"], directory=True)
+    pending = [(str(payload), "", result["payload"])]
+    while pending:
+        directory, prefix, expected = pending.pop()
+        # Close each iterator before visiting another directory. Wide or deep
+        # verified inventories never require one open descriptor per directory.
+        descriptor = os.open(directory, flags)
+        try:
+            if identity(os.fstat(descriptor)) != expected:
+                raise DeliveryError("verified bundle changed during the operator operation")
+            with os.scandir(descriptor) as entries:
+                for entry in entries:
+                    name = prefix + entry.name
+                    info = entry.stat(follow_symlinks=False)
+                    is_directory = stat.S_ISDIR(info.st_mode)
+                    relative_name(name + "/.__directory__" if is_directory else name)
+                    add("payload/" + name, info, directory=is_directory)
+                    if is_directory:
+                        pending.append(
+                            (os.path.join(directory, entry.name), name + "/", identity(info))
+                        )
+        finally:
+            os.close(descriptor)
     return result
 
 

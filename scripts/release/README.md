@@ -408,6 +408,12 @@ failure. Further bundles receive full verification; separate commands start fres
 Fixed-size regular-file copies can use Linux kernel transfer with bounded chunks.
 Unsupported transfer falls back at the same offsets. Source size/EOF, file fsync
 and independent destination byte verification remain required.
+Verified installer and stopped-node recovery inventories can keep at most four
+file operations in flight. Each file retains its durability and byte checks;
+directory finalization and success receipts wait for all dispatched work. On
+failure, queued work is cancelled and running calls are joined before the error
+returns. Private partial data is retained for inspection. The original operator
+CPU, memory, PID and deadline limits still apply.
 Old configuration and maintenance receipts go into inactive
 `recovery/ID/history/`. The new boot's Sandbox preparation owns cgroup recreation.
 Unknown/nonempty targets and differing existing files are refused; partial restores

@@ -235,7 +235,8 @@ def frozen_copy(
     target.mkdir(mode=0o700)
     for name in sorted(directories, key=lambda name: (name.count("/"), name)):
         (target / name).mkdir(mode=0o700)
-    for record in records:
+
+    def copy(record: dict) -> None:
         # The complete sealed tree is read back immediately below. Avoid
         # hashing each destination both here and again in that inventory.
         _copy_verified(
@@ -246,6 +247,8 @@ def frozen_copy(
             readback=False,
             expected_bytes=record["bytes"],
         )
+
+    file_copy.bounded_copies(records, copy)
     for name in sorted(directories, key=lambda name: name.count("/"), reverse=True):
         (target / name).chmod(0o555)
         sync_directory(target / name)

@@ -121,7 +121,7 @@ def target(record: dict, recovery: Path) -> tuple[Path, int, int, int]:
     return path, 0, 0, 0o700 if "bytes" not in record else 0o600
 
 
-def member(path: Path, uid: int, gid: int, mode: int, *, directory: bool) -> None:
+def member(path: Path, uid: int, gid: int, mode: int, *, directory: bool) -> os.stat_result:
     info = path.lstat()
     if (
         (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) != (uid, gid, mode)
@@ -129,6 +129,7 @@ def member(path: Path, uid: int, gid: int, mode: int, *, directory: bool) -> Non
         or (not directory and info.st_nlink != 1)
     ):
         raise DeliveryError("existing recovery destination differs; no overwrite")
+    return info
 
 
 def file_witness(info: os.stat_result) -> tuple[int, ...]:
@@ -148,8 +149,7 @@ def file_witness(info: os.stat_result) -> tuple[int, ...]:
 def readback(
     path: Path, item: dict, uid: int, gid: int, mode: int, deadline: float
 ) -> tuple[int, ...]:
-    member(path, uid, gid, mode, directory=False)
-    before = file_witness(path.lstat())
+    before = file_witness(member(path, uid, gid, mode, directory=False))
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     with os.fdopen(descriptor, "rb") as stream:
         if file_witness(os.fstat(stream.fileno())) != before:
@@ -169,8 +169,7 @@ def readback(
 
 
 def unchanged_file(path: Path, witness: tuple[int, ...], uid: int, gid: int, mode: int) -> None:
-    member(path, uid, gid, mode, directory=False)
-    if file_witness(path.lstat()) != witness:
+    if file_witness(member(path, uid, gid, mode, directory=False)) != witness:
         raise DeliveryError("verified recovery file changed before completion")
 
 
@@ -290,12 +289,15 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
         free = os.statvfs(Path("/var/lib/kf-onlinejudge"))
         if free.f_frsize * free.f_bavail < value["payload_bytes"] + 128 * 1024**2:
             raise DeliveryError("cold recovery destination reserve insufficient")
-        verified = {}
-        for item in value["files"]:
+
+        def copy(item: dict) -> tuple[int, ...]:
             path, uid, gid, mode = target(item, recovery)
-            verified[item["path"]] = write_file(
-                root / "payload" / item["path"], path, item, uid, gid, mode, deadline
-            )
+            return write_file(root / "payload" / item["path"], path, item, uid, gid, mode, deadline)
+
+        witnesses = file_copy.bounded_copies(value["files"], copy, deadline=deadline)
+        verified = {
+            item["path"]: witness for item, witness in zip(value["files"], witnesses, strict=True)
+        }
         for item in sorted(
             value["directories"], key=lambda row: row["path"].count("/"), reverse=True
         ):

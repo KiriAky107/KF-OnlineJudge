@@ -6,7 +6,9 @@ import importlib
 import json
 import os
 import sys
+import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -200,3 +202,114 @@ def test_fixed_regular_transfer_preserves_exact_bytes_and_offsets(
         file_copy.transfer(incoming, outgoing, length, deadline=time.monotonic() + 30)
     assert target.read_bytes() == content
     assert policy.digest(target) == policy.digest(source)
+
+
+def test_copy_inventory_prefetch_is_bounded_and_results_keep_input_order():
+    # Trusted callbacks only: ordinary concurrency control, no VM/Root acceptance.
+    release, saturated, second = (threading.Event() for _ in range(3))
+    lock = threading.Lock()
+    consumed, results, errors = [], [], []
+    active = maximum = 0
+
+    class Inventory(Sequence):
+        def __len__(self):
+            return 32
+
+        def __getitem__(self, index):
+            if not 0 <= index < len(self):
+                raise IndexError
+            with lock:
+                consumed.append(index)
+            return index
+
+    def copy(index):
+        nonlocal active, maximum
+        with lock:
+            active += 1
+            maximum = max(active, maximum)
+            if active == 4:
+                saturated.set()
+        try:
+            assert release.wait(5)
+            if index == 0:
+                assert second.wait(5)
+            if index == 1:
+                second.set()
+            return index * 3
+        finally:
+            with lock:
+                active -= 1
+
+    def collect():
+        try:
+            results.extend(file_copy.bounded_copies(Inventory(), copy))
+        except BaseException as error:
+            errors.append(error)
+
+    collector = threading.Thread(target=collect)
+    collector.start()
+    try:
+        assert saturated.wait(5)
+        with lock:
+            assert consumed == [0, 1, 2, 3]
+            assert maximum == 4
+    finally:
+        release.set()
+        collector.join(10)
+    assert not collector.is_alive() and not errors
+    assert results == [index * 3 for index in range(32)]
+    assert active == 0 and maximum == 4
+
+
+def test_copy_failure_joins_dispatched_calls_before_propagating():
+    # No files/privileges: observe failure quiescence of trusted callbacks.
+    together = threading.Barrier(4)
+    release, failing, returned = (threading.Event() for _ in range(3))
+    lock = threading.Lock()
+    active = 0
+    errors, active_when_returned = [], []
+
+    def copy(index):
+        nonlocal active
+        with lock:
+            active += 1
+        try:
+            if index < 4:
+                together.wait(timeout=5)
+            if index == 0:
+                failing.set()
+                raise policy.DeliveryError("ordinary callback refusal model")
+            assert release.wait(5)
+            return index
+        finally:
+            with lock:
+                active -= 1
+
+    def collect():
+        try:
+            file_copy.bounded_copies(list(range(32)), copy)
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            with lock:
+                active_when_returned.append(active)
+            returned.set()
+
+    collector = threading.Thread(target=collect)
+    collector.start()
+    try:
+        assert failing.wait(5)
+        assert not returned.wait(0.05)
+    finally:
+        release.set()
+        collector.join(10)
+    assert not collector.is_alive() and active_when_returned == [0]
+    assert len(errors) == 1 and isinstance(errors[0], policy.DeliveryError)
+    assert str(errors[0]) == "ordinary callback refusal model"
+
+
+def test_expired_copy_deadline_refuses_before_dispatch():
+    calls = []
+    with pytest.raises(policy.DeliveryError, match="copy deadline exceeded"):
+        file_copy.bounded_copies(list(range(8)), calls.append, deadline=time.monotonic() - 1)
+    assert calls == []

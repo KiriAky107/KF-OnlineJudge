@@ -4,12 +4,63 @@ import errno
 import os
 import stat
 import time
-from typing import BinaryIO
+from collections.abc import Callable, Sequence
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from itertools import islice
+from typing import BinaryIO, cast
 
 from .policy import MAX_FILE_BYTES, DeliveryError
 
 CHUNK = 1024 * 1024
 UNSUPPORTED = {errno.ENOSYS, errno.EINVAL, errno.EOPNOTSUPP, errno.EXDEV}
+IN_FLIGHT = 4
+
+
+def bounded_copies[Item, Result](
+    rows: Sequence[Item],
+    operation: Callable[[Item], Result],
+    *,
+    deadline: float | None = None,
+) -> list[Result]:
+    """Join a finite verified inventory, with at most four operations in flight."""
+
+    def remaining() -> float | None:
+        if deadline is None:
+            return None
+        value = deadline - time.monotonic()
+        if value <= 0:
+            raise DeliveryError("copy deadline exceeded; private partial target retained")
+        return value
+
+    remaining()
+    if len(rows) < 2:
+        return [operation(row) for row in rows]
+    results: list[Result | None] = [None] * len(rows)
+    source = iter(enumerate(rows))
+    with ThreadPoolExecutor(max_workers=min(IN_FLIGHT, len(rows))) as executor:
+        pending = {
+            executor.submit(operation, row): index for index, row in islice(source, IN_FLIGHT)
+        }
+        try:
+            while pending:
+                ready, _ = wait(pending, timeout=remaining(), return_when=FIRST_COMPLETED)
+                if not ready:
+                    raise DeliveryError("copy deadline exceeded; private partial target retained")
+                # Observe every completed failure before dispatching more work.
+                completed = [(pending.pop(future), future.result()) for future in ready]
+                for index, result in completed:
+                    results[index] = result
+                    following = next(source, None)
+                    if following is not None:
+                        index, row = following
+                        remaining()
+                        pending[executor.submit(operation, row)] = index
+        finally:
+            for future in pending:
+                future.cancel()
+            # The executor joins running calls before this function can return
+            # or propagate an error. No success receipt can outrun file I/O.
+    return cast(list[Result], results)
 
 
 def _identity(info: os.stat_result) -> tuple[int, ...]:
