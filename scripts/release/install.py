@@ -8,7 +8,7 @@ import stat
 import subprocess
 from pathlib import Path
 
-from . import manifest, preflight
+from . import file_copy, manifest, preflight
 from .layout import RELEASES as RELEASES
 from .policy import DeliveryError, canonical, digest, fields, read_json, sha256
 
@@ -93,7 +93,15 @@ def copy_verified(source: Path, target: Path, expected: str, mode: int) -> None:
     _copy_verified(source, target, expected, mode, readback=True)
 
 
-def _copy_verified(source: Path, target: Path, expected: str, mode: int, *, readback: bool) -> None:
+def _copy_verified(
+    source: Path,
+    target: Path,
+    expected: str,
+    mode: int,
+    *,
+    readback: bool,
+    expected_bytes: int | None = None,
+) -> None:
     preflight.protected(source)
     sha256(expected)
     if target.exists() or target.is_symlink():
@@ -116,10 +124,13 @@ def _copy_verified(source: Path, target: Path, expected: str, mode: int, *, read
             # below verifies every copied byte against the trusted records;
             # hashing the same stream as well adds no independent evidence.
             copied = hashlib.sha256() if readback else None
-            while chunk := src.read(1024 * 1024):
-                if copied is not None:
+            if copied is None:
+                size = os.fstat(incoming).st_size if expected_bytes is None else expected_bytes
+                file_copy.transfer(src, dst, size)
+            else:
+                while chunk := src.read(1024 * 1024):
                     copied.update(chunk)
-                dst.write(chunk)
+                    dst.write(chunk)
             dst.flush()
             if copied is not None and copied.hexdigest() != expected:
                 raise DeliveryError(
@@ -233,6 +244,7 @@ def frozen_copy(
             record["sha256"],
             int(record["mode"], 8),
             readback=False,
+            expected_bytes=record["bytes"],
         )
     for name in sorted(directories, key=lambda name: name.count("/"), reverse=True):
         (target / name).chmod(0o555)
@@ -454,6 +466,7 @@ def require_stopped() -> None:
             raise DeliveryError("delegated task groups remain; cleanup proof required")
 
 
+@manifest.verified_operation
 def activate(release_id: str, expected: str, batch: str) -> dict:
     """Only files + separately installed exact configuration may be selected.
 

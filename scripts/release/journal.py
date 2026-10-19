@@ -9,7 +9,7 @@ import stat
 import subprocess
 from pathlib import Path
 
-from . import configuration, install, preflight
+from . import configuration, install, manifest, preflight
 from .policy import DeliveryError, canonical, digest, fields, read_json
 
 NAMESPACE = "kf-onlinejudge"
@@ -286,15 +286,17 @@ def check_ready() -> dict:
     return value
 
 
+@manifest.verified_operation
 def install_profile() -> dict:
     if os.getuid() != 0 or os.geteuid() != 0 or os.getgid() != 0:
         raise DeliveryError("root journal operator required")
     selected = install.selection()
     payload = install.RELEASES / selected["release_id"] / "payload"
-    shipped = payload / "delivery/scripts/release/journal.py"
-    preflight.protected(shipped)
-    if digest(shipped) != digest(Path(__file__)):
-        raise DeliveryError("journal operator differs from selected delivery")
+    for name in ("journal.py", "manifest.py"):
+        shipped = payload / "delivery/scripts/release" / name
+        preflight.protected(shipped)
+        if digest(shipped) != digest(Path(__file__).parent / name):
+            raise DeliveryError("journal operator differs from selected delivery")
     install.require_stopped()
     observed = storage()
     if RECEIPT.exists() or RECEIPT.is_symlink():

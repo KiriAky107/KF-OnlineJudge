@@ -17,6 +17,7 @@ from . import (
     backup_manifest,
     dependencies,
     dependency_install,
+    file_copy,
     install,
     lifecycle,
     manifest,
@@ -186,16 +187,7 @@ def write_file(
             ),
             "wb",
         ) as outgoing:
-            total = 0
-            while block := incoming.read(1024 * 1024):
-                total += len(block)
-                if total > item["bytes"] or time.monotonic() >= deadline:
-                    raise DeliveryError(
-                        "recovery input/deadline changed; private partial target retained"
-                    )
-                outgoing.write(block)
-            if total != item["bytes"]:
-                raise DeliveryError("recovery input bytes differ; private partial target retained")
+            file_copy.transfer(incoming, outgoing, item["bytes"], deadline=deadline)
             outgoing.flush()
             os.fchown(outgoing.fileno(), uid, gid)
             os.fchmod(outgoing.fileno(), mode)
@@ -206,12 +198,20 @@ def write_file(
     return readback(path, item, uid, gid, mode, deadline)
 
 
+@manifest.verified_operation
 def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
     guarded()
     stopped()
     selected = install.selection()
     payload = install.RELEASES / selected["release_id"] / "payload"
-    for name in ("restore.py", "restore_policy.py", "backup.py", "backup_manifest.py"):
+    for name in (
+        "restore.py",
+        "restore_policy.py",
+        "backup.py",
+        "backup_manifest.py",
+        "manifest.py",
+        "file_copy.py",
+    ):
         if digest(payload / "delivery/scripts/release" / name) != digest(
             Path(__file__).parent / name
         ):
@@ -300,8 +300,11 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
             value["directories"], key=lambda row: row["path"].count("/"), reverse=True
         ):
             path, uid, gid, mode = target(item, recovery)
-            os.chown(path, uid, gid, follow_symlinks=False)
-            path.chmod(mode)
+            current = path.lstat()
+            if (current.st_uid, current.st_gid) != (uid, gid):
+                os.chown(path, uid, gid, follow_symlinks=False)
+            if stat.S_IMODE(current.st_mode) != mode:
+                path.chmod(mode)
             install.sync_directory(path)
             member(path, uid, gid, mode, directory=True)
         # Flush directory entries once after their children, including the two

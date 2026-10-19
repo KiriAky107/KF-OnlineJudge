@@ -10,7 +10,7 @@ import stat
 import subprocess
 from pathlib import Path
 
-from . import configuration, install, preflight, services
+from . import configuration, install, manifest, preflight, services
 from .policy import DeliveryError, canonical, digest, fields, read_json, sha256
 
 UNITS = Path("/etc/kf-onlinejudge/units")
@@ -155,6 +155,7 @@ def systemctl(*arguments: str) -> str:
     return result.stdout
 
 
+@manifest.verified_operation
 def install_units(source: Path, expected: str) -> dict:
     if os.getuid() != 0 or os.geteuid() != 0:
         raise DeliveryError("ordinary unit installation requires root operator")
@@ -184,6 +185,7 @@ def install_units(source: Path, expected: str) -> dict:
         "service_bootstrap.py",
         "service_install.py",
         "layout.py",
+        "manifest.py",
     ):
         shipped = payload / "delivery/scripts/release" / name
         preflight.protected(shipped)

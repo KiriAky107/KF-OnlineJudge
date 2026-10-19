@@ -398,6 +398,16 @@ digest. Its inode, ownership, mode, link count, size and nanosecond timestamps
 must remain unchanged until the final receipt. These observations are local to
 one stopped-node recovery and are never reused after an interrupted attempt.
 Directory entries are flushed after their children before completion is recorded.
+The cold operator, activation and immutable service/dependency/journal profile
+installation can reuse a public bundle's complete byte verification within one
+synchronous operation. Every file and directory identity, owner, mode, link count,
+size and nanosecond mtime/ctime is checked before reuse and before success returns.
+Changes are refused. These memory-only proofs are bound to the process, capped at
+four bundles, 100006 entries and 16 MiB of metadata, and discarded on return or
+failure. Further bundles receive full verification; separate commands start fresh.
+Fixed-size regular-file copies can use Linux kernel transfer with bounded chunks.
+Unsupported transfer falls back at the same offsets. Source size/EOF, file fsync
+and independent destination byte verification remain required.
 Old configuration and maintenance receipts go into inactive
 `recovery/ID/history/`. The new boot's Sandbox preparation owns cgroup recreation.
 Unknown/nonempty targets and differing existing files are refused; partial restores

@@ -1,8 +1,13 @@
 """Explicit directory bundle inventories, verified before installation."""
 
+import json
 import os
 import re
 import stat
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from functools import wraps
 from pathlib import Path
 
 from .policy import (
@@ -22,6 +27,104 @@ from .policy import (
     relative_name,
     sha256,
 )
+
+
+@dataclass(slots=True)
+class _ReadScope:
+    pid: int
+    entries: dict = field(default_factory=dict)
+    nodes: int = 0
+    metadata_bytes: int = 0
+
+
+_READ_SCOPE: ContextVar[_ReadScope | None] = ContextVar("delivery_bundle_reads", default=None)
+_MAX_SCOPED_BUNDLES = 4
+_MAX_SCOPED_NODES = 2 * (MAX_FILES + 3)
+_MAX_SCOPED_METADATA = 2 * MAX_METADATA_BYTES
+
+
+def _bundle_signature(bundle: Path) -> dict[str, tuple[int, ...]]:
+    """Observe topology and all metadata that can invalidate a prior byte read."""
+    if not bundle.is_dir() or bundle.is_symlink():
+        raise DeliveryError("bundle directory required")
+    members = set()
+    for path in bundle.iterdir():
+        members.add(path.name)
+        if len(members) > 2:
+            raise DeliveryError("unexpected bundle member")
+    if members != {"manifest.json", "payload"}:
+        raise DeliveryError("unexpected bundle member")
+    result = {}
+
+    def add(path: Path, *, directory: bool) -> None:
+        info = path.lstat()
+        if not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)):
+            raise DeliveryError("bundle proof requires ordinary directories and files")
+        if not directory and info.st_nlink != 1:
+            raise DeliveryError("bundle proof requires single-link files")
+        result[path.relative_to(bundle).as_posix()] = (
+            info.st_dev,
+            info.st_ino,
+            info.st_mode,
+            info.st_nlink,
+            info.st_uid,
+            info.st_gid,
+            info.st_size,
+            info.st_mtime_ns,
+            info.st_ctime_ns,
+        )
+        if len(result) > MAX_FILES + 3:
+            raise DeliveryError("bundle proof entry count limit")
+
+    def failed(error: OSError) -> None:
+        raise error
+
+    add(bundle, directory=True)
+    add(bundle / "manifest.json", directory=False)
+    payload = bundle / "payload"
+    add(payload, directory=True)
+    for directory, names, files in os.walk(payload, followlinks=False, onerror=failed):
+        for name in names:
+            path = Path(directory) / name
+            relative_name(path.relative_to(payload).as_posix() + "/.__directory__")
+            add(path, directory=True)
+        for name in files:
+            path = Path(directory) / name
+            relative_name(path.relative_to(payload).as_posix())
+            add(path, directory=False)
+    return result
+
+
+def _unchanged_bundle(bundle: Path, signature: dict[str, tuple[int, ...]]) -> None:
+    if _bundle_signature(bundle) != signature:
+        raise DeliveryError("verified bundle changed during the operator operation")
+
+
+@contextmanager
+def verification_scope():
+    """Reuse actual byte reads only inside one synchronous same-PID operation."""
+    previous = _READ_SCOPE.get()
+    if previous is not None and previous.pid == os.getpid():
+        yield
+        return
+    current = _ReadScope(os.getpid())
+    token = _READ_SCOPE.set(current)
+    try:
+        yield
+        # This happens before the decorated operation returns its success value.
+        for (bundle, _), (_, signature) in current.entries.items():
+            _unchanged_bundle(bundle, signature)
+    finally:
+        _READ_SCOPE.reset(token)
+
+
+def verified_operation(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with verification_scope():
+            return function(*args, **kwargs)
+
+    return wrapped
 
 
 def inventory(root: Path, *, path_prefix: str = "") -> list[dict]:
@@ -203,6 +306,34 @@ def validate(data: dict) -> dict:
 
 
 def verify(bundle: Path, expected_sha256: str) -> dict:
+    """A bounded operation may reuse a complete byte proof only while unchanged."""
+    expected_sha256 = sha256(expected_sha256)
+    scope = _READ_SCOPE.get()
+    if scope is None or scope.pid != os.getpid():
+        return _verify_contents(bundle, expected_sha256)
+    key = (bundle, expected_sha256)
+    if key in scope.entries:
+        data, signature = scope.entries[key]
+        _unchanged_bundle(bundle, signature)
+        # Never expose the remembered metadata object to a mutating caller.
+        return json.loads(data)
+    if len(scope.entries) >= _MAX_SCOPED_BUNDLES:
+        return _verify_contents(bundle, expected_sha256)
+    before = _bundle_signature(bundle)
+    data = _verify_contents(bundle, expected_sha256)
+    _unchanged_bundle(bundle, before)
+    encoded = canonical(data)
+    if (
+        scope.nodes + len(before) <= _MAX_SCOPED_NODES
+        and scope.metadata_bytes + len(encoded) <= _MAX_SCOPED_METADATA
+    ):
+        scope.entries[key] = encoded, before
+        scope.nodes += len(before)
+        scope.metadata_bytes += len(encoded)
+    return data
+
+
+def _verify_contents(bundle: Path, expected_sha256: str) -> dict:
     """The manifest digest comes from a separate trusted operator receipt."""
     expected_sha256 = sha256(expected_sha256)
     if not bundle.is_dir() or bundle.is_symlink():

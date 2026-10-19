@@ -285,11 +285,11 @@ def test_frozen_copy_rejects_changed_source_against_trusted_records(tmp_path, mo
     (source / "backend").chmod(0o555)
     records = manifest.inventory(source)
     payload.chmod(0o600)
-    payload.write_bytes(b"changed bytes")
+    payload.write_bytes(b"changed data")
     payload.chmod(0o444)
     with pytest.raises(policy.DeliveryError, match="installed image readback differs"):
         installer.frozen_copy(source, target, verified_records=records)
-    assert (target / "backend/ordinary.txt").read_bytes() == b"changed bytes"
+    assert (target / "backend/ordinary.txt").read_bytes() == b"changed data"
     assert stat.S_IMODE(target.stat().st_mode) == 0o555
     with pytest.raises(policy.DeliveryError, match="existing protected image differs"):
         installer.frozen_copy(source, target, verified_records=records)

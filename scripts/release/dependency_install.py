@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import configuration, dependencies, install, preflight, service_install
+from . import configuration, dependencies, install, manifest, preflight, service_install
 from .policy import DeliveryError, canonical, digest, fields, read_json, sha256
 
 ROOT = dependencies.CONFIGURATION_ROOT
@@ -387,6 +387,7 @@ def install_cookie(source: Path, expected: str) -> None:
     install.sync_directory(path.parent)
 
 
+@manifest.verified_operation
 def install_snapshot(source: Path, expected: str, cookie: Path, cookie_sha: str) -> dict:
     if os.getuid() != 0 or os.geteuid() != 0:
         raise DeliveryError("dependency installation requires root operator")
@@ -405,7 +406,13 @@ def install_snapshot(source: Path, expected: str, cookie: Path, cookie_sha: str)
     ):
         raise DeliveryError("dependency snapshot is not the selected binding")
     payload = install.RELEASES / selected["release_id"] / "payload"
-    for name in ("dependencies.py", "dependency_policy.py", "dependency_install.py", "layout.py"):
+    for name in (
+        "dependencies.py",
+        "dependency_policy.py",
+        "dependency_install.py",
+        "layout.py",
+        "manifest.py",
+    ):
         shipped = payload / "delivery/scripts/release" / name
         preflight.protected(shipped)
         if digest(shipped) != digest(Path(__file__).parent / name):
