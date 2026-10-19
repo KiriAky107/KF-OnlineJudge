@@ -391,7 +391,9 @@ schema-changing upgrades need a separate Backend Alembic procedure.
 The operator reads the backup through a read-only mount, checks the private receipt
 and every byte, then copies to fixed targets under 512 MiB, zero swap, 32 tasks,
 50% CPU and a 30-minute deadline. Original identities/modes and replay IDs are
-preserved. Old configuration and maintenance receipts go into inactive
+preserved. Its PostgreSQL target is writable; the fresh RabbitMQ volume is
+checked through a read-only mount and receives no copied broker state.
+Old configuration and maintenance receipts go into inactive
 `recovery/ID/history/`. The new boot's Sandbox preparation owns cgroup recreation.
 Unknown/nonempty targets and differing existing files are refused; partial restores
 remain stopped for inspection.

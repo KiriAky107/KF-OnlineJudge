@@ -21,7 +21,7 @@ from .services import python_environment
 CONFIGURATION_ROOT = Path("/etc/kf-dependencies")
 
 
-def storage_observation(name: str) -> dict:
+def storage_observation(name: str, *, read_only: bool = False) -> dict:
     """Read an already provisioned dedicated filesystem, never create/mount one."""
     directory = Path(STORAGE[name]["path"])
     preflight.protected(directory.parent, directory=True)
@@ -43,18 +43,21 @@ def storage_observation(name: str) -> dict:
         "shared_elsewhere": any(other[2] == row[2] and other != row for other in mounts),
         "capacity_bytes": fs.f_frsize * fs.f_blocks,
     }
-    validate_storage(name, observation)
+    validate_storage(name, observation, read_only=read_only)
     return observation
 
 
-def validate_storage(name: str, observation: dict) -> None:
+def validate_storage(name: str, observation: dict, *, read_only: bool = False) -> None:
+    if type(read_only) is not bool or (read_only and name != "rabbitmq"):
+        raise DeliveryError("unexpected dependency storage observation purpose")
     required = STORAGE[name]["filesystem_bytes"]
     if (
         observation["root"] != "/"
         or observation["mountpoint"] != STORAGE[name]["path"]
         or observation["filesystem"] != "ext4"
         or observation["shared_elsewhere"] is not False
-        or not {"rw", "nosuid", "nodev", "noexec"} <= set(observation["options"])
+        or not {"nosuid", "nodev", "noexec"} <= set(observation["options"])
+        or set(observation["options"]) & {"ro", "rw"} != ({"ro"} if read_only else {"rw"})
         or type(observation["capacity_bytes"]) is not int
         or not required * 9 // 10 <= observation["capacity_bytes"] <= required
     ):

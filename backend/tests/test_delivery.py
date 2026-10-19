@@ -1362,19 +1362,51 @@ def test_dependency_templates_keep_socket_auth_network_and_actual_limit_scope():
         ("options", ["rw"]),
     ],
 )
-def test_dependency_storage_refuses_soft_unbounded_or_shared_capacity(field, value):
+@pytest.mark.parametrize("name,read_only", [("postgres", False), ("rabbitmq", True)])
+def test_dependency_storage_refuses_soft_unbounded_or_shared_capacity(
+    field, value, name, read_only
+):
     observed = {
         "root": "/",
-        "mountpoint": dependencies.STORAGE["postgres"]["path"],
+        "mountpoint": dependencies.STORAGE[name]["path"],
         "filesystem": "ext4",
-        "options": ["rw", "nosuid", "nodev", "noexec"],
+        "options": ["ro" if read_only else "rw", "nosuid", "nodev", "noexec"],
         "shared_elsewhere": False,
-        "capacity_bytes": 2 * 1024**3,
+        "capacity_bytes": dependencies.STORAGE[name]["filesystem_bytes"],
     }
-    dependencies.validate_storage("postgres", observed)
+    dependencies.validate_storage(name, observed, read_only=read_only)
     observed[field] = value
     with pytest.raises(policy.DeliveryError, match="hard dependency storage"):
-        dependencies.validate_storage("postgres", observed)
+        dependencies.validate_storage(name, observed, read_only=read_only)
+
+
+def test_recovery_broker_read_only_view_is_not_normal_service_writability_proof():
+    observed = {
+        "root": "/",
+        "mountpoint": dependencies.STORAGE["rabbitmq"]["path"],
+        "filesystem": "ext4",
+        "options": ["ro", "nosuid", "nodev", "noexec"],
+        "shared_elsewhere": False,
+        "capacity_bytes": dependencies.STORAGE["rabbitmq"]["filesystem_bytes"],
+    }
+    dependencies.validate_storage("rabbitmq", observed, read_only=True)
+    with pytest.raises(policy.DeliveryError, match="hard dependency storage"):
+        dependencies.validate_storage("rabbitmq", observed)
+    observed["options"][0] = "rw"
+    dependencies.validate_storage("rabbitmq", observed)
+    with pytest.raises(policy.DeliveryError, match="hard dependency storage"):
+        dependencies.validate_storage("rabbitmq", observed, read_only=True)
+    observed["options"].append("ro")
+    with pytest.raises(policy.DeliveryError, match="hard dependency storage"):
+        dependencies.validate_storage("rabbitmq", observed, read_only=True)
+
+
+@pytest.mark.parametrize("name,read_only", [("postgres", True), ("rabbitmq", 1)])
+def test_recovery_storage_read_only_exception_is_only_for_explicit_broker_observation(
+    name, read_only
+):
+    with pytest.raises(policy.DeliveryError, match="observation purpose"):
+        dependencies.validate_storage(name, {}, read_only=read_only)
 
 
 @pytest.mark.parametrize("mutation", ["admin", "password", "privilege", "queue", "limit"])

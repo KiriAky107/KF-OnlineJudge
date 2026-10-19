@@ -184,7 +184,8 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
     restore_policy.compatible(value, payload, data, root)
     restore_policy.identity_check(value, selected, root)
     for name in ("postgres", "rabbitmq"):
-        dependencies.storage_observation(name)
+        # The copy operator writes PostgreSQL only; the fresh broker stays read-only.
+        dependencies.storage_observation(name, read_only=name == "rabbitmq")
         member(
             Path(dependencies.STORAGE[name]["path"]),
             dependency_install.IDENTITIES[name][0],
