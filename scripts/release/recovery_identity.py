@@ -180,6 +180,14 @@ def check_settings(rows) -> dict:
             good = unit is None and int(value, 8 if value.startswith("0") else 10) == 0o700
         elif key == "temp_file_limit":
             good = unit == "kB" and value == expected
+        elif key == "archive_command":
+            # PostgreSQL's show hook masks the empty command while archiving is off.
+            good = (
+                unit is None
+                and value == "(disabled)"
+                and actual["archive_mode"] == ("off", None)
+                and actual["archive_library"] == ("", None)
+            )
         else:
             good = unit is None and value == expected
         if not good:

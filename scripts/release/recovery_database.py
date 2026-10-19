@@ -373,7 +373,7 @@ def recover_locked(recovery_id: str, data_sha: str, password_file: Path, passwor
         "RestrictAddressFamilies": "AF_UNIX",
         "RuntimeDirectory": recovery_identity.RUNTIME.name,
         "RuntimeDirectoryMode": "0700",
-        "ReadWritePaths": str(dependency_initialize.DATA),
+        "ReadWritePaths": str(dependency_initialize.DATA.parent),
     }.items():
         command.append("--property=" + key + "=" + setting)
     command += [

@@ -392,6 +392,7 @@ def postgres_recovery_settings_shape():
     values = recovery_identity.recovery_settings()
     rows = [{"name": key, "setting": value, "unit": None} for key, value in values.items()]
     normalized = {
+        "archive_command": ("(disabled)", None),
         "shared_buffers": ("8192", "8kB"),
         "work_mem": ("1024", "kB"),
         "maintenance_work_mem": ("32768", "kB"),
@@ -416,9 +417,28 @@ def test_postgres_recovery_readback_compares_effective_units_instead_of_cli_stri
     recovered = recovery_identity.check_settings(rows)
     assert recovered["listen_addresses"]["setting"] == ""
     assert recovered["unix_socket_permissions"]["setting"] == "0700"
+    assert recovered["archive_command"]["setting"] == "(disabled)"
     for row in rows:
         if row["name"] == "shared_buffers":
             row["setting"] = "16384"
+    with pytest.raises(policy.DeliveryError):
+        recovery_identity.check_settings(rows)
+
+
+@pytest.mark.parametrize(
+    ("name", "setting"),
+    [
+        ("archive_mode", "on"),
+        ("archive_library", "unapproved_library"),
+        ("archive_command", "/bin/true"),
+        ("archive_command", ""),
+    ],
+)
+def test_postgres_recovery_disabled_display_requires_disabled_archiving(name, setting):
+    rows = postgres_recovery_settings_shape()
+    for row in rows:
+        if row["name"] == name:
+            row["setting"] = setting
     with pytest.raises(policy.DeliveryError):
         recovery_identity.check_settings(rows)
 
