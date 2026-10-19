@@ -1409,6 +1409,33 @@ def test_recovery_storage_read_only_exception_is_only_for_explicit_broker_observ
         dependencies.validate_storage(name, {}, read_only=read_only)
 
 
+def test_recovery_copy_independently_reads_back_a_flushed_trusted_file(tmp_path):
+    import time
+
+    contents = b"trusted engineering file readback\n"
+    source, target = tmp_path / "source", tmp_path / "destination"
+    source.write_bytes(contents)
+    item = {"bytes": len(contents), "sha256": hashlib.sha256(contents).hexdigest()}
+    uid, gid = os.getuid(), os.getgid()
+    witness = restore.write_file(source, target, item, uid, gid, 0o600, time.monotonic() + 30)
+    assert target.read_bytes() == contents
+    restore.unchanged_file(target, witness, uid, gid, 0o600)
+    assert restore.readback(target, item, uid, gid, 0o600, time.monotonic() + 30) == witness
+
+
+@pytest.mark.parametrize("component", range(9))
+def test_recovery_completion_refuses_a_different_file_identity_witness(tmp_path, component):
+    # Policy regression with a deliberately different expected witness, not a
+    # privileged filesystem mutation or independent-VM safety acceptance.
+    path = tmp_path / "trusted"
+    path.write_bytes(b"ordinary engineering metadata check\n")
+    path.chmod(0o600)
+    witness = list(restore.file_witness(path.lstat()))
+    witness[component] += 1
+    with pytest.raises(policy.DeliveryError, match="changed before completion"):
+        restore.unchanged_file(path, tuple(witness), os.getuid(), os.getgid(), 0o600)
+
+
 @pytest.mark.parametrize("mutation", ["admin", "password", "privilege", "queue", "limit"])
 def test_dependency_install_refuses_broker_hash_or_authority_tampering(
     delivery_configuration,

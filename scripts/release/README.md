@@ -393,6 +393,11 @@ and every byte, then copies to fixed targets under 512 MiB, zero swap, 32 tasks,
 50% CPU and a 30-minute deadline. Original identities/modes and replay IDs are
 preserved. Its PostgreSQL target is writable; the fresh RabbitMQ volume is
 checked through a read-only mount and receives no copied broker state.
+Each restored file is flushed and independently read back against its trusted
+digest. Its inode, ownership, mode, link count, size and nanosecond timestamps
+must remain unchanged until the final receipt. These observations are local to
+one stopped-node recovery and are never reused after an interrupted attempt.
+Directory entries are flushed after their children before completion is recorded.
 Old configuration and maintenance receipts go into inactive
 `recovery/ID/history/`. The new boot's Sandbox preparation owns cgroup recreation.
 Unknown/nonempty targets and differing existing files are refused; partial restores

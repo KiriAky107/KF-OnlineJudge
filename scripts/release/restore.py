@@ -130,14 +130,55 @@ def member(path: Path, uid: int, gid: int, mode: int, *, directory: bool) -> Non
         raise DeliveryError("existing recovery destination differs; no overwrite")
 
 
+def file_witness(info: os.stat_result) -> tuple[int, ...]:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_nlink,
+        info.st_uid,
+        info.st_gid,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+
+
+def readback(
+    path: Path, item: dict, uid: int, gid: int, mode: int, deadline: float
+) -> tuple[int, ...]:
+    member(path, uid, gid, mode, directory=False)
+    before = file_witness(path.lstat())
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    with os.fdopen(descriptor, "rb") as stream:
+        if file_witness(os.fstat(stream.fileno())) != before:
+            raise DeliveryError("recovery file identity changed before readback")
+        total, checked = 0, hashlib.sha256()
+        while block := stream.read(1024 * 1024):
+            total += len(block)
+            if total > item["bytes"] or time.monotonic() >= deadline:
+                raise DeliveryError("recovery readback size/deadline changed")
+            checked.update(block)
+        after = file_witness(os.fstat(stream.fileno()))
+    if total != item["bytes"] or checked.hexdigest() != item["sha256"]:
+        raise DeliveryError("restored data byte verification failed")
+    if before != after or after != file_witness(path.lstat()) or time.monotonic() >= deadline:
+        raise DeliveryError("recovery file changed during readback")
+    return after
+
+
+def unchanged_file(path: Path, witness: tuple[int, ...], uid: int, gid: int, mode: int) -> None:
+    member(path, uid, gid, mode, directory=False)
+    if file_witness(path.lstat()) != witness:
+        raise DeliveryError("verified recovery file changed before completion")
+
+
 def write_file(
     source: Path, path: Path, item: dict, uid: int, gid: int, mode: int, deadline: float
-) -> None:
+) -> tuple[int, ...]:
     if path.exists() or path.is_symlink():
-        member(path, uid, gid, mode, directory=False)
-        if path.stat().st_size != item["bytes"] or digest(path) != item["sha256"]:
-            raise DeliveryError("existing recovery file bytes differ; no overwrite")
-        return
+        # Existing destinations are read and checked, never overwritten.
+        return readback(path, item, uid, gid, mode, deadline)
     with os.fdopen(os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC), "rb") as incoming:
         with os.fdopen(
             os.open(
@@ -145,22 +186,24 @@ def write_file(
             ),
             "wb",
         ) as outgoing:
-            total, h = 0, hashlib.sha256()
-            while block := incoming.read(65536):
+            total = 0
+            while block := incoming.read(1024 * 1024):
                 total += len(block)
                 if total > item["bytes"] or time.monotonic() >= deadline:
                     raise DeliveryError(
                         "recovery input/deadline changed; private partial target retained"
                     )
                 outgoing.write(block)
-                h.update(block)
-            if total != item["bytes"] or h.hexdigest() != item["sha256"]:
+            if total != item["bytes"]:
                 raise DeliveryError("recovery input bytes differ; private partial target retained")
             outgoing.flush()
             os.fchown(outgoing.fileno(), uid, gid)
             os.fchmod(outgoing.fileno(), mode)
             os.fsync(outgoing.fileno())
-    install.sync_directory(path.parent)
+    # The backup was fully verified before copying. Independently read every
+    # flushed destination while its pages are still local, then bind that proof
+    # to its unchanged inode/metadata through completion on the stopped node.
+    return readback(path, item, uid, gid, mode, deadline)
 
 
 def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
@@ -247,9 +290,12 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
         free = os.statvfs(Path("/var/lib/kf-onlinejudge"))
         if free.f_frsize * free.f_bavail < value["payload_bytes"] + 128 * 1024**2:
             raise DeliveryError("cold recovery destination reserve insufficient")
+        verified = {}
         for item in value["files"]:
             path, uid, gid, mode = target(item, recovery)
-            write_file(root / "payload" / item["path"], path, item, uid, gid, mode, deadline)
+            verified[item["path"]] = write_file(
+                root / "payload" / item["path"], path, item, uid, gid, mode, deadline
+            )
         for item in sorted(
             value["directories"], key=lambda row: row["path"].count("/"), reverse=True
         ):
@@ -258,14 +304,18 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
             path.chmod(mode)
             install.sync_directory(path)
             member(path, uid, gid, mode, directory=True)
+        # Flush directory entries once after their children, including the two
+        # parents whose new domain roots are outside the backup's directory list.
+        install.sync_directory(recovery / "history")
+        install.sync_directory(LIVE["postgres"].parent)
         stopped()
         if install.selection() != selected:
             raise DeliveryError("selected recovery identity changed")
         for item in value["files"]:
+            if time.monotonic() >= deadline:
+                raise DeliveryError("recovery verification deadline exceeded")
             path, uid, gid, mode = target(item, recovery)
-            member(path, uid, gid, mode, directory=False)
-            if digest(path) != item["sha256"]:
-                raise DeliveryError("restored data byte verification failed")
+            unchanged_file(path, verified[item["path"]], uid, gid, mode)
         record.update(
             data_restored=True,
             restored_payload_bytes=value["payload_bytes"],
