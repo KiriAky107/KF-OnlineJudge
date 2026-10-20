@@ -307,7 +307,7 @@ def files(bundle: Path, expected: str) -> dict:
         # `frozen_copy` accepts names through the same bounded allowlist.
         frozen_copy(bundle / "payload", stage / "payload", verified_records=data["files"])
         copy_verified(bundle / "manifest.json", stage / "manifest.json", expected, 0o444)
-        manifest.verify(stage, expected)
+        manifest.verify_staged(stage, expected)
         stage.chmod(0o555)
         os.rename(stage, release)
         sync_directory(RELEASES)

@@ -510,13 +510,13 @@ def install_snapshot(source: Path, expected: str, cookie: Path, cookie_sha: str)
     }
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Protected dependency snapshot installation")
     parser.add_argument("directory", type=Path)
     parser.add_argument("--receipt-sha256", required=True)
     parser.add_argument("--erlang-cookie", required=True, type=Path)
     parser.add_argument("--cookie-sha256", required=True)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         print(
             json.dumps(

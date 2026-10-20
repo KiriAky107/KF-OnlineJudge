@@ -450,7 +450,7 @@ def install_proxy(source: Path, expected: str, certificate: Path, key: Path) -> 
     }
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Fixed protected HTTPS installation")
     parser.add_argument("--check-binding", action="store_true")
     parser.add_argument("--release-id")
@@ -459,7 +459,7 @@ def main() -> None:
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--certificate", type=Path)
     parser.add_argument("--private-key", type=Path)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         if args.check_binding:
             if (

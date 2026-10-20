@@ -350,6 +350,11 @@ def verify(bundle: Path, expected_sha256: str) -> dict:
     return data
 
 
+def verify_staged(bundle: Path, expected_sha256: str) -> dict:
+    """Read every byte of a staging tree without remembering its temporary name."""
+    return _verify_contents(bundle, expected_sha256)
+
+
 def _verify_contents(bundle: Path, expected_sha256: str) -> dict:
     """The manifest digest comes from a separate trusted operator receipt."""
     expected_sha256 = sha256(expected_sha256)

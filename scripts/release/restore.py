@@ -428,13 +428,13 @@ def launch(recovery_id: str, backup_id: str, expected: str) -> dict:
     return json.loads(result.stdout)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Private bounded cold data restoration")
     parser.add_argument("--recovery-id", required=True)
     parser.add_argument("--backup-id", required=True)
     parser.add_argument("--manifest-sha256", required=True)
     parser.add_argument("--inside", action="store_true", help=argparse.SUPPRESS)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         if os.getuid() != 0 or os.geteuid() != 0:
             raise DeliveryError("explicit root cold recovery operator required")

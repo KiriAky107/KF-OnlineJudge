@@ -126,6 +126,38 @@ volumes, then follow this order:
 
 The tools use offline materials and do not contact a package index.
 
+Installer automation can run the same setup CLI entry points in one bounded
+Python operation. Use the protected delivery interpreter and its normal Python
+environment, as the trusted Root operator:
+
+```python
+from scripts.release.setup_session import SetupSession
+
+with SetupSession(maximum_seconds=1800) as setup:
+    for command in ("verify", "preflight", "install-files", "install-files"):
+        result = setup.invoke(
+            "scripts.release",
+            [command, "/path/to/bundle", "--manifest-sha256", trusted_manifest_sha256],
+        )
+        if result.exit_code:
+            raise RuntimeError("setup CLI refused; inspect its bounded result")
+    # Continue the configuration/dependency/unit steps above with the same CLI
+    # module names and explicit argument lists through setup.invoke().
+assert setup.completed
+```
+
+The session permits at most 32 calls and a deadline up to 2400 seconds. It preserves
+an earlier caller alarm. Calls retain their argument parsing, permission checks
+and individual exit codes; service startup, judging and private `--inside`
+helpers are excluded. Completed steps are not rolled back after a failure.
+
+The first verification of each unchanged bundle reads every byte. Reuse stays
+within the same single-threaded process, with complete topology and metadata
+checks on every reuse and before the session completes. Staging directories get
+an uncached full byte check before publication. Results are provisional until
+the context exits successfully; a new session or process starts fresh. Ordinary
+standalone CLI invocations keep their existing behavior.
+
 See the [operator command reference](../../scripts/release/README.md) for service,
 HTTPS, backup and recovery operations. Upgrades and restores must preserve
 immutable problem versions, submitted source, audit and original judging reports.

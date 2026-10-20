@@ -276,11 +276,11 @@ def install_units(source: Path, expected: str) -> dict:
     }
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Root ordinary-unit installation")
     parser.add_argument("directory", type=Path)
     parser.add_argument("--receipt-sha256", required=True)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         print(json.dumps(install_units(args.directory, args.receipt_sha256), sort_keys=True))
     except (OSError, ValueError, subprocess.SubprocessError) as error:

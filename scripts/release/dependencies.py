@@ -437,12 +437,12 @@ def generate(connections_path: Path, output: Path) -> dict:
     return result
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Bounded local dependency composition")
     parser.add_argument("--connections", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--check-service", choices=STORAGE)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         if args.check_service is not None:
             if args.connections is not None or args.output is not None:

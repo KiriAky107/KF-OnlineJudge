@@ -20,6 +20,7 @@ policy = importlib.import_module("scripts.release.policy")
 file_copy = importlib.import_module("scripts.release.file_copy")
 factory_service = importlib.import_module("scripts.release.factory_service")
 proxy_install = importlib.import_module("scripts.release.proxy_install")
+setup_session = importlib.import_module("scripts.release.setup_session")
 
 
 @pytest.fixture
@@ -350,3 +351,236 @@ def test_expired_copy_deadline_refuses_before_dispatch():
     with pytest.raises(policy.DeliveryError, match="copy deadline exceeded"):
         file_copy.bounded_copies(list(range(8)), calls.append, deadline=time.monotonic() - 1)
     assert calls == []
+
+
+def test_setup_session_runs_real_cli_and_releases_complete_proofs(ordinary_bundle, monkeypatch):
+    # Ordinary owned data and a modeled operator identity, not installation or
+    # isolation acceptance. The real CLI and verifier still read fixture bytes.
+    bundle, expected = ordinary_bundle
+    monkeypatch.setattr(setup_session, "_require_operator", lambda: None)
+    reads = observed_digests(monkeypatch)
+    arguments = ["verify", str(bundle), "--manifest-sha256", expected]
+    with setup_session.SetupSession(maximum_seconds=5) as operation:
+        first = operation.invoke("scripts.release", arguments)
+        initial = list(reads)
+        second = operation.invoke("scripts.release", arguments)
+        assert first.exit_code == second.exit_code == 0
+        assert first.stdout == second.stdout and json.loads(first.stdout)["bundle_valid"]
+        assert initial and reads == initial and not operation.completed
+    assert operation.completed and len(operation.records) == 2
+    assert manifest._READ_SCOPE.get() is None
+    with setup_session.SetupSession(maximum_seconds=5) as another:
+        another.invoke("scripts.release", arguments)
+    assert reads == initial * 2
+    with pytest.raises(policy.DeliveryError, match="single-use"):
+        with operation:
+            pass
+
+
+def test_setup_session_does_not_remember_renamed_staging_tree(ordinary_bundle, monkeypatch):
+    bundle, expected = ordinary_bundle
+    reads = observed_digests(monkeypatch)
+    published = bundle.with_name(bundle.name + "-published")
+    with manifest.verification_scope():
+        manifest.verify_staged(bundle, expected)
+        first = list(reads)
+        assert not manifest._READ_SCOPE.get().entries
+        bundle.rename(published)
+        manifest.verify(published, expected)
+        assert len(reads) == 2 * len(first)
+    assert manifest._READ_SCOPE.get() is None
+
+
+def test_setup_session_checks_metadata_before_completing(ordinary_bundle, monkeypatch):
+    bundle, expected = ordinary_bundle
+    monkeypatch.setattr(setup_session, "_require_operator", lambda: None)
+    signature = manifest._bundle_signature
+    changed = False
+
+    def drift(path):
+        value = signature(path)
+        if changed:
+            stamp = list(value["manifest.json"])
+            stamp[-1] += 1
+            value["manifest.json"] = tuple(stamp)
+        return value
+
+    monkeypatch.setattr(manifest, "_bundle_signature", drift)
+    operation = setup_session.SetupSession(maximum_seconds=5)
+    with pytest.raises(policy.DeliveryError, match="verified bundle changed"):
+        with operation:
+            result = operation.invoke(
+                "scripts.release", ["verify", str(bundle), "--manifest-sha256", expected]
+            )
+            assert result.exit_code == 0 and not operation.completed
+            changed = True
+    assert not operation.completed and manifest._READ_SCOPE.get() is None
+
+
+def test_setup_session_keeps_cli_failure_and_stops_following_calls(monkeypatch):
+    monkeypatch.setattr(setup_session, "_require_operator", lambda: None)
+    operation = setup_session.SetupSession(maximum_seconds=5)
+    with pytest.raises(policy.DeliveryError, match="failed setup session"):
+        with operation:
+            result = operation.invoke("scripts.release", ["verify"])
+            assert result.exit_code == 2 and result.stderr
+            with pytest.raises(policy.DeliveryError, match="active successful"):
+                operation.invoke("scripts.release", ["verify"])
+    assert not operation.completed and operation.records[0]["actual_exit_code"] == 2
+    assert manifest._READ_SCOPE.get() is None
+
+
+def test_setup_session_excludes_runtime_execution_and_inside_override(monkeypatch):
+    monkeypatch.setattr(setup_session, "_require_operator", lambda: None)
+    for module, argv in [
+        ("scripts.release.lifecycle", ["--action", "start"]),
+        ("scripts.release", ["build"]),
+        ("scripts.release.restore", ["--inside"]),
+        ("scripts.release.services", ["check-binding"]),
+        ("scripts.release.journal", ["--help"]),
+        ("scripts.release.dependencies", ["--check-service", "postgres"]),
+        ("scripts.release.dependencies", ["--check-s=postgres"]),
+        ("scripts.release.proxy_install", ["--check-binding"]),
+        ("scripts.release.proxy_install", ["--check-b"]),
+    ]:
+        with pytest.raises(policy.DeliveryError):
+            with setup_session.SetupSession(maximum_seconds=5) as operation:
+                operation.invoke(module, argv)
+        assert operation.records == [] and manifest._READ_SCOPE.get() is None
+
+
+def test_setup_session_rejects_operator_identity_and_invalid_deadline(monkeypatch):
+    monkeypatch.setattr(setup_session.os, "geteuid", lambda: 1001)
+    with pytest.raises(policy.DeliveryError, match="trusted root operator"):
+        with setup_session.SetupSession():
+            pass
+    for value in [False, 0, -1, 2401, float("inf"), float("nan"), "1800"]:
+        with pytest.raises(policy.DeliveryError, match="finite setup deadline"):
+            setup_session.SetupSession(maximum_seconds=value)
+    assert manifest._READ_SCOPE.get() is None
+
+
+def test_setup_session_preserves_existing_earlier_alarm(monkeypatch):
+    import signal
+
+    monkeypatch.setattr(setup_session, "_require_operator", lambda: None)
+    handler = signal.getsignal(signal.SIGALRM)
+    timer = signal.getitimer(signal.ITIMER_REAL)
+
+    def caller_deadline(*args):
+        raise AssertionError("the earlier caller alarm must remain installed")
+
+    try:
+        signal.signal(signal.SIGALRM, caller_deadline)
+        signal.setitimer(signal.ITIMER_REAL, 10)
+        with setup_session.SetupSession(maximum_seconds=20) as operation:
+            assert signal.getsignal(signal.SIGALRM) is caller_deadline
+            assert 0 < signal.getitimer(signal.ITIMER_REAL)[0] <= 10
+        assert operation.completed and signal.getsignal(signal.SIGALRM) is caller_deadline
+        assert 0 < signal.getitimer(signal.ITIMER_REAL)[0] <= 10
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, handler)
+        if timer[0]:
+            signal.setitimer(signal.ITIMER_REAL, *timer)
+
+
+def test_setup_session_own_deadline_interrupts_call_and_clears_scope(monkeypatch):
+    monkeypatch.setattr(setup_session, "_require_operator", lambda: None)
+    entry = importlib.import_module("scripts.release.__main__")
+
+    def wait_for_deadline(argv):
+        time.sleep(3)
+
+    monkeypatch.setattr(entry, "main", wait_for_deadline)
+    operation = setup_session.SetupSession(maximum_seconds=0.1)
+    with pytest.raises(policy.DeliveryError, match="deadline exceeded"):
+        with operation:
+            operation.invoke("scripts.release", ["verify"])
+    assert not operation.completed and manifest._READ_SCOPE.get() is None
+
+
+def test_setup_session_call_count_is_finite(ordinary_bundle, monkeypatch):
+    bundle, expected = ordinary_bundle
+    monkeypatch.setattr(setup_session, "_require_operator", lambda: None)
+    operation = setup_session.SetupSession(maximum_seconds=5)
+    arguments = ["verify", str(bundle), "--manifest-sha256", expected]
+    with pytest.raises(policy.DeliveryError, match="oversized setup"):
+        with operation:
+            for _ in range(32):
+                assert operation.invoke("scripts.release", arguments).exit_code == 0
+            operation.invoke("scripts.release", arguments)
+    assert len(operation.records) == 32 and not operation.completed
+    assert manifest._READ_SCOPE.get() is None
+
+
+def test_setup_session_unexpected_exception_is_not_an_exit_success(monkeypatch):
+    monkeypatch.setattr(setup_session, "_require_operator", lambda: None)
+    entry = importlib.import_module("scripts.release.__main__")
+
+    def refuse(argv):
+        print("ordinary progress before refusal")
+        raise OSError("ordinary call failure model")
+
+    monkeypatch.setattr(entry, "main", refuse)
+    operation = setup_session.SetupSession(maximum_seconds=5)
+    with pytest.raises(OSError, match="ordinary call failure"):
+        with operation:
+            operation.invoke("scripts.release", ["verify"])
+    assert operation.records[0]["actual_exit_code"] is None
+    assert operation.records[0]["actual_exception_type"] == "OSError"
+    assert operation.records[0]["stdout_bytes"] > 0 and not operation.completed
+    assert manifest._READ_SCOPE.get() is None
+
+
+def test_setup_session_output_is_bounded_in_bytes(monkeypatch):
+    monkeypatch.setattr(setup_session, "_require_operator", lambda: None)
+    entry = importlib.import_module("scripts.release.__main__")
+
+    def oversized(argv):
+        print("界" * 10923)
+
+    monkeypatch.setattr(entry, "main", oversized)
+    operation = setup_session.SetupSession(maximum_seconds=5)
+    with pytest.raises(policy.DeliveryError, match="output exceeds bound"):
+        with operation:
+            operation.invoke("scripts.release", ["verify"])
+    assert operation.records[0]["actual_exit_code"] is None
+    assert not operation.completed and manifest._READ_SCOPE.get() is None
+
+
+def test_setup_session_rejects_private_option_abbreviations(monkeypatch):
+    monkeypatch.setattr(setup_session, "_require_operator", lambda: None)
+    for argument in ["--ins", "--inside=1", "--he", "--help=true", "-hfoo", "--"]:
+        with pytest.raises(policy.DeliveryError, match="setup CLI call"):
+            with setup_session.SetupSession(maximum_seconds=5) as operation:
+                operation.invoke("scripts.release.restore", [argument])
+        assert operation.records == [] and not operation.completed
+        assert manifest._READ_SCOPE.get() is None
+
+
+def test_setup_session_failed_alarm_installation_restores_handler(monkeypatch):
+    import signal
+
+    monkeypatch.setattr(setup_session, "_require_operator", lambda: None)
+    original_handler = signal.getsignal(signal.SIGALRM)
+    original_timer = signal.getitimer(signal.ITIMER_REAL)
+    real = signal.setitimer
+
+    def refused_alarm(which, seconds, interval=0):
+        if seconds:
+            raise OSError("ordinary timer-installation refusal model")
+        return real(which, seconds, interval)
+
+    signal.setitimer(signal.ITIMER_REAL, 0)
+    monkeypatch.setattr(setup_session.signal, "setitimer", refused_alarm)
+    try:
+        with pytest.raises(OSError, match="timer-installation refusal"):
+            with setup_session.SetupSession():
+                pass
+        assert signal.getsignal(signal.SIGALRM) is original_handler
+        assert manifest._READ_SCOPE.get() is None
+    finally:
+        monkeypatch.setattr(setup_session.signal, "setitimer", real)
+        if original_timer[0]:
+            signal.setitimer(signal.ITIMER_REAL, *original_timer)

@@ -181,7 +181,7 @@ def generate(
     return result
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Bounded ordinary service composition")
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser("check-binding")
@@ -193,7 +193,7 @@ def main() -> None:
     check.add_argument("--configuration", type=Path, required=True)
     check.add_argument("--configuration-receipt-sha256", required=True)
     check.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         if args.command == "check-binding":
             if os.geteuid() != 0:

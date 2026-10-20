@@ -355,9 +355,9 @@ def install_profile() -> dict:
     }
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Install only the fixed KF log namespace profile")
-    parser.parse_args()
+    parser.parse_args(argv)
     try:
         print(json.dumps(install_profile(), sort_keys=True))
     except (OSError, ValueError, subprocess.SubprocessError) as error:

@@ -305,13 +305,13 @@ def install_unit(source: Path, expected: str) -> dict:
     }
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Protected Root factory unit composition")
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--output", type=Path)
     action.add_argument("--install", type=Path)
     parser.add_argument("--receipt-sha256")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         if args.output is not None:
             if args.receipt_sha256 is not None:

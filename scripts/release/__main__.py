@@ -8,7 +8,7 @@ from pathlib import Path
 from . import build, configuration, database, install, manifest, policy, preflight, proxy
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="KF bounded offline delivery")
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser("contract")
@@ -50,7 +50,7 @@ def main() -> None:
     check.add_argument("--manifest-sha256", required=True)
     check.add_argument("--configuration-id", required=True)
     sub.add_parser("check-active")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         if args.command == "contract":
             policy.contract(args.path)
