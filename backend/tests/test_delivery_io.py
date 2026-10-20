@@ -18,6 +18,8 @@ sys.path.insert(0, str(ROOT))
 manifest = importlib.import_module("scripts.release.manifest")
 policy = importlib.import_module("scripts.release.policy")
 file_copy = importlib.import_module("scripts.release.file_copy")
+factory_service = importlib.import_module("scripts.release.factory_service")
+proxy_install = importlib.import_module("scripts.release.proxy_install")
 
 
 @pytest.fixture
@@ -120,6 +122,41 @@ def test_failed_operation_cannot_keep_a_byte_proof(ordinary_bundle, monkeypatch)
     with manifest.verification_scope():
         manifest.verify(bundle, expected)
     assert reads == first_reads * 2
+
+
+@pytest.mark.parametrize("operator", ["factory", "proxy"])
+def test_installer_refusal_reuses_only_its_own_complete_byte_proof(
+    ordinary_bundle, monkeypatch, tmp_path, operator
+):
+    # Model the early operator guard with ordinary owned fixture bytes. No OS
+    # identity, installation, service or VM execution is being accepted here.
+    bundle, expected = ordinary_bundle
+    reads = observed_digests(monkeypatch)
+    manifest.verify(bundle, expected)
+    complete_read = list(reads)
+    reads.clear()
+
+    def refuse(*args, **kwargs):
+        assert manifest.verify(bundle, expected) == manifest.verify(bundle, expected)
+        raise RuntimeError("ordinary installer refusal probe")
+
+    module = factory_service if operator == "factory" else proxy_install
+    monkeypatch.setattr(module.os, "getuid", lambda: 0)
+    monkeypatch.setattr(module.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(module.os, "getgid", lambda: 0)
+    monkeypatch.setattr(module.preflight, "protected", refuse)
+    source = tmp_path / "uncreated-installation-input"
+    arguments = [source, expected]
+    entry = module.install_unit if operator == "factory" else module.install_proxy
+    if operator == "proxy":
+        arguments.extend([tmp_path / "unread-certificate", tmp_path / "unread-key"])
+    with pytest.raises(RuntimeError, match="ordinary installer refusal probe"):
+        entry(*arguments)
+    assert reads == complete_read
+    assert manifest._READ_SCOPE.get() is None
+    assert not source.exists()
+    manifest.verify(bundle, expected)
+    assert reads == complete_read * 2
 
 
 @pytest.mark.parametrize("index", range(9))

@@ -15,6 +15,7 @@ from . import (
     configuration,
     install,
     journal,
+    manifest,
     preflight,
     proxy_runtime,
     proxy_service,
@@ -308,6 +309,7 @@ def temporary_directories() -> None:
             os.chown(temporary_directory, proxy_service.UID, proxy_service.UID)
 
 
+@manifest.verified_operation
 def install_proxy(source: Path, expected: str, certificate: Path, key: Path) -> dict:
     if os.getuid() != 0 or os.geteuid() != 0 or os.getgid() != 0:
         raise DeliveryError("root proxy installer required")
@@ -325,6 +327,7 @@ def install_proxy(source: Path, expected: str, certificate: Path, key: Path) -> 
         "proxy.py",
         "proxy_service.py",
         "proxy_install.py",
+        "manifest.py",
         "proxy_guard.py",
         "proxy_runtime.py",
     ):

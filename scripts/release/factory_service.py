@@ -9,7 +9,7 @@ import stat
 import subprocess
 from pathlib import Path
 
-from . import configuration, install, preflight, service_install, services
+from . import configuration, install, manifest, preflight, service_install, services
 from .policy import DeliveryError, canonical, digest, fields, read_json, sha256
 
 UNIT = "kf-sandbox-factory.service"
@@ -167,6 +167,7 @@ def generate(output: Path) -> dict:
     payload = install.RELEASES / selected["release_id"] / "payload"
     for name in (
         "factory_service.py",
+        "manifest.py",
         "services.py",
         "service_profiles.py",
         "layout.py",
@@ -199,6 +200,7 @@ def generate(output: Path) -> dict:
     return result
 
 
+@manifest.verified_operation
 def install_unit(source: Path, expected: str) -> dict:
     if os.getuid() != 0 or os.geteuid() != 0:
         raise DeliveryError("factory unit installation requires root operator")
@@ -219,6 +221,7 @@ def install_unit(source: Path, expected: str) -> dict:
     payload = install.RELEASES / selected["release_id"] / "payload"
     for name in (
         "factory_service.py",
+        "manifest.py",
         "services.py",
         "service_profiles.py",
         "layout.py",
