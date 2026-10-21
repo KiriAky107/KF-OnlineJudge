@@ -11,6 +11,7 @@ import time
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -827,22 +828,110 @@ def ordinary_lifecycle_model(monkeypatch):
     return maintenance, states, trace, clock
 
 
-def test_ordinary_start_groups_fit_parent_cpu_budget():
-    # This checks scheduling policy; actual startup timing remains VM-only.
+def test_full_bundle_start_groups_fit_parent_cpu_budget():
+    # Render the real dependency and Root ceilings too. This is a scheduling
+    # invariant, not an actual service, role, timing or VM acceptance result.
     node = Path(__file__).resolve().parents[2] / "deploy/release/kfonlinejudge.slice"
     quotas = [line for line in node.read_text().splitlines() if line.startswith("CPUQuota=")]
     assert len(quotas) == 1
     node_cpu = int(quotas[0].partition("=")[2].removesuffix("%"))
     profiles = lifecycle.services.PROFILES
-    dispatched = [name for group in lifecycle.START_GROUPS for name in group if name in profiles]
-    assert sorted(dispatched) == sorted(profiles)
+    budgets = {name: values[3] for name, values in profiles.items()}
+
+    def rendered_cpu(contents):
+        lines = [line for line in contents.decode().splitlines() if line.startswith("CPUQuota=")]
+        assert len(lines) == 1
+        return int(lines[0].partition("=")[2].removesuffix("%"))
+
+    dependencies = importlib.import_module("scripts.release.dependencies")
+    configuration = factory_service.configuration
+    source, expected = "b" * 40, "c" * 64
+    hashes = dict.fromkeys(configuration.CONFIG_FILES, "d" * 64)
+    receipt = {
+        "schema_version": 1,
+        "source_sha": source,
+        "release_id": "sd-" + source[:12],
+        "configuration_id": configuration.configuration_id(source, expected, hashes),
+        "manifest_sha256": expected,
+        "configuration_files": hashes,
+        "operator_attested_measurement": False,
+        "installed": False,
+        "execution_verified": False,
+    }
+    units = dependencies.render(receipt["release_id"], receipt["configuration_id"])
+    for name in lifecycle.DEPENDENCIES:
+        budgets[name] = rendered_cpu(units["kf-" + name + ".service"])
+    budgets["sandbox-factory"] = rendered_cpu(factory_service.render(receipt))
+    dispatched = [name for group in lifecycle.START_GROUPS for name in group if name in budgets]
+    assert sorted(dispatched) == sorted(budgets)
+    # HTTPS checks its own bounded source rather than the full execution bundle.
+    assert lifecycle.START_GROUPS[-1] == ("proxy",)
     for group in lifecycle.START_GROUPS:
-        assert sum(profiles[name][3] for name in group if name in profiles) <= node_cpu
+        assert sum(budgets[name] for name in group if name in budgets) <= node_cpu
 
 
-def test_start_group_dispatches_independent_units_before_confirming_each(ordinary_lifecycle_model):
+@pytest.mark.parametrize("running", [False, True])
+def test_restore_allots_node_cpu_only_after_stopped_gate_model(monkeypatch, running):
+    # Unit construction/preconditions are modeled. No host manager, data tree,
+    # permissions, kernel limits or actual recovery are exercised here.
+    restore = importlib.import_module("scripts.release.restore")
+    trace = []
+    node = ROOT / "deploy/release/kfonlinejudge.slice"
+    quota = next(line for line in node.read_text().splitlines() if line.startswith("CPUQuota="))
+    node_cpu = int(quota.partition("=")[2].removesuffix("%"))
+    monkeypatch.setattr(restore.install, "selection", lambda: {"release_id": "sd-" + "b" * 12})
+
+    def stopped():
+        trace.append("stopped")
+        if running:
+            raise policy.DeliveryError("modeled managed writer")
+
+    monkeypatch.setattr(restore, "stopped", stopped)
+    monkeypatch.setattr(restore.install, "directory", lambda *args: trace.append("directory"))
+    monkeypatch.setattr(
+        restore.backup,
+        "manager",
+        lambda *args: {"LoadState": "not-found", "ActiveState": "inactive", "MainPID": "0"},
+    )
+
+    def launch(command, **options):
+        assert trace[0] == "stopped"
+        assert command[0] == "/usr/bin/systemd-run"
+        properties = dict(
+            arg.removeprefix("--property=").split("=", 1)
+            for arg in command
+            if arg.startswith("--property=")
+        )
+        assert properties["CPUQuota"] == str(node_cpu) + "%"
+        assert properties["MemoryMax"] == "512M" and properties["MemorySwapMax"] == "0"
+        assert properties["TasksMax"] == "32" and properties["RuntimeMaxSec"] == "1800"
+        assert properties["NoNewPrivileges"] == "yes" and properties["Restart"] == "no"
+        assert (
+            properties["CapabilityBoundingSet"]
+            == properties["AmbientCapabilities"]
+            == ("CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER")
+        )
+        assert properties["ReadOnlyPaths"] == str(restore.backup.ROOT)
+        assert options["timeout"] == 1820
+        trace.append("dispatch")
+        return SimpleNamespace(returncode=0, stdout=b"{}")
+
+    monkeypatch.setattr(restore.subprocess, "run", launch)
+    args = ("rr-" + "d" * 32, "bk-" + "e" * 32, "f" * 64)
+    if running:
+        with pytest.raises(policy.DeliveryError, match="modeled managed writer"):
+            restore.launch(*args)
+        assert trace == ["stopped"]
+    else:
+        assert restore.launch(*args) == {}
+        assert trace[-1] == "dispatch"
+
+
+@pytest.mark.parametrize("names", lifecycle.START_GROUPS)
+def test_start_group_dispatches_independent_units_before_confirming_each(
+    ordinary_lifecycle_model, names
+):
     maintenance, _, trace, _ = ordinary_lifecycle_model
-    names = lifecycle.START_GROUPS[0]
     maintenance.start_group(names)
     starts = [(i, name) for i, (kind, name) in enumerate(trace) if kind == "dispatch"]
     inspections = [(i, name) for i, (kind, name) in enumerate(trace) if kind == "inspect"]
@@ -850,7 +939,7 @@ def test_start_group_dispatches_independent_units_before_confirming_each(ordinar
     assert {name for _, name in inspections} == set(names)
     assert min(i for i, _ in inspections) > max(i for i, _ in starts)
     assert all(event["confirmed"] for event in maintenance.record["events"])
-    assert maintenance.record["root_cleanup_confirmed"] is False
+    assert maintenance.record["root_cleanup_confirmed"] is ("sandbox-factory" not in names)
 
 
 def test_start_group_validates_all_targets_before_any_dispatch(
@@ -910,7 +999,10 @@ def test_start_group_resume_checks_live_profiles_without_duplicate_starts(ordina
     assert maintenance.record["events"] == []
 
 
-def test_group_profile_failure_cannot_confirm_a_started_unit(ordinary_lifecycle_model, monkeypatch):
+@pytest.mark.parametrize("names", lifecycle.START_GROUPS)
+def test_group_profile_failure_cannot_confirm_a_started_unit(
+    ordinary_lifecycle_model, monkeypatch, names
+):
     maintenance, _, trace, _ = ordinary_lifecycle_model
 
     def refused(name, selected):
@@ -918,8 +1010,8 @@ def test_group_profile_failure_cannot_confirm_a_started_unit(ordinary_lifecycle_
 
     monkeypatch.setattr(lifecycle.node_health, "inspect_unit", refused)
     with pytest.raises(policy.DeliveryError, match="effective profile refusal"):
-        maintenance.start_group(lifecycle.START_GROUPS[0])
-    assert len([name for kind, name in trace if kind == "dispatch"]) == 3
+        maintenance.start_group(names)
+    assert [name for kind, name in trace if kind == "dispatch"] == list(names)
     assert all(not event["confirmed"] for event in maintenance.record["events"])
 
 

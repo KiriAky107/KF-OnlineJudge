@@ -49,10 +49,11 @@ START_ORDER = (
     "worker",
     "proxy",
 )
-# Root has no DB/MQ dependency. Pair ordinary full-bundle startup checks under
-# the two-CPU node cap; every unit keeps its original startup deadline.
+# PG and MQ each allow one CPU during full-bundle startup checks. Start Root
+# after them, then pair ordinary checks within the unchanged two-CPU node cap.
 START_GROUPS = (
-    (*DEPENDENCIES, "sandbox-factory"),
+    DEPENDENCIES,
+    ("sandbox-factory",),
     ("coordinator", "api"),
     ("outbox", "problem-import"),
     ("worker",),

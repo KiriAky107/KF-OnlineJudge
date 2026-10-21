@@ -28,6 +28,9 @@ from .policy import DeliveryError, canonical, digest, sha256
 from .services import python_environment
 
 STATE = Path("/var/lib/kf-onlinejudge/recovery")
+# Cold copying requires every normal service and task to be stopped. Use the
+# existing node CPU ceiling during that exclusive phase; no extra node CPU.
+CPU_PERCENT = 200
 LIVE = {
     name: backup.SOURCES[name]
     for name in ("postgres", "artifacts", "imports", "factory", "releases", "images")
@@ -58,7 +61,7 @@ def guarded() -> None:
     if group != Path("/sys/fs/cgroup/kfonlinejudge.slice/kf-node-restore.service"):
         raise DeliveryError("fixed recovery operator unit required")
     for path, expected in (
-        (group, ["536870912", "0", "32", "50000 100000"]),
+        (group, ["536870912", "0", "32", f"{CPU_PERCENT * 1000} 100000"]),
         (Path("/sys/fs/cgroup/kfonlinejudge.slice"), ["4026531840", "0", "384", "200000 100000"]),
     ):
         observed = [
@@ -366,7 +369,7 @@ def launch(recovery_id: str, backup_id: str, expected: str) -> dict:
         "MemoryMax": "512M",
         "MemorySwapMax": "0",
         "TasksMax": "32",
-        "CPUQuota": "50%",
+        "CPUQuota": f"{CPU_PERCENT}%",
         "RuntimeMaxSec": "1800",
         "TimeoutStopSec": "15",
         "LimitCORE": "0",

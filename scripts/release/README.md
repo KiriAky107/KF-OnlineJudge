@@ -406,9 +406,11 @@ schema-changing upgrades need a separate Backend Alembic procedure.
 
 The operator reads the backup through a read-only mount, checks the private receipt
 and every byte, then copies to fixed targets under 512 MiB, zero swap, 32 tasks,
-50% CPU and a 30-minute deadline. Original identities/modes and replay IDs are
-preserved. Its PostgreSQL target is writable; the fresh RabbitMQ volume is
-checked through a read-only mount and receives no copied broker state.
+200% CPU and a 30-minute deadline. This uses the existing 200% node ceiling while
+all normal services and tasks are stopped. The stopped-state checks precede data
+verification and copying and run again before completion. Original identities,
+modes and replay IDs are preserved. Its PostgreSQL target is writable; the fresh
+RabbitMQ volume is checked through a read-only mount and receives no copied broker state.
 Each restored file is flushed and independently read back against its trusted
 digest. Its inode, ownership, mode, link count, size and nanosecond timestamps
 must remain unchanged until the final receipt. These observations are local to
@@ -428,8 +430,10 @@ Public bundle inventories read every payload byte with at most four readers in
 flight. Each reader opens without following a final symlink and verifies the
 file identity and metadata before and after hashing. The inventory checks those
 identities again before returning. All readers are joined on success or failure;
-separate processes still obtain their own complete byte proofs. Service limits,
-startup deadlines and the recovery target are unchanged.
+separate processes still obtain their own complete byte proofs. Normal service
+and user-program limits, startup deadlines and the recovery target are unchanged.
+PG and MQ start together within the two-CPU node ceiling, then Root starts on its
+own before the ordinary service pairs. Root keeps its original preparation limit.
 Verified installer and stopped-node recovery inventories can keep at most four
 file operations in flight. Each file retains its durability and byte checks;
 directory finalization and success receipts wait for all dispatched work. On
