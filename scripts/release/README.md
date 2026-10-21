@@ -72,6 +72,12 @@ verified input tree and the fixed target profile. It installs protected versions
 images and OS identities. Repeat installation checks identical files; unknown
 ownership/modes, changed bytes and incomplete staging directories require inspection.
 
+New release files are copied into a private staging directory, synced and fully
+read back with their manifest before atomic publication. Each installed runtime
+image has its own full readback. Repeat installation checks the release, runtime
+images and legacy GNU copy independently; it uses the already checked GNU records
+to compare the legacy copy without reading the runtime image a second time.
+
 `generate-configuration` reads separate 0600 node and endpoint inputs and writes
 a new private batch. API, publisher, import, migration and account operations use
 their required DB authority; Worker receives its own MQ/control identity. Backend

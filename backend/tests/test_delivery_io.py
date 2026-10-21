@@ -23,6 +23,7 @@ factory_service = importlib.import_module("scripts.release.factory_service")
 proxy_install = importlib.import_module("scripts.release.proxy_install")
 setup_session = importlib.import_module("scripts.release.setup_session")
 lifecycle = importlib.import_module("scripts.release.lifecycle")
+installer = importlib.import_module("scripts.release.install")
 
 
 @pytest.fixture
@@ -101,6 +102,138 @@ def observed_digests(monkeypatch):
 
     monkeypatch.setattr(manifest, "_read_payload", payload)
     return reads
+
+
+@pytest.fixture
+def ordinary_installation_model(ordinary_bundle, monkeypatch, tmp_path):
+    """Owned dummy bytes; Root accounts, kernel and ownership gates are models."""
+    bundle, _ = ordinary_bundle
+    data = json.loads((bundle / "manifest.json").read_bytes())
+    for name, contents in (
+        ("deploy/release/kfonlinejudge.slice", b"ordinary unit fixture, never started\n"),
+        ("images/gnu/bin/ordinary-data", b"ordinary image bytes, never executed\n"),
+    ):
+        path = bundle / "payload" / name
+        path.parent.parent.chmod(0o755)
+        path.parent.mkdir(mode=0o755, exist_ok=True)
+        path.parent.chmod(0o755)
+        path.write_bytes(contents)
+        path.chmod(0o444)
+    for path in sorted((bundle / "payload").rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if path.is_dir():
+            path.chmod(0o555)
+    (bundle / "manifest.json").unlink()
+    manifest.write(bundle, data["source_sha"], data["locks"], data["images"])
+    expected = policy.digest(bundle / "manifest.json")
+    root = tmp_path / "ordinary-installation-model"
+    (root / "etc/systemd/system").mkdir(parents=True)
+
+    def fixture_path(value):
+        value = Path(value)
+        if value.is_absolute() and value.parts[1:2] in (("opt",), ("etc",), ("var",)):
+            return root / value.relative_to("/")
+        return value
+
+    def directory(path, mode):
+        path.mkdir(mode=mode, parents=True, exist_ok=True)
+        path.chmod(mode)
+
+    monkeypatch.setattr(installer, "Path", fixture_path)
+    monkeypatch.setattr(installer, "RELEASES", root / "opt/kf-onlinejudge/releases")
+    monkeypatch.setattr(installer, "IMAGES", root / "var/lib/kf-judge/images")
+    monkeypatch.setattr(installer.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(installer, "ensure_accounts", lambda: None)
+    monkeypatch.setattr(installer.preflight, "protected", lambda *a, **k: None)
+    monkeypatch.setattr(installer.preflight, "observe", lambda *a, **k: {"eligible": True})
+    monkeypatch.setattr(installer, "directory", directory)
+    monkeypatch.setattr(installer, "data_directory", lambda path, owner: directory(path, 0o700))
+    data = json.loads((bundle / "manifest.json").read_bytes())
+    return {
+        "bundle": bundle,
+        "expected": expected,
+        "data": data,
+        "root": root,
+        "release": installer.RELEASES / data["release_id"],
+        "stage": installer.RELEASES / ("." + data["release_id"] + ".installing"),
+        "images": installer.IMAGES / data["release_id"],
+    }
+
+
+def test_new_staged_install_reads_each_destination_once(ordinary_installation_model, monkeypatch):
+    model = ordinary_installation_model
+    reads = []
+    original = manifest._read_payload
+
+    def read(row):
+        if model["stage"] in row[0].parents:
+            reads.append(row[0].relative_to(model["stage"] / "payload").as_posix())
+        return original(row)
+
+    monkeypatch.setattr(manifest, "_read_payload", read)
+    receipt = installer.files(model["bundle"], model["expected"])
+    assert Counter(reads) == Counter(row["path"] for row in model["data"]["files"])
+    assert receipt["files_installed"] and not receipt["activated"]
+    assert not receipt["migrated"] and not receipt["execution_verified"]
+    assert model["release"].is_dir() and not model["stage"].exists()
+    assert policy.digest(model["release"] / "manifest.json") == model["expected"]
+
+
+def test_staged_install_rechecks_final_payload_before_publication_model(
+    ordinary_installation_model, monkeypatch
+):
+    model = ordinary_installation_model
+    original = installer.copy_verified
+
+    def copy(source, target, expected, mode):
+        original(source, target, expected, mode)
+        if target == model["stage"] / "manifest.json":
+            # Benign owned fixture bytes only; actual corruption/path safety
+            # acceptance belongs to the independent VM, not this modeled role.
+            leaf = model["stage"] / "payload/frontend/index.html"
+            leaf.chmod(0o600)
+            leaf.write_bytes(b"different ordinary fixture data\n")
+            leaf.chmod(0o444)
+
+    monkeypatch.setattr(installer, "copy_verified", copy)
+    with pytest.raises(policy.DeliveryError, match="contents differ"):
+        installer.files(model["bundle"], model["expected"])
+    assert not model["release"].exists() and model["stage"].is_dir()
+    assert not (
+        model["root"] / "etc/kf-onlinejudge" / (model["data"]["release_id"] + ".files.json")
+    ).exists()
+
+
+def test_repeat_install_reads_each_GNU_image_once(ordinary_installation_model, monkeypatch):
+    model = ordinary_installation_model
+    installer.files(model["bundle"], model["expected"])
+    root = model["images"] / "gnu"
+    reads = []
+    original = manifest._read_payload
+
+    def read(row):
+        if root in row[0].parents:
+            reads.append(row[0].relative_to(root).as_posix())
+        return original(row)
+
+    monkeypatch.setattr(manifest, "_read_payload", read)
+    installer.files(model["bundle"], model["expected"])
+    expected = [
+        row["path"].removeprefix("images/gnu/")
+        for row in model["data"]["files"]
+        if row["path"].startswith("images/gnu/")
+    ]
+    assert Counter(reads) == Counter(expected)
+
+
+def test_repeat_install_still_refuses_legacy_byte_change_model(ordinary_installation_model):
+    model = ordinary_installation_model
+    installer.files(model["bundle"], model["expected"])
+    leaf = model["images"] / "legacy-gnu/bin/ordinary-data"
+    leaf.chmod(0o600)
+    leaf.write_bytes(b"changed owned ordinary image fixture\n")
+    leaf.chmod(0o444)
+    with pytest.raises(policy.DeliveryError, match="legacy compatibility image bytes differ"):
+        installer.files(model["bundle"], model["expected"])
 
 
 def test_payload_byte_reads_are_bounded_joined_and_complete(ordinary_bundle, monkeypatch):

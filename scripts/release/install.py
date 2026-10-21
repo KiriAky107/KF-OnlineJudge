@@ -232,13 +232,23 @@ def frozen_copy(
         for record in records:
             preflight.protected(target / record["path"])
         return
+    _copy_new_tree(source, target, records, directories)
+    if (
+        manifest.inventory(target, path_prefix=path_prefix) != records
+        or manifest.directories(target, path_prefix=path_prefix) != directories
+    ):
+        raise DeliveryError("installed image readback differs")
+
+
+def _copy_new_tree(source: Path, target: Path, records: list[dict], directories: list[str]) -> None:
+    """Create a new sealed tree; the caller must verify the complete destination."""
     target.mkdir(mode=0o700)
     for name in sorted(directories, key=lambda name: (name.count("/"), name)):
         (target / name).mkdir(mode=0o700)
 
     def copy(record: dict) -> None:
-        # The complete sealed tree is read back immediately below. Avoid
-        # hashing each destination both here and again in that inventory.
+        # frozen_copy verifies this image immediately; a release staging tree
+        # gets the stronger complete bundle check before atomic publication.
         _copy_verified(
             source / record["path"],
             target / record["path"],
@@ -254,11 +264,6 @@ def frozen_copy(
         sync_directory(target / name)
     target.chmod(0o555)
     sync_directory(target)
-    if (
-        manifest.inventory(target, path_prefix=path_prefix) != records
-        or manifest.directories(target, path_prefix=path_prefix) != directories
-    ):
-        raise DeliveryError("installed image readback differs")
 
 
 def files(bundle: Path, expected: str) -> dict:
@@ -304,8 +309,15 @@ def files(bundle: Path, expected: str) -> dict:
         if stage.exists() or stage.is_symlink():
             raise DeliveryError("incomplete release requires explicit operator inspection")
         stage.mkdir(mode=0o700)
-        # `frozen_copy` accepts names through the same bounded allowlist.
-        frozen_copy(bundle / "payload", stage / "payload", verified_records=data["files"])
+        # Read every destination byte once in verify_staged, after copying the
+        # manifest and before publishing. Images still get their own complete
+        # independent readback in frozen_copy.
+        _copy_new_tree(
+            bundle / "payload",
+            stage / "payload",
+            data["files"],
+            manifest.directories(bundle / "payload"),
+        )
         copy_verified(bundle / "manifest.json", stage / "manifest.json", expected, 0o444)
         manifest.verify_staged(stage, expected)
         stage.chmod(0o555)
@@ -332,11 +344,7 @@ def files(bundle: Path, expected: str) -> dict:
         preflight.protected(legacy, directory=True)
         if read_json(legacy / "manifest.json") != LEGACY_HEADER:
             raise DeliveryError("legacy compatibility image header differs")
-        wanted = {
-            r["path"]: r
-            for r in manifest.inventory(image_base / "gnu", path_prefix="images/catalog/")
-            if r["path"] != "manifest.json"
-        }
+        wanted = {r["path"]: r for r in image_records["gnu"] if r["path"] != "manifest.json"}
         actual = {
             r["path"]: r
             for r in manifest.inventory(legacy, path_prefix="images/catalog/")
