@@ -49,11 +49,13 @@ START_ORDER = (
     "worker",
     "proxy",
 )
-# Root has no DB/MQ dependency. Ordinary units require the two dependencies;
-# the HTTPS unit additionally orders itself after API startup.
+# Root has no DB/MQ dependency. Pair ordinary full-bundle startup checks under
+# the two-CPU node cap; every unit keeps its original startup deadline.
 START_GROUPS = (
     (*DEPENDENCIES, "sandbox-factory"),
-    ("coordinator", "api", "outbox", "problem-import", "worker"),
+    ("coordinator", "api"),
+    ("outbox", "problem-import"),
+    ("worker",),
     ("proxy",),
 )
 DRAIN_SECONDS = 360

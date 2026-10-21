@@ -626,6 +626,19 @@ def ordinary_lifecycle_model(monkeypatch):
     return maintenance, states, trace, clock
 
 
+def test_ordinary_start_groups_fit_parent_cpu_budget():
+    # This checks scheduling policy; actual startup timing remains VM-only.
+    node = Path(__file__).resolve().parents[2] / "deploy/release/kfonlinejudge.slice"
+    quotas = [line for line in node.read_text().splitlines() if line.startswith("CPUQuota=")]
+    assert len(quotas) == 1
+    node_cpu = int(quotas[0].partition("=")[2].removesuffix("%"))
+    profiles = lifecycle.services.PROFILES
+    dispatched = [name for group in lifecycle.START_GROUPS for name in group if name in profiles]
+    assert sorted(dispatched) == sorted(profiles)
+    for group in lifecycle.START_GROUPS:
+        assert sum(profiles[name][3] for name in group if name in profiles) <= node_cpu
+
+
 def test_start_group_dispatches_independent_units_before_confirming_each(ordinary_lifecycle_model):
     maintenance, _, trace, _ = ordinary_lifecycle_model
     names = lifecycle.START_GROUPS[0]
