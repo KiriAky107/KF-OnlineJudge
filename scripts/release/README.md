@@ -434,6 +434,10 @@ identities again before returning. All readers are joined on success or failure.
 During one `start`, `resume` or `restart`, the fixed Root maintenance helper reads
 the complete bundle once. Its Root startup checks and node-health helpers can
 reuse that proof while the same transient maintenance invocation is running.
+Consumers require real and effective UID/GID 0 and the exact fixed service
+cgroup. A privileged service precheck may retain only Root's group and that
+service's fixed group; ordinary service processes still read the complete bytes.
+The publishing maintenance helper accepts only Root's own group.
 A Root-only systemd runtime directory holds a record of at most 4096 bytes,
 binding the full metadata digest to the selected manifest, release, configuration,
 boot, MainPID and InvocationID. Each consumer checks the live owner and every

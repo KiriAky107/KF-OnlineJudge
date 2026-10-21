@@ -336,7 +336,9 @@ def live_byte_proof_model(ordinary_bundle, monkeypatch, tmp_path):
     path = tmp_path / "byte-proof.json"
     path.write_bytes(policy.canonical(record))
     monkeypatch.setattr(operation_proof, "RECORD", path)
-    monkeypatch.setattr(operation_proof, "_root", lambda: True)
+    for name in ("getuid", "geteuid", "getgid", "getegid"):
+        monkeypatch.setattr(operation_proof.os, name, lambda: 0)
+    monkeypatch.setattr(operation_proof.os, "getgroups", lambda: [0])
     monkeypatch.setattr(operation_proof.preflight, "protected", lambda *a, **kw: None)
     monkeypatch.setattr(
         operation_proof.preflight,
@@ -365,6 +367,69 @@ def test_live_parent_model_reuses_complete_proof_without_remembering_it(
         with pytest.raises(policy.DeliveryError, match="expired or owner changed"):
             manifest.verify(bundle, expected)
     assert not reads
+
+
+@pytest.mark.parametrize(
+    ("unit", "gid"),
+    [
+        ("postgres", 1203),
+        ("rabbitmq", 1204),
+        ("sandbox-factory", 0),
+        ("coordinator", 1201),
+        ("api", 1200),
+        ("outbox", 1200),
+        ("problem-import", 1200),
+        ("worker", 1202),
+        ("proxy", 1205),
+        ("node-health", 0),
+    ],
+)
+def test_privileged_service_group_model_can_consume_but_not_publish(
+    live_byte_proof_model, monkeypatch, unit, gid
+):
+    bundle, expected, record = live_byte_proof_model
+    monkeypatch.setattr(operation_proof.os, "getgroups", lambda: [gid])
+    monkeypatch.setattr(
+        operation_proof.preflight,
+        "current_cgroup",
+        lambda: Path(operation_proof.GROUP + "kf-" + unit + ".service"),
+    )
+    reads = observed_digests(monkeypatch)
+    assert manifest.verify(bundle, expected)["release_id"] == record["release_id"]
+    assert not reads
+    # Publication still requires Root's own groups, even in a consumer model.
+    assert operation_proof._root() is (gid == 0)
+
+
+@pytest.mark.parametrize(
+    ("unit", "groups", "ordinary_id"),
+    [
+        ("api", [1201], None),
+        ("worker", [1200], None),
+        ("node-health", [1200], None),
+        ("api", [0, 1200, 1201], None),
+        ("api/child", [1200], None),
+        ("api", [1200], "getuid"),
+        ("api", [1200], "geteuid"),
+        ("api", [1200], "getgid"),
+        ("api", [1200], "getegid"),
+    ],
+)
+def test_foreign_groups_and_each_ordinary_identity_model_require_full_bytes(
+    live_byte_proof_model, monkeypatch, unit, groups, ordinary_id
+):
+    bundle, expected, _ = live_byte_proof_model
+    monkeypatch.setattr(operation_proof.os, "getgroups", lambda: groups)
+    if ordinary_id:
+        monkeypatch.setattr(operation_proof.os, ordinary_id, lambda: 1200)
+    monkeypatch.setattr(
+        operation_proof.preflight,
+        "current_cgroup",
+        lambda: Path(operation_proof.GROUP + "kf-" + unit + ".service"),
+    )
+    reads = observed_digests(monkeypatch)
+    manifest.verify(bundle, expected)
+    assert reads
 
 
 @pytest.mark.parametrize(
@@ -415,7 +480,7 @@ def test_ineligible_parent_proof_model_requires_full_bytes(
 ):
     bundle, expected, _ = live_byte_proof_model
     if reason == "ordinary_uid":
-        monkeypatch.setattr(operation_proof, "_root", lambda: False)
+        monkeypatch.setattr(operation_proof, "_root", lambda *args: False)
     elif reason in {"foreign_group", "parent"}:
         unit = "unrelated.service" if reason == "foreign_group" else operation_proof.PARENT
         monkeypatch.setattr(

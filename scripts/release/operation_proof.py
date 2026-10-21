@@ -15,33 +15,32 @@ DIRECTORY = Path("/run/kf-node-verification")
 RECORD = DIRECTORY / "byte-proof.json"
 PARENT = "kf-node-maintenance.service"
 GROUP = "/sys/fs/cgroup/kfonlinejudge.slice/"
-CONSUMERS = frozenset(
-    "kf-" + name + ".service"
-    for name in (
-        "postgres",
-        "rabbitmq",
-        "sandbox-factory",
-        "coordinator",
-        "api",
-        "outbox",
-        "problem-import",
-        "worker",
-        "proxy",
-        "node-health",
-    )
-)
+# Privileged ExecStartPre checks retain their ordinary service's supplementary
+# group. These are fixed unit identities, never groups supplied by a proof.
+CONSUMERS = {
+    "kf-postgres.service": 1203,
+    "kf-rabbitmq.service": 1204,
+    "kf-sandbox-factory.service": 0,
+    "kf-coordinator.service": 1201,
+    "kf-api.service": 1200,
+    "kf-outbox.service": 1200,
+    "kf-problem-import.service": 1200,
+    "kf-worker.service": 1202,
+    "kf-proxy.service": 1205,
+    "kf-node-health.service": 0,
+}
 MAX_AGE_NS = 900 * 10**9
 MAX_RECORD = 4096
 _REPORTED: tuple[int, str] | None = None
 
 
-def _root() -> bool:
+def _root(allowed_groups: frozenset[int] = frozenset({0})) -> bool:
     return (os.getuid(), os.geteuid(), os.getgid(), os.getegid()) == (
         0,
         0,
         0,
         0,
-    ) and set(os.getgroups()) <= {0}
+    ) and set(os.getgroups()) <= allowed_groups
 
 
 def _now() -> int:
@@ -194,7 +193,10 @@ def _observed(value: dict) -> None:
 
 def reuse(bundle: Path, expected: str) -> dict | None:
     """Missing/ineligible proofs use full bytes; eligible corrupt proofs refuse."""
-    if not _root() or str(preflight.current_cgroup()) not in {GROUP + unit for unit in CONSUMERS}:
+    allowed_groups = {GROUP + unit: frozenset({0, gid}) for unit, gid in CONSUMERS.items()}.get(
+        str(preflight.current_cgroup())
+    )
+    if allowed_groups is None or not _root(allowed_groups):
         return None
     try:
         RECORD.lstat()
