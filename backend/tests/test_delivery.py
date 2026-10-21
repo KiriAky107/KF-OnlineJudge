@@ -2439,7 +2439,9 @@ def test_maintenance_does_not_leave_admission_open_when_final_confirmation_fails
         },
     )
     with pytest.raises((OSError, policy.DeliveryError)):
-        maintenance.start(resume=True)
+        # Exercise the controller after its separately tested proof context;
+        # this model deliberately has no Root invocation or kernel boundary.
+        maintenance.start_locked(resume=True)
     assert gate == ["draining", "open", "draining"]
 
 

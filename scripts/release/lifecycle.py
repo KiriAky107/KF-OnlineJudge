@@ -19,6 +19,7 @@ from . import (
     factory_service,
     install,
     node_health,
+    operation_proof,
     operator_units,
     preflight,
     proxy_install,
@@ -565,16 +566,31 @@ class Maintenance:
         from .recovery_database import admission_guard
 
         with admission_guard():
-            self.start_locked(resume=resume)
+            if not resume:
+                # Preserve the ordinary refusal of start on an active node,
+                # before publishing a proof or changing its admission state.
+                self.require_fresh_start()
+            try:
+                availability.write(self.selected, "draining")
+                with operation_proof.publish(self.selected, self.payload.parent):
+                    self.start_locked(resume=resume)
+            except (OSError, ValueError, subprocess.SubprocessError):
+                # A final proof/cleanup failure can occur after readiness opened
+                # admission. Close it before the caller records this failure.
+                self.close_failed_admission()
+                raise
+
+    def require_fresh_start(self) -> None:
+        for name in APPS:
+            value = self.unit(name)
+            if value["ActiveState"] != "inactive" or value["MainPID"] != "0":
+                raise DeliveryError("fresh start requires stopped application units")
+            self.empty_cgroup(name)
+        self.root_stopped()
 
     def start_locked(self, *, resume: bool) -> None:
         if not resume:
-            for name in APPS:
-                value = self.unit(name)
-                if value["ActiveState"] != "inactive" or value["MainPID"] != "0":
-                    raise DeliveryError("fresh start requires stopped application units")
-                self.empty_cgroup(name)
-            self.root_stopped()
+            self.require_fresh_start()
         availability.write(self.selected, "draining")
         for group in START_GROUPS:
             self.start_group(group)
@@ -605,6 +621,8 @@ def run(action: str) -> dict:
         "recovery_identity.py",
         "restore.py",
         "dependency_initialize.py",
+        "manifest.py",
+        "operation_proof.py",
     ):
         shipped = payload / "delivery/scripts/release" / name
         preflight.protected(shipped)
@@ -643,6 +661,7 @@ def run(action: str) -> dict:
             maintenance.record["success"] = True
             maintenance.save("complete")
         except (OSError, ValueError, subprocess.SubprocessError) as error:
+            maintenance.record["success"] = False
             maintenance.record["failure_code"] = "maintenance_unconfirmed"
             # Publication errors are not hidden by a successful-looking receipt.
             maintenance.save("failed")

@@ -372,7 +372,14 @@ def validate(data: dict) -> dict:
 
 def verify(bundle: Path, expected_sha256: str) -> dict:
     """A bounded operation may reuse a complete byte proof only while unchanged."""
+    from .operation_proof import reuse
+
     expected_sha256 = sha256(expected_sha256)
+    # Inherited proofs are revalidated at every call and never remembered in a
+    # same-PID scope. They cannot outlive or be exported beyond their owner.
+    inherited = reuse(bundle, expected_sha256)
+    if inherited is not None:
+        return inherited
     scope = _READ_SCOPE.get()
     if scope is None or scope.pid != os.getpid():
         return _verify_contents(bundle, expected_sha256)

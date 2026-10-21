@@ -429,9 +429,25 @@ and independent destination byte verification remain required.
 Public bundle inventories read every payload byte with at most four readers in
 flight. Each reader opens without following a final symlink and verifies the
 file identity and metadata before and after hashing. The inventory checks those
-identities again before returning. All readers are joined on success or failure;
-separate processes still obtain their own complete byte proofs. Normal service
-and user-program limits, startup deadlines and the recovery target are unchanged.
+identities again before returning. All readers are joined on success or failure.
+
+During one `start`, `resume` or `restart`, the fixed Root maintenance helper reads
+the complete bundle once. Its Root startup checks and node-health helpers can
+reuse that proof while the same transient maintenance invocation is running.
+A Root-only systemd runtime directory holds a record of at most 4096 bytes,
+binding the full metadata digest to the selected manifest, release, configuration,
+boot, MainPID and InvocationID. Each consumer checks the live owner and every
+file/directory identity and timestamp before and after use. An eligible malformed,
+expired or changed record refuses startup; a missing record requires full bytes.
+Inherited proofs cannot be re-exported or retained in a process-local scope.
+The maintenance helper removes its exact record before success, and systemd
+removes the runtime directory on unit exit, including a killed helper. A final
+verification or cleanup failure closes admission. Outside a live maintenance
+operation, standalone checks read every byte. Sandbox image verification and
+execution isolation remain required
+for every actual request. Each consuming process records one fixed journal event
+with the manifest digest and maintenance invocation. Normal service and user-program
+limits, startup deadlines and the recovery target are unchanged.
 PG and MQ start together within the two-CPU node ceiling, then Root starts on its
 own before the ordinary service pairs. Root keeps its original preparation limit.
 Verified installer and stopped-node recovery inventories can keep at most four

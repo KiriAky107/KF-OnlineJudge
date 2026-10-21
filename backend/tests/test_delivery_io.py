@@ -10,6 +10,7 @@ import threading
 import time
 from collections import Counter
 from collections.abc import Sequence
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -25,6 +26,7 @@ proxy_install = importlib.import_module("scripts.release.proxy_install")
 setup_session = importlib.import_module("scripts.release.setup_session")
 lifecycle = importlib.import_module("scripts.release.lifecycle")
 installer = importlib.import_module("scripts.release.install")
+operation_proof = importlib.import_module("scripts.release.operation_proof")
 
 
 @pytest.fixture
@@ -312,6 +314,209 @@ def test_same_operation_reuses_bytes_but_not_mutable_metadata(ordinary_bundle, m
     assert manifest._READ_SCOPE.get() is None
     manifest.verify(bundle, expected)
     assert Counter(reads) == Counter(first_reads * 2)
+
+
+@pytest.fixture
+def live_byte_proof_model(ordinary_bundle, monkeypatch, tmp_path):
+    """Only modeled Root/manager ports; fixture bytes are never executable."""
+    bundle, expected = ordinary_bundle
+    data = manifest.verify(bundle, expected)
+    record = {
+        "schema_version": 1,
+        "bundle": str(bundle),
+        "manifest_sha256": expected,
+        "release_id": data["release_id"],
+        "configuration_id": "cfg-" + "1" * 24,
+        "metadata_sha256": operation_proof._signature(manifest._bundle_signature(bundle)),
+        "boot_id": "12345678-1234-1234-1234-123456789abc",
+        "issued_boottime_ns": 1000,
+        "pid": 7,
+        "invocation": "1" * 32,
+    }
+    path = tmp_path / "byte-proof.json"
+    path.write_bytes(policy.canonical(record))
+    monkeypatch.setattr(operation_proof, "RECORD", path)
+    monkeypatch.setattr(operation_proof, "_root", lambda: True)
+    monkeypatch.setattr(operation_proof.preflight, "protected", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        operation_proof.preflight,
+        "current_cgroup",
+        lambda: Path(operation_proof.GROUP + "kf-outbox.service"),
+    )
+    monkeypatch.setattr(operation_proof, "_read", lambda: (dict(record), (8, 9)))
+    monkeypatch.setattr(operation_proof, "_now", lambda: 1001)
+    monkeypatch.setattr(operation_proof, "_boot", lambda: record["boot_id"])
+    monkeypatch.setattr(
+        operation_proof, "_manager", lambda *args: {"pid": 7, "invocation": "1" * 32}
+    )
+    return bundle, expected, record
+
+
+def test_live_parent_model_reuses_complete_proof_without_remembering_it(
+    live_byte_proof_model, monkeypatch
+):
+    bundle, expected, record = live_byte_proof_model
+    reads = observed_digests(monkeypatch)
+    with manifest.verification_scope():
+        data = manifest.verify(bundle, expected)
+        assert data["release_id"] == record["release_id"]
+        assert not manifest._READ_SCOPE.get().entries
+        monkeypatch.setattr(operation_proof, "_now", lambda: 1000 + operation_proof.MAX_AGE_NS + 1)
+        with pytest.raises(policy.DeliveryError, match="expired or owner changed"):
+            manifest.verify(bundle, expected)
+    assert not reads
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema_version", True),
+        ("pid", True),
+        ("pid", 0),
+        ("issued_boottime_ns", False),
+        ("issued_boottime_ns", -1),
+        ("invocation", "unknown"),
+        ("release_id", "../release"),
+        ("configuration_id", None),
+        ("manifest_sha256", "a" * 64),
+        ("metadata_sha256", "0" * 64),
+        ("boot_id", "unknown"),
+    ],
+)
+def test_byte_proof_record_model_refuses_invalid_identity(live_byte_proof_model, field, value):
+    _, _, record = live_byte_proof_model
+    assert operation_proof.validate(record) == record
+    with pytest.raises(policy.DeliveryError):
+        operation_proof.validate({**record, field: value})
+    with pytest.raises(policy.DeliveryError, match="fields"):
+        operation_proof.validate({**record, "unknown": 1})
+
+
+def test_byte_proof_model_checks_metadata_and_live_parent_again_before_return(
+    live_byte_proof_model, monkeypatch
+):
+    bundle, expected, record = live_byte_proof_model
+    calls = 0
+
+    def manager(*args):
+        nonlocal calls
+        calls += 1
+        return {"pid": record["pid"] if calls == 1 else 99, "invocation": record["invocation"]}
+
+    monkeypatch.setattr(operation_proof, "_manager", manager)
+    with pytest.raises(policy.DeliveryError, match="expired or owner changed"):
+        manifest.verify(bundle, expected)
+    assert calls == 2
+
+
+@pytest.mark.parametrize("reason", ["ordinary_uid", "foreign_group", "parent", "absent"])
+def test_ineligible_parent_proof_model_requires_full_bytes(
+    live_byte_proof_model, monkeypatch, reason
+):
+    bundle, expected, _ = live_byte_proof_model
+    if reason == "ordinary_uid":
+        monkeypatch.setattr(operation_proof, "_root", lambda: False)
+    elif reason in {"foreign_group", "parent"}:
+        unit = "unrelated.service" if reason == "foreign_group" else operation_proof.PARENT
+        monkeypatch.setattr(
+            operation_proof.preflight,
+            "current_cgroup",
+            lambda: Path(operation_proof.GROUP + unit),
+        )
+    else:
+        monkeypatch.setattr(operation_proof, "RECORD", bundle / "absent-proof")
+    reads = observed_digests(monkeypatch)
+    manifest.verify(bundle, expected)
+    assert reads
+
+
+@pytest.mark.parametrize("index", range(9))
+def test_inherited_proof_model_refuses_every_metadata_change(
+    live_byte_proof_model, monkeypatch, index
+):
+    bundle, expected, _ = live_byte_proof_model
+    original = manifest._bundle_signature
+
+    def changed(path):
+        value = original(path)
+        stamp = list(value["payload/bin/kf-worker"])
+        stamp[index] += 1
+        value["payload/bin/kf-worker"] = tuple(stamp)
+        return value
+
+    monkeypatch.setattr(manifest, "_bundle_signature", changed)
+    with pytest.raises(policy.DeliveryError, match="metadata changed"):
+        manifest.verify(bundle, expected)
+
+
+@pytest.mark.parametrize("change", ["pid", "invocation", "bundle", "manifest", "future", "boot"])
+def test_inherited_proof_model_refuses_foreign_owner_and_binding(
+    live_byte_proof_model, monkeypatch, change
+):
+    bundle, expected, record = live_byte_proof_model
+    if change == "pid":
+        record["pid"] = 8
+    elif change == "invocation":
+        record["invocation"] = "2" * 32
+    elif change == "bundle":
+        record["bundle"] = "/different/bundle"
+    elif change == "manifest":
+        record["manifest_sha256"] = "2" * 64
+    elif change == "future":
+        record["issued_boottime_ns"] = 1002
+    else:
+        monkeypatch.setattr(operation_proof, "_boot", lambda: "another boot")
+    reads = observed_digests(monkeypatch)
+    with pytest.raises(policy.DeliveryError, match="bundle differs|expired or owner changed"):
+        manifest.verify(bundle, expected)
+    assert not reads  # Refusal must not quietly fall back around a foreign proof.
+
+
+@pytest.mark.parametrize("failure", ["before_start", "after_readiness", "cleanup"])
+def test_final_byte_proof_failure_model_closes_admission(monkeypatch, failure):
+    recovery_database = importlib.import_module("scripts.release.recovery_database")
+    monkeypatch.setattr(recovery_database, "admission_guard", nullcontext)
+    events = []
+    monkeypatch.setattr(
+        lifecycle.availability,
+        "write",
+        lambda selected, state: events.append("admission_" + state),
+    )
+
+    @contextmanager
+    def proof(*args):
+        assert events == ["admission_draining"]
+        if failure == "before_start":
+            raise policy.DeliveryError("modeled proof unavailable")
+        yield
+        raise policy.DeliveryError("modeled final proof or cleanup refusal")
+
+    monkeypatch.setattr(operation_proof, "publish", proof)
+    maintenance = object.__new__(lifecycle.Maintenance)
+    maintenance.selected = {}
+    maintenance.payload = Path("/unexecuted/fixture/payload")
+    maintenance.start_locked = lambda **kwargs: events.append("readiness_opened")
+    maintenance.close_failed_admission = lambda: events.append("admission_closed")
+    with pytest.raises(policy.DeliveryError, match="modeled"):
+        maintenance.start(resume=True)
+    assert events == ["admission_draining"] + (
+        ["admission_closed"]
+        if failure == "before_start"
+        else ["readiness_opened", "admission_closed"]
+    )
+
+
+def test_start_on_active_node_model_refuses_before_proof_or_admission_changes(monkeypatch):
+    recovery_database = importlib.import_module("scripts.release.recovery_database")
+    monkeypatch.setattr(recovery_database, "admission_guard", nullcontext)
+    maintenance = object.__new__(lifecycle.Maintenance)
+    maintenance.unit = lambda _: {"ActiveState": "active", "MainPID": "7"}
+    calls = []
+    monkeypatch.setattr(operation_proof, "publish", lambda *args: calls.append("proof"))
+    maintenance.close_failed_admission = lambda: calls.append("admission")
+    with pytest.raises(policy.DeliveryError, match="fresh start requires stopped"):
+        maintenance.start(resume=False)
+    assert not calls
 
 
 def test_failed_operation_cannot_keep_a_byte_proof(ordinary_bundle, monkeypatch):

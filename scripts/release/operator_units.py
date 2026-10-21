@@ -187,7 +187,10 @@ def run(
             ]
     if name == "node-maintenance":
         command += [
+            "--property=RuntimeDirectory=kf-node-verification",
+            "--property=RuntimeDirectoryMode=0700",
             "--property=ReadWritePaths=/etc/kf-admission /var/lib/kf-onlinejudge/operations"
+            " /run/kf-node-verification",
         ]
     if name in {"import-health", "outbox-health"}:
         if notification_probe:

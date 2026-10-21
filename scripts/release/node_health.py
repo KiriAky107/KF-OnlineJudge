@@ -87,6 +87,8 @@ def binding() -> tuple[dict, dict, Path]:
         "service_profiles.py",
         "outbox_health.py",
         "journal.py",
+        "manifest.py",
+        "operation_proof.py",
         "proxy_service.py",
         "proxy_install.py",
         "proxy_guard.py",
