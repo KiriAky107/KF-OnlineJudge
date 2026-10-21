@@ -408,6 +408,12 @@ failure. Further bundles receive full verification; separate commands start fres
 Fixed-size regular-file copies can use Linux kernel transfer with bounded chunks.
 Unsupported transfer falls back at the same offsets. Source size/EOF, file fsync
 and independent destination byte verification remain required.
+Public bundle inventories read every payload byte with at most four readers in
+flight. Each reader opens without following a final symlink and verifies the
+file identity and metadata before and after hashing. The inventory checks those
+identities again before returning. All readers are joined on success or failure;
+separate processes still obtain their own complete byte proofs. Service limits,
+startup deadlines and the recovery target are unchanged.
 Verified installer and stopped-node recovery inventories can keep at most four
 file operations in flight. Each file retains its durability and byte checks;
 directory finalization and success receipts wait for all dispatched work. On

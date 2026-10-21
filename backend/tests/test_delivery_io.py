@@ -8,6 +8,7 @@ import os
 import sys
 import threading
 import time
+from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -86,13 +87,80 @@ def ordinary_bundle(tmp_path):
 def observed_digests(monkeypatch):
     reads = []
     original = manifest.digest
+    original_payload = manifest._read_payload
 
     def observed(path):
         reads.append(path)
         return original(path)
 
     monkeypatch.setattr(manifest, "digest", observed)
+
+    def payload(row):
+        reads.append(row[0])
+        return original_payload(row)
+
+    monkeypatch.setattr(manifest, "_read_payload", payload)
     return reads
+
+
+def test_payload_byte_reads_are_bounded_joined_and_complete(ordinary_bundle, monkeypatch):
+    # Ordinary owned bytes only. This observes the inventory's actual reads,
+    # not service permissions, isolation, or VM recovery latency.
+    bundle, _ = ordinary_bundle
+    payload = bundle / "payload"
+    expected = manifest.inventory(payload)
+    original = manifest._read_payload
+    release, saturated = threading.Event(), threading.Event()
+    lock = threading.Lock()
+    active = maximum = 0
+    started, results, errors = [], [], []
+
+    def read(row):
+        nonlocal active, maximum
+        with lock:
+            started.append(row[0])
+            active += 1
+            maximum = max(active, maximum)
+            if active == 4:
+                saturated.set()
+        try:
+            assert release.wait(5)
+            return original(row)
+        finally:
+            with lock:
+                active -= 1
+
+    def collect():
+        try:
+            results.extend(manifest.inventory(payload))
+        except BaseException as error:
+            errors.append(error)
+
+    monkeypatch.setattr(manifest, "_read_payload", read)
+    collector = threading.Thread(target=collect)
+    collector.start()
+    try:
+        assert saturated.wait(5)
+        with lock:
+            assert len(started) == maximum == 4
+        assert collector.is_alive() and not results
+    finally:
+        release.set()
+        collector.join(10)
+    assert not collector.is_alive() and not errors and active == 0
+    assert results == expected
+    assert Counter(started) == Counter(payload / row["path"] for row in expected)
+
+
+@pytest.mark.parametrize("index", range(9))
+def test_payload_reader_refuses_identity_drift_model(ordinary_bundle, monkeypatch, index):
+    bundle, _ = ordinary_bundle
+    path = bundle / "payload/frontend/index.html"
+    info = path.lstat()
+    expected = list(manifest._file_stamp(info))
+    expected[index] += 1
+    with pytest.raises(policy.DeliveryError, match="changed before byte verification"):
+        manifest._read_payload((path, tuple(expected), {"path": "frontend/index.html"}))
 
 
 def test_same_operation_reuses_bytes_but_not_mutable_metadata(ordinary_bundle, monkeypatch):
@@ -109,7 +177,7 @@ def test_same_operation_reuses_bytes_but_not_mutable_metadata(ordinary_bundle, m
         assert second["files"] == original_files and reads == first_reads
     assert manifest._READ_SCOPE.get() is None
     manifest.verify(bundle, expected)
-    assert reads == first_reads * 2
+    assert Counter(reads) == Counter(first_reads * 2)
 
 
 def test_failed_operation_cannot_keep_a_byte_proof(ordinary_bundle, monkeypatch):
@@ -123,7 +191,7 @@ def test_failed_operation_cannot_keep_a_byte_proof(ordinary_bundle, monkeypatch)
     assert manifest._READ_SCOPE.get() is None
     with manifest.verification_scope():
         manifest.verify(bundle, expected)
-    assert reads == first_reads * 2
+    assert Counter(reads) == Counter(first_reads * 2)
 
 
 @pytest.mark.parametrize("operator", ["factory", "proxy"])
@@ -154,11 +222,11 @@ def test_installer_refusal_reuses_only_its_own_complete_byte_proof(
         arguments.extend([tmp_path / "unread-certificate", tmp_path / "unread-key"])
     with pytest.raises(RuntimeError, match="ordinary installer refusal probe"):
         entry(*arguments)
-    assert reads == complete_read
+    assert Counter(reads) == Counter(complete_read)
     assert manifest._READ_SCOPE.get() is None
     assert not source.exists()
     manifest.verify(bundle, expected)
-    assert reads == complete_read * 2
+    assert Counter(reads) == Counter(complete_read * 2)
 
 
 @pytest.mark.parametrize("index", range(9))
@@ -200,7 +268,7 @@ def test_inherited_scope_owner_model_requires_fresh_bytes(ordinary_bundle, monke
         first_reads = list(reads)
         manifest._READ_SCOPE.get().pid = os.getpid() - 1
         manifest.verify(bundle, expected)
-        assert reads == first_reads * 2
+        assert Counter(reads) == Counter(first_reads * 2)
 
 
 @pytest.mark.parametrize(
@@ -214,7 +282,7 @@ def test_scope_capacity_model_falls_back_to_full_reads(ordinary_bundle, monkeypa
         manifest.verify(bundle, expected)
         first_reads = list(reads)
         manifest.verify(bundle, expected)
-    assert reads == first_reads * 2
+    assert Counter(reads) == Counter(first_reads * 2)
 
 
 @pytest.mark.parametrize("length", [0, 17, 3 * 1024**2 + 17])
@@ -372,7 +440,7 @@ def test_setup_session_runs_real_cli_and_releases_complete_proofs(ordinary_bundl
     assert manifest._READ_SCOPE.get() is None
     with setup_session.SetupSession(maximum_seconds=5) as another:
         another.invoke("scripts.release", arguments)
-    assert reads == initial * 2
+    assert Counter(reads) == Counter(initial * 2)
     with pytest.raises(policy.DeliveryError, match="single-use"):
         with operation:
             pass

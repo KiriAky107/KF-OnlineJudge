@@ -1,5 +1,6 @@
 """Explicit directory bundle inventories, verified before installation."""
 
+import hashlib
 import json
 import os
 import re
@@ -10,6 +11,7 @@ from dataclasses import dataclass, field
 from functools import wraps
 from pathlib import Path
 
+from . import file_copy
 from .policy import (
     FORMAT,
     MAX_BUNDLE_BYTES,
@@ -105,7 +107,11 @@ def _bundle_signature(bundle: Path) -> dict[str, tuple[int, ...]]:
                     add("payload/" + name, info, directory=is_directory)
                     if is_directory:
                         pending.append(
-                            (os.path.join(directory, entry.name), name + "/", identity(info))
+                            (
+                                os.path.join(directory, entry.name),
+                                name + "/",
+                                identity(info),
+                            )
                         )
         finally:
             os.close(descriptor)
@@ -144,6 +150,33 @@ def verified_operation(function):
     return wrapped
 
 
+def _file_stamp(info: os.stat_result) -> tuple[int, ...]:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_nlink,
+        info.st_uid,
+        info.st_gid,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+
+
+def _read_payload(row: tuple[Path, tuple[int, ...], dict]) -> dict:
+    path, expected, record = row
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    with os.fdopen(descriptor, "rb") as stream:
+        if _file_stamp(os.fstat(stream.fileno())) != expected:
+            raise DeliveryError("payload file changed before byte verification")
+        checked = hashlib.file_digest(stream, "sha256").hexdigest()
+        after = _file_stamp(os.fstat(stream.fileno()))
+    if after != expected or _file_stamp(path.lstat()) != expected:
+        raise DeliveryError("payload file changed during byte verification")
+    return {**record, "sha256": checked}
+
+
 def inventory(root: Path, *, path_prefix: str = "") -> list[dict]:
     """No links/devices or inferred inclusion; bounds apply before hashing."""
     if not root.is_dir() or root.is_symlink():
@@ -173,14 +206,23 @@ def inventory(root: Path, *, path_prefix: str = "") -> list[dict]:
             relative = path.relative_to(root).as_posix()
             relative_name(path_prefix + relative)
             entries.append(
-                {
-                    "path": relative,
-                    "bytes": size,
-                    "sha256": digest(path),
-                    "mode": "0555" if info.st_mode & 0o111 else "0444",
-                }
+                (
+                    path,
+                    _file_stamp(info),
+                    {
+                        "path": relative,
+                        "bytes": size,
+                        "mode": "0555" if info.st_mode & 0o111 else "0444",
+                    },
+                )
             )
-    return sorted(entries, key=lambda x: x["path"])
+    # The same finite four-call scheduler used for durable file copies also
+    # bounds reads. It joins every dispatched reader before returning or raising.
+    verified = file_copy.bounded_copies(entries, _read_payload)
+    for path, expected, _ in entries:
+        if _file_stamp(path.lstat()) != expected:
+            raise DeliveryError("payload file changed before inventory completion")
+    return sorted(verified, key=lambda x: x["path"])
 
 
 def directories(root: Path, *, path_prefix: str = "") -> list[str]:
@@ -249,7 +291,13 @@ def validate(data: dict) -> dict:
     for image in data["images"].values():
         fields(
             image,
-            {"toolchain_id", "image_kind", "image_revision", "runtime_version", "image_digest"},
+            {
+                "toolchain_id",
+                "image_kind",
+                "image_revision",
+                "runtime_version",
+                "image_digest",
+            },
             "runtime identity",
         )
         sha256(image["image_digest"])
