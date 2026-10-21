@@ -104,6 +104,16 @@ factory socket, and empty task/identity/capture resources. Root journals and
 batches are retained. Interruption between pointer writes requires inspection.
 `check-active` checks code/configuration selection and the measurement snapshot.
 
+When replacing an existing selection, `activate` fully verifies both releases
+and requires identical nonempty Backend migration inventories, runtime images,
+platform, toolchains and dependency/contract lock identities. A compatible
+software rollback uses the same explicit command with its previously installed
+release and configuration batch. An incompatible selection is refused before
+either pointer is written. First installation needs no prior selection.
+Migration-changing selection is unavailable through this command; it never
+downgrades a database or runs Alembic. Normal startup and full readiness remain
+separate checks, and activation success does not establish recovery success.
+
 ## PostgreSQL and RabbitMQ
 
 ### Prepare dependencies

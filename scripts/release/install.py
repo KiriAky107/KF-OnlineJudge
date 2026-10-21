@@ -469,6 +469,25 @@ def require_stopped() -> None:
             raise DeliveryError("delegated task groups remain; cleanup proof required")
 
 
+def _compatible_selection(current: dict, target: dict) -> None:
+    """Select software only across the same declared schema and runtime ABI."""
+    if any(current[key] != target[key] for key in ("platform", "toolchains", "images", "locks")):
+        raise DeliveryError(
+            "release selection requires identical runtime/toolchain/lock identities"
+        )
+
+    def migrations(value: dict) -> dict:
+        return {
+            item["path"]: item
+            for item in value["files"]
+            if item["path"].startswith("backend/migrations/")
+        }
+
+    previous = migrations(current)
+    if not previous or previous != migrations(target):
+        raise DeliveryError("release selection requires identical nonempty Backend migrations")
+
+
 @manifest.verified_operation
 def activate(release_id: str, expected: str, batch: str) -> dict:
     """Only files + separately installed exact configuration may be selected.
@@ -517,7 +536,14 @@ def activate(release_id: str, expected: str, batch: str) -> dict:
     if ACTIVE.exists() or ACTIVE.is_symlink() or CURRENT.exists() or CURRENT.is_symlink():
         # Retiring a byte-bound old batch is allowed after a kernel change.
         # It is never accepted for execution under that changed environment.
-        selection(check_configuration=False)
+        previous = selection(check_configuration=False)
+        current_data = manifest.verify(
+            RELEASES / previous["release_id"], previous["manifest_sha256"]
+        )
+        target_data = manifest.verify(release, expected)
+        _compatible_selection(current_data, target_data)
+        if selection(check_configuration=False) != previous:
+            raise DeliveryError("selected binding changed before activation")
     active = {
         "schema_version": 1,
         "release_id": release_id,

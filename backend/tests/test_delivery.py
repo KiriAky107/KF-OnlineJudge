@@ -62,6 +62,150 @@ def test_activation_refuses_checked_binding_that_differs_from_explicit_request(m
         installer.activate(release, expected, batch)
 
 
+@pytest.fixture
+def selection_model(tmp_path, monkeypatch):
+    # Owned ordinary fixture files only. Root, configuration proofs, stopped
+    # services and ports are modeled; actual switching still requires the VM.
+    import socket
+
+    release, batch, expected = "sd-123456789abc", "cfg-" + "1" * 24, "1" * 64
+    prior = {
+        "release_id": "sd-abcdefabcdef",
+        "configuration_id": "cfg-" + "2" * 24,
+        "manifest_sha256": "2" * 64,
+        "receipt_sha256": "3" * 64,
+    }
+    current = {
+        "platform": policy.PLATFORM,
+        "toolchains": dict(policy.TOOLCHAINS),
+        "images": {"gnu": {"image_digest": "4" * 64}},
+        "locks": {"backend/uv.lock": "5" * 64},
+        "files": [
+            {
+                "path": "backend/migrations/versions/001.py",
+                "bytes": 12,
+                "sha256": "6" * 64,
+                "mode": "0444",
+            }
+        ],
+    }
+    target = json.loads(json.dumps(current))
+    active, pointer = tmp_path / "active.json", tmp_path / "current"
+    active.write_bytes(b"ordinary prior selection model\n")
+    receipt = tmp_path / "receipt.json"
+    receipt.write_bytes(b"ordinary target receipt model\n")
+    reads, stopped, ports = [], [], []
+
+    def verify(root, fingerprint):
+        reads.append((root, fingerprint))
+        return target if root.name == release else current
+
+    class Socket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def bind(self, address):
+            ports.append(address)
+
+    original_path = Path
+
+    def fixture_path(value):
+        if str(value).startswith("/var/lib/kf-judge/"):
+            return tmp_path / "unused" / original_path(value).name
+        return original_path(value)
+
+    monkeypatch.setattr(installer.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(installer.preflight, "protected", lambda *a, **k: None)
+    monkeypatch.setattr(installer, "RELEASES", tmp_path / "releases")
+    monkeypatch.setattr(installer, "ACTIVE", active)
+    monkeypatch.setattr(installer, "CURRENT", pointer)
+    monkeypatch.setattr(installer, "Path", fixture_path)
+    monkeypatch.setattr(installer, "require_stopped", lambda: stopped.append(True))
+    monkeypatch.setattr(installer, "selection", lambda **k: dict(prior))
+    monkeypatch.setattr(configuration, "installed_receipt_path", lambda *a: receipt)
+    monkeypatch.setattr(
+        configuration,
+        "check_installed",
+        lambda p: {
+            "release_id": release,
+            "manifest_sha256": expected,
+            "configuration_id": batch,
+            "source_sha": "123456789abc" + "d" * 28,
+        },
+    )
+    monkeypatch.setattr(manifest, "verify", verify)
+    monkeypatch.setattr(socket, "socket", lambda *a, **k: Socket())
+    return SimpleNamespace(
+        current=current,
+        target=target,
+        active=active,
+        pointer=pointer,
+        arguments=(release, expected, batch),
+        reads=reads,
+        stopped=stopped,
+        ports=ports,
+        prior=prior,
+    )
+
+
+@pytest.mark.parametrize("changed", ["migration", "empty_migrations", "images", "locks"])
+def test_activation_requires_compatible_schema_and_runtime_before_pointer_writes(
+    selection_model, changed
+):
+    model = selection_model
+    if changed == "migration":
+        model.target["files"][0]["sha256"] = "7" * 64
+    elif changed == "empty_migrations":
+        model.target["files"] = []
+    else:
+        model.target[changed] = {}
+    before = model.active.read_bytes()
+    with pytest.raises(policy.DeliveryError, match="selection requires identical"):
+        installer.activate(*model.arguments)
+    assert model.active.read_bytes() == before and not model.pointer.is_symlink()
+    assert model.stopped and len(model.reads) == 2
+
+
+def test_compatible_selection_keeps_explicit_batch_and_does_not_start_services(selection_model):
+    model = selection_model
+    result = installer.activate(*model.arguments)
+    selected = json.loads(model.active.read_bytes())
+    assert selected["release_id"] == model.arguments[0]
+    assert selected["configuration_id"] == model.arguments[2]
+    assert result["activated"] and not result["services_started"]
+    assert not result["execution_verified"]
+    assert model.stopped and model.ports == [("127.0.0.1", 8000), ("127.0.0.1", 8100)]
+    assert len(model.reads) == 2
+
+
+def test_first_selection_does_not_require_a_previous_release(selection_model):
+    model = selection_model
+    model.active.unlink()
+    result = installer.activate(*model.arguments)
+    assert result["activated"] and not result["services_started"]
+    assert model.reads == []
+
+
+def test_selection_drift_refuses_before_pointer_writes(selection_model, monkeypatch):
+    model = selection_model
+    calls = 0
+
+    def selection(**options):
+        nonlocal calls
+        calls += 1
+        assert options["check_configuration"] is False
+        return {**model.prior, "receipt_sha256": str(min(calls, 9)) * 64}
+
+    monkeypatch.setattr(installer, "selection", selection)
+    before = model.active.read_bytes()
+    with pytest.raises(policy.DeliveryError, match="binding changed before activation"):
+        installer.activate(*model.arguments)
+    assert model.active.read_bytes() == before and not model.pointer.is_symlink()
+
+
 @pytest.mark.parametrize("mode,owner", [(stat.S_IFREG, 0), (stat.S_IFSOCK, 1000)])
 def test_system_bus_preflight_refuses_unprotected_endpoint(monkeypatch, mode, owner):
     monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
@@ -1085,6 +1229,7 @@ def test_proxy_temp_directory_conflicts_are_not_overwritten(monkeypatch, tmp_pat
     path = tmp_path / "body"
     if bad == "wrong-mode":
         path.mkdir(mode=0o755)
+        path.chmod(0o755)
     elif bad == "link":
         path.symlink_to(tmp_path, target_is_directory=True)
     else:
