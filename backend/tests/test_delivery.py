@@ -2271,7 +2271,7 @@ def test_maintenance_does_not_leave_admission_open_when_final_confirmation_fails
     maintenance = object.__new__(lifecycle.Maintenance)
     maintenance.selected = {}
     maintenance.payload = Path("/unused")
-    monkeypatch.setattr(maintenance, "change", lambda *_: None)
+    monkeypatch.setattr(maintenance, "start_group", lambda *_: None)
     monkeypatch.setattr(recovery_database, "admission_guard", nullcontext)
 
     def publish(_, state):

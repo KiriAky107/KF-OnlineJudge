@@ -49,6 +49,13 @@ START_ORDER = (
     "worker",
     "proxy",
 )
+# Root has no DB/MQ dependency. Ordinary units require the two dependencies;
+# the HTTPS unit additionally orders itself after API startup.
+START_GROUPS = (
+    (*DEPENDENCIES, "sandbox-factory"),
+    ("coordinator", "api", "outbox", "problem-import", "worker"),
+    ("proxy",),
+)
 DRAIN_SECONDS = 360
 
 
@@ -399,6 +406,50 @@ class Maintenance:
         self.record["events"][-1]["confirmed"] = True
         self.save(operation + "_confirmed")
 
+    def start_group(self, names: tuple[str, ...]) -> None:
+        """Dispatch one fixed dependency stage; confirm each real unit separately."""
+        if names not in START_GROUPS:
+            raise DeliveryError("unknown startup dependency group")
+        if "sandbox-factory" in names:
+            self.record["root_cleanup_confirmed"] = False
+        if install.selection(check_configuration=False) != self.selected:
+            raise DeliveryError("selected binding changed during maintenance")
+        # Validate every target before dispatching any member of this stage.
+        inactive = []
+        for name in names:
+            values = self.unit(name)
+            if values["ActiveState"] == "active":
+                node_health.inspect_unit(name, self.selected)
+            else:
+                inactive.append(name)
+        pending = {}
+        for name in inactive:
+            if any(time.monotonic() >= deadline for _, deadline in pending.values()):
+                raise DeliveryError("bounded lifecycle operation unconfirmed")
+            if install.selection(check_configuration=False) != self.selected:
+                raise DeliveryError("selected binding changed during maintenance")
+            event = {"unit": name, "operation": "start", "confirmed": False}
+            self.record["events"].append(event)
+            self.save("dispatching_start")
+            service_install.systemctl("--no-block", "start", "kf-" + name + ".service")
+            seconds = factory_service.START_TIMEOUT_SECONDS if name == "sandbox-factory" else 120
+            # A later dispatch or wait cannot reset an earlier unit's deadline.
+            pending[name] = (event, time.monotonic() + seconds + 10)
+        while pending:
+            for name, (event, deadline) in list(pending.items()):
+                if install.selection(check_configuration=False) != self.selected:
+                    raise DeliveryError("selected binding changed during maintenance")
+                values = self.unit(name)
+                if time.monotonic() >= deadline or values["ActiveState"] == "failed":
+                    raise DeliveryError("bounded lifecycle operation unconfirmed")
+                if values["ActiveState"] == "active" and values["SubState"] == "running":
+                    node_health.inspect_unit(name, self.selected)
+                    event["confirmed"] = True
+                    self.save("start_confirmed")
+                    del pending[name]
+            if pending:
+                time.sleep(0.5)
+
     def snapshot(self) -> dict:
         owner = node_health.http(
             "http://127.0.0.1:8100/internal/operations/status",
@@ -522,10 +573,8 @@ class Maintenance:
                 self.empty_cgroup(name)
             self.root_stopped()
         availability.write(self.selected, "draining")
-        for name in DEPENDENCIES:
-            self.change(name, "start")
-        for name in START_ORDER:
-            self.change(name, "start")
+        for group in START_GROUPS:
+            self.start_group(group)
         ready = operator_units.run("node-health", self.payload)
         if ready.get("service_preconditions_met") is not True:
             raise DeliveryError("service preconditions unavailable; admission remains closed")

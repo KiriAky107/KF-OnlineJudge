@@ -126,6 +126,14 @@ volumes, then follow this order:
 
 The tools use offline materials and do not contact a package index.
 
+Startup dispatches PostgreSQL, RabbitMQ and the Root factory together, then the
+five ordinary services, then HTTPS after API startup. Each stage waits for every
+member's actual manager state and resource/identity checks before continuing.
+Every service retains its complete startup verification and its original unit
+and observation deadlines, measured from that service's dispatch. Admission stays
+closed until both normal readiness checks confirm the complete node. Drain and
+stop retain their ordered owner and cleanup checks.
+
 Installer automation can run the same setup CLI entry points in one bounded
 Python operation. Use the protected delivery interpreter and its normal Python
 environment, as the trusted Root operator:

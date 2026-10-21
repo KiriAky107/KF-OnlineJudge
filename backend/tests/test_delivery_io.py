@@ -21,6 +21,7 @@ file_copy = importlib.import_module("scripts.release.file_copy")
 factory_service = importlib.import_module("scripts.release.factory_service")
 proxy_install = importlib.import_module("scripts.release.proxy_install")
 setup_session = importlib.import_module("scripts.release.setup_session")
+lifecycle = importlib.import_module("scripts.release.lifecycle")
 
 
 @pytest.fixture
@@ -584,3 +585,180 @@ def test_setup_session_failed_alarm_installation_restores_handler(monkeypatch):
         monkeypatch.setattr(setup_session.signal, "setitimer", real)
         if original_timer[0]:
             signal.setitimer(signal.ITIMER_REAL, *original_timer)
+
+
+@pytest.fixture
+def ordinary_lifecycle_model(monkeypatch):
+    # Every manager, clock, identity check and publication is modeled here.
+    # Actual overlapping starts, limits, Root and cleanup remain VM-only.
+    maintenance = object.__new__(lifecycle.Maintenance)
+    maintenance.selected = {"release_id": "sd-" + "b" * 12, "configuration_id": "cfg-" + "c" * 24}
+    maintenance.payload = Path("/ordinary-unused-payload")
+    maintenance.record = {"events": [], "root_cleanup_confirmed": True}
+    states = {name: "inactive" for name in (*lifecycle.DEPENDENCIES, *lifecycle.APPS)}
+    trace, clock = [], [0.0]
+
+    def unit(name):
+        trace.append(("read", name))
+        return {
+            "ActiveState": states[name],
+            "SubState": "running" if states[name] == "active" else "dead",
+            "MainPID": "123" if states[name] == "active" else "0",
+        }
+
+    def dispatch(*args):
+        assert args[:2] == ("--no-block", "start")
+        name = args[2].removeprefix("kf-").removesuffix(".service")
+        trace.append(("dispatch", name))
+        states[name] = "active"
+
+    monkeypatch.setattr(maintenance, "unit", unit)
+    monkeypatch.setattr(maintenance, "save", lambda phase: trace.append(("save", phase)))
+    monkeypatch.setattr(lifecycle.install, "selection", lambda **_: maintenance.selected)
+    monkeypatch.setattr(lifecycle.service_install, "systemctl", dispatch)
+    monkeypatch.setattr(
+        lifecycle.node_health, "inspect_unit", lambda name, _: trace.append(("inspect", name))
+    )
+    monkeypatch.setattr(lifecycle.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        lifecycle.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    return maintenance, states, trace, clock
+
+
+def test_start_group_dispatches_independent_units_before_confirming_each(ordinary_lifecycle_model):
+    maintenance, _, trace, _ = ordinary_lifecycle_model
+    names = lifecycle.START_GROUPS[0]
+    maintenance.start_group(names)
+    starts = [(i, name) for i, (kind, name) in enumerate(trace) if kind == "dispatch"]
+    inspections = [(i, name) for i, (kind, name) in enumerate(trace) if kind == "inspect"]
+    assert [name for _, name in starts] == list(names)
+    assert {name for _, name in inspections} == set(names)
+    assert min(i for i, _ in inspections) > max(i for i, _ in starts)
+    assert all(event["confirmed"] for event in maintenance.record["events"])
+    assert maintenance.record["root_cleanup_confirmed"] is False
+
+
+def test_start_group_validates_all_targets_before_any_dispatch(
+    ordinary_lifecycle_model, monkeypatch
+):
+    maintenance, _, trace, _ = ordinary_lifecycle_model
+    original = maintenance.unit
+
+    def unknown(name):
+        if name == "rabbitmq":
+            raise policy.DeliveryError("ordinary unknown target model")
+        return original(name)
+
+    monkeypatch.setattr(maintenance, "unit", unknown)
+    with pytest.raises(policy.DeliveryError, match="unknown target"):
+        maintenance.start_group(lifecycle.START_GROUPS[0])
+    assert not any(kind == "dispatch" for kind, _ in trace)
+    assert maintenance.record["events"] == []
+
+
+def test_later_dispatch_does_not_reset_an_earlier_start_deadline(
+    ordinary_lifecycle_model, monkeypatch
+):
+    maintenance, _, trace, clock = ordinary_lifecycle_model
+    original = lifecycle.service_install.systemctl
+
+    def delayed(*args):
+        original(*args)
+        if args[-1] == "kf-rabbitmq.service":
+            clock[0] = 131
+
+    monkeypatch.setattr(lifecycle.service_install, "systemctl", delayed)
+    with pytest.raises(policy.DeliveryError, match="bounded lifecycle"):
+        maintenance.start_group(lifecycle.START_GROUPS[0])
+    assert [name for kind, name in trace if kind == "dispatch"] == ["postgres", "rabbitmq"]
+    assert all(not event["confirmed"] for event in maintenance.record["events"])
+
+
+def test_start_group_refuses_changed_selection_before_dispatch(
+    ordinary_lifecycle_model, monkeypatch
+):
+    maintenance, _, trace, _ = ordinary_lifecycle_model
+    monkeypatch.setattr(lifecycle.install, "selection", lambda **_: {})
+    with pytest.raises(policy.DeliveryError, match="selected binding changed"):
+        maintenance.start_group(lifecycle.START_GROUPS[0])
+    assert not any(kind == "dispatch" for kind, _ in trace)
+
+
+def test_start_group_resume_checks_live_profiles_without_duplicate_starts(ordinary_lifecycle_model):
+    maintenance, states, trace, _ = ordinary_lifecycle_model
+    group = lifecycle.START_GROUPS[0]
+    for name in group:
+        states[name] = "active"
+    maintenance.start_group(group)
+    assert {name for kind, name in trace if kind == "inspect"} == set(group)
+    assert not any(kind == "dispatch" for kind, _ in trace)
+    assert maintenance.record["events"] == []
+
+
+def test_group_profile_failure_cannot_confirm_a_started_unit(ordinary_lifecycle_model, monkeypatch):
+    maintenance, _, trace, _ = ordinary_lifecycle_model
+
+    def refused(name, selected):
+        raise policy.DeliveryError("ordinary effective profile refusal model")
+
+    monkeypatch.setattr(lifecycle.node_health, "inspect_unit", refused)
+    with pytest.raises(policy.DeliveryError, match="effective profile refusal"):
+        maintenance.start_group(lifecycle.START_GROUPS[0])
+    assert len([name for kind, name in trace if kind == "dispatch"]) == 3
+    assert all(not event["confirmed"] for event in maintenance.record["events"])
+
+
+def test_startup_dependency_barriers_precede_both_real_readiness_calls(
+    ordinary_lifecycle_model, monkeypatch
+):
+    maintenance, states, trace, _ = ordinary_lifecycle_model
+    gate, observations = [], []
+    monkeypatch.setattr(lifecycle.availability, "write", lambda _, state: gate.append(state))
+
+    def observe(*args):
+        verified = {name for kind, name in trace if kind == "inspect"}
+        assert verified == set(states) and all(value == "active" for value in states.values())
+        observations.append(gate[-1])
+        return {"service_preconditions_met": True, "ready_for_admission": gate[-1] == "open"}
+
+    monkeypatch.setattr(lifecycle.operator_units, "run", observe)
+    maintenance.start_locked(resume=True)
+    assert gate == observations == ["draining", "open"]
+    dispatches = [name for kind, name in trace if kind == "dispatch"]
+    assert dispatches == [*lifecycle.DEPENDENCIES, *lifecycle.START_ORDER]
+    for dependency in (*lifecycle.DEPENDENCIES, "sandbox-factory"):
+        assert trace.index(("inspect", dependency)) < trace.index(("dispatch", "coordinator"))
+    assert trace.index(("inspect", "api")) < trace.index(("dispatch", "proxy"))
+
+
+def test_startup_group_failure_keeps_admission_closed(ordinary_lifecycle_model, monkeypatch):
+    maintenance, states, trace, _ = ordinary_lifecycle_model
+    gate = []
+    monkeypatch.setattr(lifecycle.availability, "write", lambda _, state: gate.append(state))
+    original = lifecycle.service_install.systemctl
+
+    def failing(*args):
+        original(*args)
+        states["rabbitmq"] = "failed"
+
+    monkeypatch.setattr(lifecycle.service_install, "systemctl", failing)
+    monkeypatch.setattr(
+        lifecycle.operator_units,
+        "run",
+        lambda *_: pytest.fail("readiness cannot follow failed stage"),
+    )
+    with pytest.raises(policy.DeliveryError, match="bounded lifecycle"):
+        maintenance.start_locked(resume=True)
+    assert gate == ["draining"]
+    assert not any(
+        kind == "dispatch" and name in lifecycle.services.PROFILES for kind, name in trace
+    )
+
+
+@pytest.mark.parametrize("names", [(), ("api",), ("postgres", "postgres")])
+def test_startup_rejects_unknown_or_duplicate_groups(ordinary_lifecycle_model, names):
+    maintenance, _, trace, _ = ordinary_lifecycle_model
+    with pytest.raises(policy.DeliveryError, match="unknown startup dependency group"):
+        maintenance.start_group(names)
+    assert trace == []
