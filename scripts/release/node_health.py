@@ -7,6 +7,7 @@ import logging
 import os
 import subprocess
 import urllib.request
+from importlib import import_module
 from pathlib import Path
 from uuid import UUID
 
@@ -615,6 +616,11 @@ def observe(*, probe: bool) -> dict:
         errors.append("factory_status_unavailable")
     if probe:
         try:
+            # Blocking module initialization belongs to the fixed 300-second
+            # helper budget. Load the packaged client before starting the
+            # cancellable six-second network operation.
+            import_module("aio_pika")
+            import_module("pamqp.commands")
             value = fields(
                 http(
                     "http://127.0.0.1:8100/internal/operations/probe-id",
