@@ -88,6 +88,18 @@ def ordinary_bundle(tmp_path):
     return bundle, policy.digest(bundle / "manifest.json")
 
 
+@pytest.mark.parametrize("missing", ["frontend", "frontend/admin", "lib", "lib/share"])
+def test_manifest_requires_every_file_and_empty_directory_ancestor(ordinary_bundle, missing):
+    bundle, _ = ordinary_bundle
+    data = json.loads((bundle / "manifest.json").read_bytes())
+    data["directories"].extend(["lib", "lib/share", "lib/share/locale"])
+    assert manifest.validate(data) is data
+
+    data["directories"].remove(missing)
+    with pytest.raises(policy.DeliveryError, match="missing payload parent directory"):
+        manifest.validate(data)
+
+
 def observed_digests(monkeypatch):
     reads = []
     original = manifest.digest

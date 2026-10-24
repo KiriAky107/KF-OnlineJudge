@@ -364,9 +364,12 @@ def validate(data: dict) -> dict:
             raise DeliveryError("duplicate bundle directory")
         directory_set.add(name)
     for name in seen | directory_set:
-        for parent in Path(name).parents:
-            if parent.as_posix() != "." and parent.as_posix() not in directory_set:
+        # Names are already canonical; walk their lexical parent components.
+        parent, separator, _ = name.rpartition("/")
+        while separator:
+            if parent not in directory_set:
                 raise DeliveryError("missing payload parent directory")
+            parent, separator, _ = parent.rpartition("/")
     return data
 
 
