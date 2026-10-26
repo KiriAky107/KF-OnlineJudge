@@ -1350,3 +1350,90 @@ def test_startup_rejects_unknown_or_duplicate_groups(ordinary_lifecycle_model, n
     with pytest.raises(policy.DeliveryError, match="unknown startup dependency group"):
         maintenance.start_group(names)
     assert trace == []
+
+
+@pytest.mark.parametrize("rotation", [False, True])
+def test_proxy_install_cli_keeps_legacy_inputs_and_requires_explicit_rotation(
+    monkeypatch, capsys, rotation
+):
+    calls = []
+
+    def route(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"routed": True}
+
+    monkeypatch.setattr(proxy_install, "install_proxy", route)
+    arguments = [
+        "--source",
+        "/ordinary/proxy",
+        "--receipt-sha256",
+        "a" * 64,
+        "--certificate",
+        "/ordinary/certificate",
+        "--private-key",
+        "/ordinary/key",
+    ]
+    expected = {}
+    if rotation:
+        arguments += ["--previous-certificate-sha256", "b" * 64, "--previous-key-sha256", "c" * 64]
+        expected = {"previous_certificate_sha256": "b" * 64, "previous_key_sha256": "c" * 64}
+    proxy_install.main(arguments)
+    assert calls == [
+        (
+            (
+                Path("/ordinary/proxy"),
+                "a" * 64,
+                Path("/ordinary/certificate"),
+                Path("/ordinary/key"),
+            ),
+            expected,
+        )
+    ]
+    assert json.loads(capsys.readouterr().out) == {"routed": True}
+
+
+def test_proxy_install_cli_rejects_an_incomplete_rotation_before_dispatch(monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr(proxy_install, "install_proxy", lambda *args, **kwargs: calls.append(args))
+    with pytest.raises(SystemExit) as failure:
+        proxy_install.main(
+            [
+                "--source",
+                "/ordinary/proxy",
+                "--receipt-sha256",
+                "a" * 64,
+                "--certificate",
+                "/ordinary/certificate",
+                "--private-key",
+                "/ordinary/key",
+                "--previous-certificate-sha256",
+                "b" * 64,
+            ]
+        )
+    assert failure.value.code == 1
+    assert calls == []
+    assert "paired previous TLS fingerprints required" in capsys.readouterr().err
+
+
+def test_proxy_previous_snapshot_retains_the_legacy_unit_and_binding_format(tmp_path, monkeypatch):
+    # This is a trusted unit-format fixture; Root ownership is verified only in VM.
+    service = proxy_install.proxy_service
+    selected = {
+        "schema_version": 1,
+        "release_id": "sd-" + "1" * 12,
+        "configuration_id": "cfg-" + "2" * 24,
+        "manifest_sha256": "3" * 64,
+        "receipt_sha256": "4" * 64,
+    }
+    monkeypatch.setattr(service, "UNITS", tmp_path / "units")
+    monkeypatch.setattr(proxy_install.preflight, "protected", lambda *args, **kwargs: None)
+    directory = service.UNITS / service.batch(selected).name
+    directory.mkdir(parents=True)
+    binding = directory / "binding.json"
+    binding.write_bytes(policy.canonical(selected))
+    binding.chmod(0o600)
+    unit = directory / service.UNIT
+    unit.write_bytes(service.render(selected))
+    unit.chmod(0o644)
+    assert proxy_install.known_snapshot(directory) == selected
+    assert "--previous-certificate" not in unit.read_text()

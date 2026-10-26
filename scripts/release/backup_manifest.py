@@ -19,7 +19,7 @@ from .policy import (
 FORMAT = "kf.private.cold-backup.v3"
 MAX_BYTES = 7 * 1024**3
 MAX_FILE_BYTES = 256 * 1024**2
-MAX_ENTRIES = 50000
+MAX_ENTRIES = 65536
 MAX_METADATA_BYTES = 16 * 1024**2
 DOMAINS = {
     "postgres",

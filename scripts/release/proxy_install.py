@@ -47,7 +47,10 @@ def account(*, create: bool = False, check_lock: bool = False) -> None:
             ],
         ):
             p = subprocess.run(
-                args, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}, capture_output=True, timeout=10
+                args,
+                env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+                capture_output=True,
+                timeout=10,
             )
             if p.returncode:
                 raise DeliveryError("proxy account provisioning refused")
@@ -117,6 +120,39 @@ def storage(*, allow_read_only: bool = False) -> dict:
     }
 
 
+def known_snapshot(directory: Path) -> dict:
+    if directory.parent != proxy_service.UNITS:
+        raise DeliveryError("unknown proxy unit snapshot")
+    target = directory / proxy_service.UNIT
+    preflight.protected(directory / "binding.json")
+    configuration.private(directory / "binding.json")
+    selected = read_json(directory / "binding.json", 4096)
+    fields(
+        selected,
+        {
+            "schema_version",
+            "release_id",
+            "configuration_id",
+            "manifest_sha256",
+            "receipt_sha256",
+        },
+        "proxy unit binding",
+    )
+    if type(selected["schema_version"]) is not int or selected["schema_version"] != 1:
+        raise DeliveryError("proxy unit binding version differs")
+    sha256(selected["manifest_sha256"])
+    sha256(selected["receipt_sha256"])
+    if directory.name != proxy_service.batch(selected).name:
+        raise DeliveryError("proxy unit snapshot binding differs")
+    preflight.protected(target)
+    if (
+        target.read_bytes() != proxy_service.render(selected)
+        or stat.S_IMODE(target.stat().st_mode) != 0o644
+    ):
+        raise DeliveryError("proxy unit snapshot changed")
+    return selected
+
+
 def known_link(path: Path) -> Path | None:
     try:
         info = path.lstat()
@@ -131,27 +167,7 @@ def known_link(path: Path) -> Path | None:
         or target.as_posix() != os.readlink(path)
     ):
         raise DeliveryError("unknown proxy unit pointer")
-    preflight.protected(target.parent / "binding.json")
-    configuration.private(target.parent / "binding.json")
-    selected = read_json(target.parent / "binding.json", 4096)
-    fields(
-        selected,
-        {"schema_version", "release_id", "configuration_id", "manifest_sha256", "receipt_sha256"},
-        "proxy unit binding",
-    )
-    if type(selected["schema_version"]) is not int or selected["schema_version"] != 1:
-        raise DeliveryError("proxy unit binding version differs")
-    sha256(selected["manifest_sha256"])
-    sha256(selected["receipt_sha256"])
-    if target.parent.name != proxy_service.batch(selected).name:
-        raise DeliveryError("proxy unit snapshot binding differs")
-    preflight.protected(target)
-    preflight.protected(target.parent / "binding.json")
-    if (
-        target.read_bytes() != proxy_service.render(selected)
-        or stat.S_IMODE(target.stat().st_mode) != 0o644
-    ):
-        raise DeliveryError("proxy unit snapshot changed")
+    known_snapshot(target.parent)
     return target.parent
 
 
@@ -310,9 +326,22 @@ def temporary_directories() -> None:
 
 
 @manifest.verified_operation
-def install_proxy(source: Path, expected: str, certificate: Path, key: Path) -> dict:
+def install_proxy(
+    source: Path,
+    expected: str,
+    certificate: Path,
+    key: Path,
+    *,
+    previous_certificate_sha256: str | None = None,
+    previous_key_sha256: str | None = None,
+) -> dict:
     if os.getuid() != 0 or os.geteuid() != 0 or os.getgid() != 0:
         raise DeliveryError("root proxy installer required")
+    if (previous_certificate_sha256 is None) != (previous_key_sha256 is None):
+        raise DeliveryError("paired previous TLS fingerprints required for rotation")
+    if previous_certificate_sha256 is not None:
+        sha256(previous_certificate_sha256)
+        sha256(previous_key_sha256)
     preflight.protected(source, directory=True)
     receipt_path = source / "receipt.json"
     preflight.protected(receipt_path)
@@ -330,6 +359,7 @@ def install_proxy(source: Path, expected: str, certificate: Path, key: Path) -> 
         "manifest.py",
         "proxy_guard.py",
         "proxy_runtime.py",
+        "tls_rotation.py",
     ):
         p = payload / "delivery/scripts/release" / name
         preflight.protected(p)
@@ -360,7 +390,10 @@ def install_proxy(source: Path, expected: str, certificate: Path, key: Path) -> 
         "configuration_sha256"
     ]:
         raise DeliveryError("proxy is not fixed trusted composition")
-    for p, fingerprint in ((certificate, spec["certificate_sha256"]), (key, spec["key_sha256"])):
+    for p, fingerprint in (
+        (certificate, spec["certificate_sha256"]),
+        (key, spec["key_sha256"]),
+    ):
         preflight.protected(p)
         configuration.private(p)
         if not 1 <= p.stat().st_size <= 65536 or digest(p) != fingerprint:
@@ -378,9 +411,24 @@ def install_proxy(source: Path, expected: str, certificate: Path, key: Path) -> 
 
     ctx.load_cert_chain(certificate, key, password=no_password_prompt)
     system = service_install.SYSTEM_UNITS / proxy_service.UNIT
-    known_link(system)
+    old_directory = known_link(system)
     install.directory(proxy_service.ROOT, 0o711)
-    install.directory(proxy_service.ROOT / "tls", 0o711)
+    rotation = None
+    if previous_certificate_sha256 is not None:
+        from . import tls_rotation
+
+        rotation = tls_rotation.rotate(
+            selected,
+            spec,
+            certificate,
+            key,
+            previous_certificate_sha256,
+            previous_key_sha256,
+            old_directory,
+            known_snapshot,
+        )
+    else:
+        install.directory(proxy_service.ROOT / "tls", 0o711)
     directory = proxy_service.batch(selected)
     install.directory(directory, 0o755)
     if not {p.name for p in directory.iterdir()} <= {"nginx.conf", "launch.json"}:
@@ -427,7 +475,9 @@ def install_proxy(source: Path, expected: str, certificate: Path, key: Path) -> 
     props = dict(
         line.split("=", 1)
         for line in service_install.systemctl(
-            "show", proxy_service.UNIT, "--property=LoadState,ActiveState,MainPID,FragmentPath"
+            "show",
+            proxy_service.UNIT,
+            "--property=LoadState,ActiveState,MainPID,FragmentPath",
         ).splitlines()
         if "=" in line
     )
@@ -444,6 +494,7 @@ def install_proxy(source: Path, expected: str, certificate: Path, key: Path) -> 
         "source_sha": receipt["source_sha"],
         "configuration_id": selected["configuration_id"],
         "tls_material_parsed": True,
+        "tls_rotation": rotation,
         "tls_verified": False,
         "services_started": False,
         "execution_verified": False,
@@ -459,13 +510,24 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--certificate", type=Path)
     parser.add_argument("--private-key", type=Path)
+    parser.add_argument("--previous-certificate-sha256")
+    parser.add_argument("--previous-key-sha256")
     args = parser.parse_args(argv)
     try:
         if args.check_binding:
             if (
                 not args.release_id
                 or not args.configuration_id
-                or any((args.source, args.receipt_sha256, args.certificate, args.private_key))
+                or any(
+                    (
+                        args.source,
+                        args.receipt_sha256,
+                        args.certificate,
+                        args.private_key,
+                        args.previous_certificate_sha256,
+                        args.previous_key_sha256,
+                    )
+                )
             ):
                 raise DeliveryError("explicit binding-only arguments required")
             result = check_binding(args.release_id, args.configuration_id)
@@ -474,8 +536,20 @@ def main(argv: list[str] | None = None) -> None:
                 (args.source, args.receipt_sha256, args.certificate, args.private_key)
             ):
                 raise DeliveryError("explicit installation inputs required")
+            if (args.previous_certificate_sha256 is None) != (args.previous_key_sha256 is None):
+                raise DeliveryError("paired previous TLS fingerprints required for rotation")
+            rotation = {}
+            if args.previous_certificate_sha256 is not None:
+                rotation = {
+                    "previous_certificate_sha256": args.previous_certificate_sha256,
+                    "previous_key_sha256": args.previous_key_sha256,
+                }
             result = install_proxy(
-                args.source, args.receipt_sha256, args.certificate, args.private_key
+                args.source,
+                args.receipt_sha256,
+                args.certificate,
+                args.private_key,
+                **rotation,
             )
         print(json.dumps(result, sort_keys=True))
     except (OSError, ValueError, subprocess.SubprocessError) as error:
