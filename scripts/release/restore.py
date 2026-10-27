@@ -22,6 +22,7 @@ from . import (
     lifecycle,
     manifest,
     preflight,
+    restore_io,
     restore_policy,
 )
 from .policy import DeliveryError, canonical, digest, sha256
@@ -219,6 +220,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
     for name in (
         "restore.py",
         "restore_policy.py",
+        "restore_io.py",
         "backup.py",
         "backup_manifest.py",
         "backup_objects.py",
@@ -268,6 +270,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
         "execution_verified": False,
     }
     deadline = time.monotonic() + 1700
+    filesystems = None
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         stopped()
@@ -286,6 +289,8 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
                 path.is_symlink() or not path.is_dir() or next(path.iterdir(), None) is not None
             ):
                 raise DeliveryError("cold recovery target is not clean")
+        if value["schema_version"] == 4:
+            filesystems = restore_io.Filesystems([recovery, *LIVE.values()], deadline)
         recovery.mkdir(mode=0o700)
         (recovery / "history").mkdir(mode=0o700)
         install.exclusive_file(recovery / "prepared.json", canonical(record), 0o600)
@@ -317,10 +322,22 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
                 deadline,
             )
 
-        witnesses = file_copy.bounded_copies(value["files"], copy, deadline=deadline)
-        verified = {
-            item["path"]: witness for item, witness in zip(value["files"], witnesses, strict=True)
-        }
+        if value["schema_version"] == 4:
+            assert filesystems is not None
+            verified = restore_io.materialize(
+                value["files"],
+                lambda item: backup_manifest.member_path(root, value, item),
+                lambda item: target(item, recovery),
+                readback,
+                filesystems,
+                deadline,
+            )
+        else:
+            witnesses = file_copy.bounded_copies(value["files"], copy, deadline=deadline)
+            verified = {
+                item["path"]: witness
+                for item, witness in zip(value["files"], witnesses, strict=True)
+            }
         for item in sorted(
             value["directories"], key=lambda row: row["path"].count("/"), reverse=True
         ):
@@ -330,12 +347,20 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
                 os.chown(path, uid, gid, follow_symlinks=False)
             if stat.S_IMODE(current.st_mode) != mode:
                 path.chmod(mode)
-            install.sync_directory(path)
+            if value["schema_version"] != 4:
+                install.sync_directory(path)
             member(path, uid, gid, mode, directory=True)
         # Flush directory entries once after their children, including the two
         # parents whose new domain roots are outside the backup's directory list.
-        install.sync_directory(recovery / "history")
-        install.sync_directory(LIVE["postgres"].parent)
+        if value["schema_version"] == 4:
+            assert filesystems is not None
+            filesystems.sync(deadline)
+            for item in value["directories"]:
+                path, uid, gid, mode = target(item, recovery)
+                member(path, uid, gid, mode, directory=True)
+        else:
+            install.sync_directory(recovery / "history")
+            install.sync_directory(LIVE["postgres"].parent)
         stopped()
         if install.selection() != selected:
             raise DeliveryError("selected recovery identity changed")
@@ -344,6 +369,9 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
                 raise DeliveryError("recovery verification deadline exceeded")
             path, uid, gid, mode = target(item, recovery)
             unchanged_file(path, verified[item["path"]], uid, gid, mode)
+        if filesystems is not None:
+            filesystems.close()
+            filesystems = None
         record.update(
             data_restored=True,
             restored_payload_bytes=backup_manifest.logical_bytes(value),
@@ -357,7 +385,11 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
         install.sync_directory(STATE)
         return record
     finally:
-        os.close(descriptor)
+        try:
+            if filesystems is not None:
+                filesystems.close()
+        finally:
+            os.close(descriptor)
 
 
 def launch(recovery_id: str, backup_id: str, expected: str) -> dict:
