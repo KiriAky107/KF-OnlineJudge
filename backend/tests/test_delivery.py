@@ -365,7 +365,28 @@ def test_changed_copy_retains_incomplete_file_and_never_overwrites_it(tmp_path, 
     assert target.read_bytes() == b"changed"
 
 
-def test_frozen_copy_reuses_verified_records_and_checks_full_destination(tmp_path, monkeypatch):
+@pytest.fixture
+def frozen_filesystem_model(tmp_path, monkeypatch):
+    """Only fsync tiny owned fixtures; real filesystem flush remains VM-only."""
+
+    class Sync:
+        def __call__(self, descriptor):
+            assert stat.S_ISDIR(os.fstat(descriptor).st_mode)
+            for path in tmp_path.rglob("*"):
+                if path.is_file():
+                    assert path.stat().st_uid == os.getuid() and path.stat().st_size < 4096
+                    with path.open("rb") as stream:
+                        os.fsync(stream.fileno())
+            return 0
+
+    monkeypatch.setattr(
+        installer.restore_io.ctypes, "CDLL", lambda *_a, **_kw: SimpleNamespace(syncfs=Sync())
+    )
+
+
+def test_frozen_copy_reuses_verified_records_and_checks_full_destination(
+    tmp_path, monkeypatch, frozen_filesystem_model
+):
     monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
     source, target = tmp_path / "source", tmp_path / "target"
     source.mkdir()
@@ -390,7 +411,9 @@ def test_frozen_copy_reuses_verified_records_and_checks_full_destination(tmp_pat
     assert scanned == [target, target]
 
 
-def test_frozen_copy_rejects_destination_io_mismatch_before_acceptance(tmp_path, monkeypatch):
+def test_frozen_copy_rejects_destination_io_mismatch_before_acceptance(
+    tmp_path, monkeypatch, frozen_filesystem_model
+):
     # Simulated I/O mismatch in an ordinary owned fixture; Root protection and
     # actual disk/error isolation are still separate VM acceptance.
     monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
@@ -416,7 +439,9 @@ def test_frozen_copy_rejects_destination_io_mismatch_before_acceptance(tmp_path,
         installer.frozen_copy(source, target, verified_records=records)
 
 
-def test_frozen_copy_rejects_changed_source_against_trusted_records(tmp_path, monkeypatch):
+def test_frozen_copy_rejects_changed_source_against_trusted_records(
+    tmp_path, monkeypatch, frozen_filesystem_model
+):
     # Ordinary fixture bytes exercise the deferred batch validation. Actual
     # Root protection and installation are separately verified in the VM.
     monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
@@ -437,6 +462,30 @@ def test_frozen_copy_rejects_changed_source_against_trusted_records(tmp_path, mo
     assert stat.S_IMODE(target.stat().st_mode) == 0o555
     with pytest.raises(policy.DeliveryError, match="existing protected image differs"):
         installer.frozen_copy(source, target, verified_records=records)
+
+
+def test_frozen_copy_rejects_sync_failure_even_when_destination_bytes_match(tmp_path, monkeypatch):
+    class FailedSync:
+        def __call__(self, _descriptor):
+            return -1
+
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        installer.restore_io.ctypes,
+        "CDLL",
+        lambda *_a, **_kw: SimpleNamespace(syncfs=FailedSync()),
+    )
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.mkdir()
+    (source / "backend").mkdir()
+    payload = source / "backend/ordinary.txt"
+    payload.write_bytes(b"known ordinary bytes")
+    payload.chmod(0o444)
+    (source / "backend").chmod(0o555)
+    records = manifest.inventory(source)
+    with pytest.raises(policy.DeliveryError, match="filesystem synchronization failed"):
+        installer.frozen_copy(source, target, verified_records=records)
+    assert (target / "backend/ordinary.txt").read_bytes() == payload.read_bytes()
 
 
 def test_kernel_observation_keeps_cumulative_counters_and_rejects_duplicate_rows():

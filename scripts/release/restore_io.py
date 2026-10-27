@@ -1,11 +1,13 @@
 """Bounded cold-copy batches, durable before full destination byte readback."""
 
 import ctypes
+import multiprocessing
 import os
 import stat
+import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from . import file_copy
@@ -13,10 +15,11 @@ from .policy import DeliveryError
 
 BATCH_FILES = 256
 BATCH_BYTES = 64 * 1024**2
+COPY_PROCESSES = 2
 
 
-def remaining(deadline: float) -> None:
-    if time.monotonic() >= deadline:
+def remaining(deadline: float | None) -> None:
+    if deadline is not None and time.monotonic() >= deadline:
         raise DeliveryError("recovery copy deadline exceeded; private partial target retained")
 
 
@@ -41,7 +44,7 @@ def batches(rows: Sequence[dict]) -> Iterator[list[dict]]:
 class Filesystems:
     """Hold filesystem error cursors from before the first destination write."""
 
-    def __init__(self, paths: Sequence[Path], deadline: float):
+    def __init__(self, paths: Sequence[Path], deadline: float | None):
         self.handles: dict[int, tuple[Path, int, int]] = {}
         self.closed = False
         remaining(deadline)
@@ -82,7 +85,7 @@ class Filesystems:
         if self.closed or not stat.S_ISDIR(parent.st_mode) or parent.st_dev not in self.handles:
             raise DeliveryError("recovery destination has no pre-write filesystem cursor")
 
-    def sync(self, deadline: float) -> None:
+    def sync(self, deadline: float | None) -> None:
         if self.closed:
             raise DeliveryError("recovery filesystem cursor is closed")
         for device, (path, descriptor, inode) in self.handles.items():
@@ -148,6 +151,19 @@ def pending_file(
     return witness
 
 
+def _copy_group(group: list[tuple], deadline: float) -> list[tuple[int, ...]]:
+    return [
+        pending_file(source, path, item, uid, gid, mode, deadline)
+        for item, source, path, uid, gid, mode in group
+    ]
+
+
+def _read_group(readback: Callable, group: list[tuple], deadline: float) -> list[tuple[int, ...]]:
+    return [
+        readback(path, item, uid, gid, mode, deadline) for item, path, uid, gid, mode, _ in group
+    ]
+
+
 def materialize(
     rows: Sequence[dict],
     source: Callable[[dict], Path],
@@ -158,42 +174,53 @@ def materialize(
 ) -> dict[str, tuple[int, ...]]:
     """Copy, join, sync and independently read each complete destination.
 
-    Only four calls are dispatched at a time. A batch retains at most 256 file
-    records and 64 MiB of logical contents; a larger file is handled alone.
+    Two joined child processes use the existing exclusive node CPU ceiling;
+    no private service/cgroup or extra resource budget is introduced. Each
+    worker processes a bounded half-batch without one Future per file. The
+    parent retains the pre-write error cursors and flushes only after both
+    copy groups join, then dispatches full byte readback. A batch retains at
+    most 256 file records and 64 MiB; a larger file is handled alone.
     Every returned witness follows an actual filesystem flush and full SHA256
     destination read. Exceptions join outstanding work and retain partial files.
     """
     remaining(deadline)
+    if os.name != "posix" or threading.active_count() != 1:
+        raise DeliveryError("recovery process workers require one POSIX owner thread")
     verified = {}
-    with ThreadPoolExecutor(max_workers=file_copy.IN_FLIGHT) as executor:
+    executor = ProcessPoolExecutor(
+        max_workers=COPY_PROCESSES, mp_context=multiprocessing.get_context("fork")
+    )
+    # Shutdown joins every child on either success or failure. The fixed unit
+    # deadline additionally bounds a blocked syscall or unresponsive child.
+    with executor:
         for batch in batches(rows):
             pending = []
-            for offset in range(0, len(batch), file_copy.IN_FLIGHT):
-                remaining(deadline)
-                group = [
-                    (item, *destination(item))
-                    for item in batch[offset : offset + file_copy.IN_FLIGHT]
+            remaining(deadline)
+            group_size = max(1, (len(batch) + COPY_PROCESSES - 1) // COPY_PROCESSES)
+            groups = [
+                [
+                    (item, source(item), *destination(item))
+                    for item in batch[offset : offset + group_size]
                 ]
-                for _, path, _, _, _ in group:
+                for offset in range(0, len(batch), group_size)
+            ]
+            for group in groups:
+                for _, _, path, _, _, _ in group:
                     filesystems.contains(path)
-                calls = [
-                    executor.submit(
-                        pending_file, source(item), path, item, uid, gid, mode, deadline
-                    )
-                    for item, path, uid, gid, mode in group
-                ]
-                for record, call in zip(group, calls, strict=True):
-                    pending.append((*record, call.result()))
+            calls = [executor.submit(_copy_group, group, deadline) for group in groups]
+            for group, call in zip(groups, calls, strict=True):
+                for (item, _, path, uid, gid, mode), witness in zip(
+                    group, call.result(), strict=True
+                ):
+                    pending.append((item, path, uid, gid, mode, witness))
             filesystems.sync(deadline)
-            for offset in range(0, len(pending), file_copy.IN_FLIGHT):
-                remaining(deadline)
-                group = pending[offset : offset + file_copy.IN_FLIGHT]
-                calls = [
-                    executor.submit(readback, path, item, uid, gid, mode, deadline)
-                    for item, path, uid, gid, mode, _ in group
-                ]
-                for (item, _, _, _, _, before), call in zip(group, calls, strict=True):
-                    actual = call.result()
+            groups = [
+                pending[offset : offset + group_size]
+                for offset in range(0, len(pending), group_size)
+            ]
+            calls = [executor.submit(_read_group, readback, group, deadline) for group in groups]
+            for group, call in zip(groups, calls, strict=True):
+                for (item, _, _, _, _, before), actual in zip(group, call.result(), strict=True):
                     if actual != before:
                         raise DeliveryError("recovery destination changed across synchronization")
                     verified[item["path"]] = actual

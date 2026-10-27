@@ -8,7 +8,7 @@ import stat
 import subprocess
 from pathlib import Path
 
-from . import file_copy, manifest, preflight
+from . import file_copy, manifest, preflight, restore_io
 from .layout import RELEASES as RELEASES
 from .policy import DeliveryError, canonical, digest, fields, read_json, sha256
 
@@ -101,6 +101,7 @@ def _copy_verified(
     *,
     readback: bool,
     expected_bytes: int | None = None,
+    synchronize: bool = True,
 ) -> None:
     preflight.protected(source)
     sha256(expected)
@@ -137,7 +138,8 @@ def _copy_verified(
                     "source changed after bundle verification; incomplete copy retained"
                 )
             os.fchmod(outgoing, mode)
-            os.fsync(outgoing)
+            if synchronize:
+                os.fsync(outgoing)
         if readback and digest(target) != expected:
             raise DeliveryError("installed bytes differ; incomplete release retained")
     finally:
@@ -242,9 +244,6 @@ def frozen_copy(
 
 def _copy_new_tree(source: Path, target: Path, records: list[dict], directories: list[str]) -> None:
     """Create a new sealed tree; the caller must verify the complete destination."""
-    target.mkdir(mode=0o700)
-    for name in sorted(directories, key=lambda name: (name.count("/"), name)):
-        (target / name).mkdir(mode=0o700)
 
     def copy(record: dict) -> None:
         # frozen_copy verifies this image immediately; a release staging tree
@@ -256,14 +255,25 @@ def _copy_new_tree(source: Path, target: Path, records: list[dict], directories:
             int(record["mode"], 8),
             readback=False,
             expected_bytes=record["bytes"],
+            synchronize=False,
         )
 
-    file_copy.bounded_copies(records, copy)
-    for name in sorted(directories, key=lambda name: name.count("/"), reverse=True):
-        (target / name).chmod(0o555)
-        sync_directory(target / name)
-    target.chmod(0o555)
-    sync_directory(target)
+    # Retain the filesystem error cursor before creating any destination.
+    # The enclosing installation service/caller owns its existing deadline.
+    filesystems = restore_io.Filesystems([target], None)
+    try:
+        target.mkdir(mode=0o700)
+        for name in sorted(directories, key=lambda name: (name.count("/"), name)):
+            (target / name).mkdir(mode=0o700)
+        for batch in restore_io.batches(records):
+            file_copy.bounded_copies(batch, copy)
+            filesystems.sync(None)
+        for name in sorted(directories, key=lambda name: name.count("/"), reverse=True):
+            (target / name).chmod(0o555)
+        target.chmod(0o555)
+        filesystems.sync(None)
+    finally:
+        filesystems.close()
 
 
 def files(bundle: Path, expected: str) -> dict:

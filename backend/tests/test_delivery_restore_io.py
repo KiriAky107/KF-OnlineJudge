@@ -2,6 +2,7 @@
 
 import errno
 import hashlib
+import multiprocessing
 import os
 import stat
 import time
@@ -65,6 +66,19 @@ def assert_closed(descriptors):
         assert failure.value.errno == errno.EBADF
 
 
+class ReadAfterSync:
+    """Picklable observation of actual tiny fixture reads in the child processes."""
+
+    def __init__(self, synced, reads, descriptors):
+        self.synced, self.reads, self.descriptors = synced, reads, descriptors
+
+    def __call__(self, path, item, uid, gid, mode, deadline):
+        assert self.synced.read_bytes() == b"sync completed"
+        assert all(os.fstat(fd).st_ino > 0 for fd in self.descriptors)
+        (self.reads / item["path"]).touch()
+        return restore.readback(path, item, uid, gid, mode, deadline)
+
+
 def test_bounded_batches_group_identical_objects_without_losing_paths():
     rows = [
         {"path": str(index), "sha256": str(index % 2), "bytes": 1}
@@ -89,22 +103,31 @@ def test_repeated_objects_expand_to_independent_durable_verified_destinations(
     rows, source, destination = fixture_rows(tmp_path, [b"first", b"other", b"first", b"first"])
     events = []
     target = destination(rows[0])[0].parent
+    synced, reads = tmp_path / "synced", tmp_path / "reads"
+    reads.mkdir()
     with closing(filesystem_model(monkeypatch, target, events)) as filesystems:
         descriptors = [descriptor for _, descriptor, _ in filesystems.handles.values()]
         assert list(target.iterdir()) == []
 
-        def readback(path, item, uid, gid, mode, deadline):
-            assert events and events[0][0] == "sync"
-            assert all(os.fstat(fd).st_ino > 0 for fd in descriptors)
-            events.append(("read", item["path"]))
-            return restore.readback(path, item, uid, gid, mode, deadline)
+        original_sync = filesystems.sync
+
+        def sync(deadline):
+            original_sync(deadline)
+            synced.write_bytes(b"sync completed")
+
+        monkeypatch.setattr(filesystems, "sync", sync)
 
         verified = restore_io.materialize(
-            rows, source, destination, readback, filesystems, time.monotonic() + 120
+            rows,
+            source,
+            destination,
+            ReadAfterSync(synced, reads, descriptors),
+            filesystems,
+            time.monotonic() + 120,
         )
     assert_closed(descriptors)
     assert set(verified) == {row["path"] for row in rows}
-    assert len([event for event in events if event[0] == "read"]) == len(rows)
+    assert len(list(reads.iterdir())) == len(rows)
     inodes = set()
     for row in rows:
         path, uid, gid, mode = destination(row)
@@ -117,6 +140,7 @@ def test_repeated_objects_expand_to_independent_durable_verified_destinations(
 
 
 def test_existing_wrong_bytes_are_refused_without_overwrite(tmp_path, monkeypatch):
+    prior_children = {child.pid for child in multiprocessing.active_children()}
     rows, source, destination = fixture_rows(tmp_path, [b"new"])
     path, _, _, mode = destination(rows[0])
     path.write_bytes(b"bad")
@@ -128,6 +152,7 @@ def test_existing_wrong_bytes_are_refused_without_overwrite(tmp_path, monkeypatc
                 rows, source, destination, restore.readback, filesystems, time.monotonic() + 120
             )
     assert path.read_bytes() == b"bad" and restore.file_witness(path.stat()) == before
+    assert {child.pid for child in multiprocessing.active_children()} == prior_children
 
 
 def test_failed_sync_keeps_private_files_and_cannot_return_verified_witnesses(
@@ -259,3 +284,46 @@ def test_constructor_closes_earlier_cursor_when_later_anchor_is_invalid(tmp_path
         restore_io.Filesystems([valid, invalid], time.monotonic() + 120)
     assert len(opened) == 1
     assert_closed(opened)
+
+
+def test_actual_two_copy_processes_join_before_return_and_preserve_all_bytes(tmp_path, monkeypatch):
+    rows, source, destination = fixture_rows(
+        tmp_path, [b"known first", b"known second", b"known third", b"known fourth"]
+    )
+    prior_children = {child.pid for child in multiprocessing.active_children()}
+    markers = tmp_path / "worker-identities"
+    markers.mkdir()
+    original = restore_io.pending_file
+
+    def record_worker(*args):
+        (markers / str(os.getpid())).touch()
+        deadline = time.monotonic() + 5
+        while len(list(markers.iterdir())) < 2:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        return original(*args)
+
+    monkeypatch.setattr(restore_io, "pending_file", record_worker)
+    with closing(filesystem_model(monkeypatch, destination(rows[0])[0].parent, [])) as fs:
+        verified = restore_io.materialize(
+            rows, source, destination, restore.readback, fs, time.monotonic() + 120
+        )
+    assert len(list(markers.iterdir())) == 2
+    assert {child.pid for child in multiprocessing.active_children()} == prior_children
+    assert all(not (restore_io.Path("/proc") / p.name).exists() for p in markers.iterdir())
+    assert set(verified) == {row["path"] for row in rows}
+    for row in rows:
+        path, uid, gid, mode = destination(row)
+        assert path.read_bytes() == source(row).read_bytes()
+        restore.unchanged_file(path, verified[row["path"]], uid, gid, mode)
+
+
+def test_process_copy_refuses_fork_from_a_multithreaded_owner(tmp_path, monkeypatch):
+    rows, source, destination = fixture_rows(tmp_path, [b"known fixture"])
+    monkeypatch.setattr(restore_io.threading, "active_count", lambda: 2)
+    with closing(filesystem_model(monkeypatch, destination(rows[0])[0].parent, [])) as fs:
+        with pytest.raises(DeliveryError, match="one POSIX owner thread"):
+            restore_io.materialize(
+                rows, source, destination, restore.readback, fs, time.monotonic() + 120
+            )
+    assert not destination(rows[0])[0].exists()
