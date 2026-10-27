@@ -7,6 +7,7 @@ import os
 import stat
 import time
 from contextlib import closing
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -149,7 +150,12 @@ def test_existing_wrong_bytes_are_refused_without_overwrite(tmp_path, monkeypatc
     with closing(filesystem_model(monkeypatch, path.parent, [])) as filesystems:
         with pytest.raises(DeliveryError, match="byte verification"):
             restore_io.materialize(
-                rows, source, destination, restore.readback, filesystems, time.monotonic() + 120
+                rows,
+                source,
+                destination,
+                restore.readback,
+                filesystems,
+                time.monotonic() + 120,
             )
     assert path.read_bytes() == b"bad" and restore.file_witness(path.stat()) == before
     assert {child.pid for child in multiprocessing.active_children()} == prior_children
@@ -197,7 +203,12 @@ def test_same_bytes_inode_replacement_across_sync_cannot_adopt_new_file(tmp_path
     ) as filesystems:
         with pytest.raises(DeliveryError, match="changed across synchronization"):
             restore_io.materialize(
-                rows, source, destination, restore.readback, filesystems, time.monotonic() + 120
+                rows,
+                source,
+                destination,
+                restore.readback,
+                filesystems,
+                time.monotonic() + 120,
             )
 
 
@@ -206,7 +217,12 @@ def test_expired_batch_deadline_copies_no_files(tmp_path, monkeypatch):
     with closing(filesystem_model(monkeypatch, destination(rows[0])[0].parent, [])) as filesystems:
         with pytest.raises(DeliveryError, match="deadline exceeded"):
             restore_io.materialize(
-                rows, source, destination, restore.readback, filesystems, time.monotonic() - 1
+                rows,
+                source,
+                destination,
+                restore.readback,
+                filesystems,
+                time.monotonic() - 1,
             )
     assert not destination(rows[0])[0].exists()
 
@@ -217,7 +233,9 @@ def test_syncfs_failure_is_propagated_in_the_ordinary_syscall_model(tmp_path, mo
             return -1
 
     monkeypatch.setattr(
-        restore_io.ctypes, "CDLL", lambda *_a, **_kw: SimpleNamespace(syncfs=FailedSync())
+        restore_io.ctypes,
+        "CDLL",
+        lambda *_a, **_kw: SimpleNamespace(syncfs=FailedSync()),
     )
     with closing(restore_io.Filesystems([tmp_path], time.monotonic() + 120)) as filesystems:
         descriptors = [fd for _, fd, _ in filesystems.handles.values()]
@@ -242,7 +260,12 @@ def test_cursor_is_open_before_first_write_and_held_across_batches(tmp_path, mon
 
         monkeypatch.setattr(restore_io, "pending_file", write)
         verified = restore_io.materialize(
-            rows, source, destination, restore.readback, filesystems, time.monotonic() + 120
+            rows,
+            source,
+            destination,
+            restore.readback,
+            filesystems,
+            time.monotonic() + 120,
         )
         assert len(verified) == len(rows)
         assert len(events) == 3
@@ -327,3 +350,162 @@ def test_process_copy_refuses_fork_from_a_multithreaded_owner(tmp_path, monkeypa
                 rows, source, destination, restore.readback, fs, time.monotonic() + 120
             )
     assert not destination(rows[0])[0].exists()
+
+
+def group_files(tmp_path, values, expected=None):
+    rows = []
+    for i, raw in enumerate(values):
+        path = tmp_path / str(i)
+        path.write_bytes(raw)
+        path.chmod(0o600)
+        wanted = raw if expected is None else expected[i]
+        item = {
+            "path": str(i),
+            "bytes": len(wanted),
+            "sha256": hashlib.sha256(wanted).hexdigest(),
+        }
+        rows.append(
+            (
+                item,
+                path,
+                os.getuid(),
+                os.getgid(),
+                0o600,
+                restore.file_witness(path.stat()),
+            )
+        )
+    return rows
+
+
+def read_group(group):
+    return restore.readback_group(group, time.monotonic() + 120)
+
+
+def test_each_repeated_destination_is_fully_read_with_one_actual_reference_hash(
+    tmp_path, monkeypatch
+):
+    raw = b"a" * 1048576 + b"b" * 1048576 + b"last-byte-proof"
+    group = group_files(tmp_path, [raw] * 4)
+    original_open, original_hash = os.fdopen, hashlib.sha256
+    observed, hashes = {}, []
+
+    class Reader:
+        def __init__(self, stream, path):
+            self.stream, self.path = stream, path
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return self.stream.__exit__(*args)
+
+        def fileno(self):
+            return self.stream.fileno()
+
+        def read(self, count):
+            assert count == 1048576
+            block = self.stream.read(count)
+            observed[self.path] = observed.get(self.path, 0) + len(block)
+            return block
+
+    def opened(fd, mode):
+        return Reader(original_open(fd, mode), Path(os.readlink(f"/proc/self/fd/{fd}")))
+
+    def hashed(*args, **kwargs):
+        hashes.append(True)
+        return original_hash(*args, **kwargs)
+
+    monkeypatch.setattr(restore.os, "fdopen", opened)
+    monkeypatch.setattr(restore.hashlib, "sha256", hashed)
+    witnesses = read_group(group)
+    assert observed == {row[1]: len(raw) for row in group}
+    assert len(hashes) == 1
+    assert witnesses == [row[-1] for row in group]
+
+
+def test_last_byte_difference_in_repeated_target_is_refused(tmp_path):
+    good = b"x" * 1048576 + b"ending"
+    bad = good[:-1] + b"!"
+    group = group_files(tmp_path, [good, bad, good], [good] * 3)
+    with pytest.raises(DeliveryError, match="byte verification"):
+        read_group(group)
+    assert group[1][1].read_bytes() == bad
+
+
+def test_identically_wrong_reference_and_duplicates_cannot_match_expected_digest(
+    tmp_path,
+):
+    group = group_files(tmp_path, [b"bad"] * 3, [b"new"] * 3)
+    with pytest.raises(DeliveryError, match="byte verification"):
+        read_group(group)
+
+
+def test_unique_large_and_empty_files_keep_exact_bytes(tmp_path):
+    values = [b"", b"", b"one", b"other", b"z" * (8 * 1024**2 + 1)]
+    group = group_files(tmp_path, values)
+    assert read_group(group) == [row[-1] for row in group]
+
+
+def test_reference_is_rebound_when_digest_changes(tmp_path):
+    group = group_files(tmp_path, [b"aa", b"aa", b"bb", b"bb", b"aa", b"aa"])
+    assert read_group(group) == [row[-1] for row in group]
+
+
+def test_changed_file_after_complete_read_is_refused(tmp_path, monkeypatch):
+    group = group_files(tmp_path, [b"known", b"known"])
+    original = os.fdopen
+
+    class ChangedAtEnd:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return self.stream.__exit__(*args)
+
+        def fileno(self):
+            return self.stream.fileno()
+
+        def read(self, count):
+            value = self.stream.read(count)
+            if not value:
+                group[0][1].write_bytes(b"other")
+            return value
+
+    monkeypatch.setattr(restore.os, "fdopen", lambda *a, **kw: ChangedAtEnd(original(*a, **kw)))
+    with pytest.raises(DeliveryError, match="changed during readback"):
+        read_group(group)
+
+
+def test_group_rejects_metadata_bounds_and_expired_deadline(tmp_path):
+    group = group_files(tmp_path, [b"known"])
+    with pytest.raises(DeliveryError, match="fixed batch bounds"):
+        read_group(group * (restore_io.BATCH_FILES + 1))
+    with pytest.raises(DeliveryError, match="deadline"):
+        restore.readback_group(group, time.monotonic() - 1)
+
+
+def test_grouped_real_copy_workers_join_and_return_independent_verified_files(
+    tmp_path, monkeypatch
+):
+    children = {c.pid for c in multiprocessing.active_children()}
+    rows, source, destination = fixture_rows(tmp_path, [b"shared"] * 8)
+    with closing(filesystem_model(monkeypatch, destination(rows[0])[0].parent, [])) as filesystems:
+        result = restore_io.materialize(
+            rows,
+            source,
+            destination,
+            restore.readback,
+            filesystems,
+            time.monotonic() + 120,
+            group_readback=restore.readback_group,
+        )
+    assert {c.pid for c in multiprocessing.active_children()} == children
+    assert set(result) == {row["path"] for row in rows}
+    assert len({destination(row)[0].stat().st_ino for row in rows}) == len(rows)
+    for row in rows:
+        path, uid, gid, mode = destination(row)
+        assert path.read_bytes() == b"shared"
+        restore.unchanged_file(path, result[row["path"]], uid, gid, mode)

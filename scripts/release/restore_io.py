@@ -171,6 +171,8 @@ def materialize(
     readback: Callable[[Path, dict, int, int, int, float], tuple[int, ...]],
     filesystems: Filesystems,
     deadline: float,
+    *,
+    group_readback: Callable[[list[tuple], float], list[tuple[int, ...]]] | None = None,
 ) -> dict[str, tuple[int, ...]]:
     """Copy, join, sync and independently read each complete destination.
 
@@ -180,8 +182,10 @@ def materialize(
     parent retains the pre-write error cursors and flushes only after both
     copy groups join, then dispatches full byte readback. A batch retains at
     most 256 file records and 64 MiB; a larger file is handled alone.
-    Every returned witness follows an actual filesystem flush and full SHA256
-    destination read. Exceptions join outstanding work and retain partial files.
+    Every returned witness follows an actual filesystem flush and complete
+    destination byte verification. The optional grouped reader can reuse an
+    actually hashed immutable reference only after full byte equality readback
+    of each remaining target. Exceptions join outstanding work and retain partial files.
     """
     remaining(deadline)
     if os.name != "posix" or threading.active_count() != 1:
@@ -218,7 +222,12 @@ def materialize(
                 pending[offset : offset + group_size]
                 for offset in range(0, len(pending), group_size)
             ]
-            calls = [executor.submit(_read_group, readback, group, deadline) for group in groups]
+            calls = [
+                executor.submit(group_readback, group, deadline)
+                if group_readback is not None
+                else executor.submit(_read_group, readback, group, deadline)
+                for group in groups
+            ]
             for group, call in zip(groups, calls, strict=True):
                 for (item, _, _, _, _, before), actual in zip(group, call.result(), strict=True):
                     if actual != before:

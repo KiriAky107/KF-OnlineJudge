@@ -411,8 +411,13 @@ all normal services and tasks are stopped. The stopped-state checks precede data
 verification and copying and run again before completion. Original identities,
 modes and replay IDs are preserved. Its PostgreSQL target is writable; the fresh
 RabbitMQ volume is checked through a read-only mount and receives no copied broker state.
-Each restored file is flushed and independently read back against its trusted
-digest. Its inode, ownership, mode, link count, size and nanosecond timestamps
+Each restored file is flushed and read back in full. Within a joined half-batch,
+repeated digest/size groups can retain at most 8 MiB of reference bytes per reader.
+The first target receives an actual SHA-256 check; every later target is fully
+read and compared byte for byte with those verified bytes. Unique and larger
+files each receive streaming SHA-256 verification. The reference is discarded
+before another group or half-batch; it never certifies a file from metadata alone.
+Every target's inode, ownership, mode, link count, size and nanosecond timestamps
 must remain unchanged until the final receipt. These observations are local to
 one stopped-node recovery and are never reused after an interrupted attempt.
 Directory entries are flushed after their children before completion is recorded.
@@ -424,8 +429,10 @@ Changes are refused. These memory-only proofs are bound to the process, capped a
 four bundles, 100006 entries and 16 MiB of metadata, and discarded on return or
 failure. Further bundles receive full verification; separate commands start fresh.
 Fixed-size regular-file copies can use Linux kernel transfer with bounded chunks.
-Unsupported transfer falls back at the same offsets. Source size/EOF, file fsync
-and independent destination byte verification remain required.
+Unsupported transfer falls back at the same offsets. Source size/EOF, filesystem
+durability and full destination byte verification remain required. Version 4
+flushes each affected filesystem through error cursors held before writing;
+earlier formats retain per-file fsync.
 Public bundle inventories read every payload byte with at most four readers in
 flight. Each reader opens without following a final symlink and verifies the
 file identity and metadata before and after hashing. The inventory checks those

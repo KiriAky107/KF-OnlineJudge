@@ -156,26 +156,96 @@ def file_witness(info: os.stat_result) -> tuple[int, ...]:
     )
 
 
-def readback(
-    path: Path, item: dict, uid: int, gid: int, mode: int, deadline: float
-) -> tuple[int, ...]:
+def _readback(
+    path: Path,
+    item: dict,
+    uid: int,
+    gid: int,
+    mode: int,
+    deadline: float,
+    *,
+    reference: bytes | None = None,
+    retain: bool = False,
+) -> tuple[tuple[int, ...], bytes | None]:
+    if reference is not None and len(reference) != item["bytes"]:
+        raise DeliveryError("verified readback reference size differs")
     before = file_witness(member(path, uid, gid, mode, directory=False))
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     with os.fdopen(descriptor, "rb") as stream:
         if file_witness(os.fstat(stream.fileno())) != before:
             raise DeliveryError("recovery file identity changed before readback")
-        total, checked = 0, hashlib.sha256()
+        total = 0
+        checked = hashlib.sha256() if reference is None else None
+        retained = bytearray() if retain else None
         while block := stream.read(1024 * 1024):
+            start = total
             total += len(block)
             if total > item["bytes"] or time.monotonic() >= deadline:
                 raise DeliveryError("recovery readback size/deadline changed")
-            checked.update(block)
+            if reference is not None and block != reference[start:total]:
+                raise DeliveryError("restored data byte verification failed")
+            if checked is not None:
+                checked.update(block)
+            if retained is not None:
+                retained.extend(block)
         after = file_witness(os.fstat(stream.fileno()))
-    if total != item["bytes"] or checked.hexdigest() != item["sha256"]:
+    if total != item["bytes"] or (checked is not None and checked.hexdigest() != item["sha256"]):
         raise DeliveryError("restored data byte verification failed")
     if before != after or after != file_witness(path.lstat()) or time.monotonic() >= deadline:
         raise DeliveryError("recovery file changed during readback")
-    return after
+    return after, bytes(retained) if retained is not None else None
+
+
+def readback(
+    path: Path, item: dict, uid: int, gid: int, mode: int, deadline: float
+) -> tuple[int, ...]:
+    return _readback(path, item, uid, gid, mode, deadline)[0]
+
+
+def readback_group(group: list[tuple], deadline: float) -> list[tuple[int, ...]]:
+    """Read every byte; compare repeated files to an actually SHA256-checked buffer.
+
+    The first target of a repeated digest/size is independently hashed after the
+    filesystem flush. A local immutable buffer holds at most 8 MiB; subsequent
+    targets are fully read and compared byte for byte, with the same ownership,
+    mode, size, descriptor/path identity and before/after 9-stat checks. Nothing
+    is certified from metadata or a source-copy assumption. Large or unique
+    files retain their independent streaming SHA256 readback. No buffer crosses
+    this joined half-batch, operator invocation or synchronization boundary.
+    """
+    restore_io.remaining(deadline)
+    if len(group) > restore_io.BATCH_FILES or (
+        len(group) > 1 and sum(row[0]["bytes"] for row in group) > restore_io.BATCH_BYTES
+    ):
+        raise DeliveryError("recovery readback group exceeds fixed batch bounds")
+    counts: dict[tuple[str, int], int] = {}
+    for item, *_ in group:
+        key = item["sha256"], item["bytes"]
+        counts[key] = counts.get(key, 0) + 1
+    previous = None
+    reference = None
+    verified = []
+    for item, path, uid, gid, mode, _ in group:
+        restore_io.remaining(deadline)
+        key = item["sha256"], item["bytes"]
+        if key != previous:
+            reference = None
+            previous = key
+        repeated_small = counts[key] > 1 and item["bytes"] <= 8 * 1024**2
+        witness, retained = _readback(
+            path,
+            item,
+            uid,
+            gid,
+            mode,
+            deadline,
+            reference=reference if repeated_small else None,
+            retain=repeated_small and reference is None,
+        )
+        if retained is not None:
+            reference = retained
+        verified.append(witness)
+    return verified
 
 
 def unchanged_file(path: Path, witness: tuple[int, ...], uid: int, gid: int, mode: int) -> None:
@@ -331,6 +401,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
                 readback,
                 filesystems,
                 deadline,
+                group_readback=readback_group,
             )
         else:
             witnesses = file_copy.bounded_copies(value["files"], copy, deadline=deadline)
