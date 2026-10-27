@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import configuration, install, manifest
+from . import backup_manifest, configuration, install, manifest
 from .policy import DeliveryError, digest, fields, read_json, sha256
 
 
@@ -104,10 +104,12 @@ def compatible(backup: dict, payload: Path, target_data: dict, private_root: Pat
     never a raw cold copy into an incompatible target schema/runtime.
     """
     selected = backup["selected"]
-    old_root = private_root / "payload/releases" / selected["release_id"]
-    old = manifest.validate(read_json(old_root / "manifest.json"))
+    old_manifest = backup_manifest.named_member(
+        private_root, backup, "releases/" + selected["release_id"] + "/manifest.json"
+    )
+    old = manifest.validate(read_json(old_manifest))
     if (
-        digest(old_root / "manifest.json") != backup["manifest_sha256"]
+        digest(old_manifest) != backup["manifest_sha256"]
         or old["source_sha"] != backup["source_sha"]
         or old["images"] != backup["images"]
         or old["images"] != target_data["images"]
@@ -125,7 +127,10 @@ def compatible(backup: dict, payload: Path, target_data: dict, private_root: Pat
 
     if not migrations(old) or migrations(old) != migrations(target_data):
         raise DeliveryError("cold recovery requires identical Backend migration inventory")
-    if (private_root / "payload/postgres/PG_VERSION").read_bytes() != b"18\n":
+    if (
+        backup_manifest.named_member(private_root, backup, "postgres/PG_VERSION").read_bytes()
+        != b"18\n"
+    ):
         raise DeliveryError("cold recovery PostgreSQL major version differs")
     # Every old data byte was verified by the closed private inventory. This
     # check also binds the independently verified target public payload.
@@ -142,18 +147,28 @@ def identity_check(backup: dict, selected: dict, root: Path) -> dict:
     }
     old = backup["selected"]
     prior = {
-        name: root
-        / "payload"
-        / ("judge-config" if name == "runtime.json" else "app-config")
-        / configuration.installed_path(old["release_id"], old["configuration_id"], name).name
+        name: ("judge-config" if name == "runtime.json" else "app-config")
+        + "/"
+        + configuration.installed_path(old["release_id"], old["configuration_id"], name).name
         for name in configuration.CONFIG_FILES
     }
     inventory = {item["path"]: item for item in backup["files"]}
-    for path in prior.values():
-        relative = path.relative_to(root / "payload").as_posix()
-        if relative not in inventory or digest(path) != inventory[relative]["sha256"]:
+    for relative in prior.values():
+        if (
+            relative not in inventory
+            or digest(backup_manifest.member_path(root, backup, inventory[relative]))
+            != inventory[relative]["sha256"]
+        ):
             raise DeliveryError("old protected recovery configuration is missing")
-    previous, current = snapshot(prior), snapshot(paths)
+    previous, current = (
+        snapshot(
+            {
+                name: backup_manifest.member_path(root, backup, inventory[relative])
+                for name, relative in prior.items()
+            }
+        ),
+        snapshot(paths),
+    )
     fresh_identities(previous, current)
     cookie = Path("/var/lib/kf-onlinejudge/rabbitmq/.erlang.cookie")
     if digest(cookie) == backup["broker_cookie_sha256"]:

@@ -15,11 +15,15 @@ from pathlib import Path
 from . import (
     availability,
     backup_manifest,
+    backup_objects,
     configuration,
     install,
     lifecycle,
     preflight,
     service_install,
+)
+from . import (
+    manifest as release_manifest,
 )
 from .policy import DeliveryError, canonical, digest, read_json, sha256
 from .services import python_environment
@@ -237,6 +241,7 @@ def guarded() -> None:
             raise DeliveryError("backup process limit differs")
 
 
+@release_manifest.verified_operation
 def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
     from .recovery_database import bootstrap_fingerprint
 
@@ -246,6 +251,8 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
     for name in (
         "backup.py",
         "backup_manifest.py",
+        "backup_objects.py",
+        "file_copy.py",
         "recovery_database.py",
         "recovery_identity.py",
         "dependency_initialize.py",
@@ -282,9 +289,10 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
         if target.exists() or target.is_symlink():
             raise DeliveryError("backup target already exists; incomplete backups retained")
         target.mkdir(mode=0o700)
-        tree = target / "payload"
+        tree = target / "objects"
         tree.mkdir(mode=0o700)
-        dirs, files, total = [], [], 0
+        dirs, files, total, stored = [], [], 0, 0
+        objects = {}
         for domain, source_root in SOURCES.items():
             if source_root.is_symlink() or not source_root.is_dir():
                 raise DeliveryError("a required backup source domain is absent or linked")
@@ -310,10 +318,8 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
                 backup_manifest._member(entry, set(), directory=True)
                 if not stat.S_ISDIR(info.st_mode):
                     raise DeliveryError("backup source directory changed type")
-                destination = tree / relative
-                destination.mkdir(mode=0o700)
                 dirs.append(entry)
-                if len(dirs) + len(files) > backup_manifest.MAX_ENTRIES:
+                if len(dirs) + len(files) > backup_manifest.MAX_LOGICAL_ENTRIES:
                     raise DeliveryError("backup directory inventory exceeds bound")
                 for member in names:
                     if (source_dir / member).is_symlink():
@@ -335,29 +341,22 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
                         raise DeliveryError("backup individual file exceeds bound")
                     total += before.st_size
                     if (
-                        total > backup_manifest.MAX_BYTES
-                        or len(dirs) + len(files) >= backup_manifest.MAX_ENTRIES
+                        total > backup_manifest.MAX_LOGICAL_BYTES
+                        or len(dirs) + len(files) >= backup_manifest.MAX_LOGICAL_ENTRIES
                         or os.statvfs(ROOT).f_frsize * os.statvfs(ROOT).f_bavail
                         < before.st_size + 64 * 1024**2
                     ):
                         raise DeliveryError("private backup capacity exhausted")
-                    h = hashlib.sha256()
-                    with os.fdopen(
-                        os.open(p, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC),
-                        "rb",
-                    ) as incoming:
-                        with os.fdopen(
-                            os.open(
-                                destination / member,
-                                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                                0o600,
-                            ),
-                            "wb",
-                        ) as outgoing:
-                            copy_file(incoming, outgoing, before, deadline, h)
-                    entry["sha256"] = h.hexdigest()
+                    entry["sha256"], added = backup_objects.store(
+                        p,
+                        before,
+                        tree,
+                        objects,
+                        deadline,
+                        remaining_bytes=backup_manifest.MAX_BYTES - stored,
+                    )
+                    stored += added
                     files.append(entry)
-                install.sync_directory(destination)
         stopped(selected, cut)
         if install.selection() != selected or read_json(lifecycle.LAST, 32768) != cut:
             raise DeliveryError("selected cut changed during backup")
@@ -369,8 +368,8 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
         now = int(time.time())
         value = backup_manifest.validate(
             {
-                "schema_version": 3,
-                "format": backup_manifest.FORMAT,
+                "schema_version": 4,
+                "format": backup_manifest.OBJECT_FORMAT,
                 "backup_id": backup_id,
                 "source_sha": manifest["source_sha"],
                 "manifest_sha256": selected["manifest_sha256"],
@@ -385,7 +384,8 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
                 "images": manifest["images"],
                 "directories": sorted(dirs, key=lambda x: x["path"]),
                 "files": sorted(files, key=lambda x: x["path"]),
-                "payload_bytes": total,
+                "payload_bytes": stored,
+                "logical_bytes": total,
                 "restored": False,
                 "execution_verified": False,
             }
@@ -393,16 +393,20 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
         raw = canonical(value)
         if len(raw) > backup_manifest.MAX_METADATA_BYTES:
             raise DeliveryError("private backup manifest exceeds bound")
+        backup_objects.sync_filesystem(tree, deadline)
         install.exclusive_file(target / "manifest.json", raw, 0o600)
         install.sync_directory(tree)
         install.sync_directory(target)
         install.sync_directory(ROOT)
         fingerprint = digest(target / "manifest.json")
+        # Release construction-only inventories before the independent byte read.
+        del value, raw, dirs, files, objects
         backup_manifest.verify(target, fingerprint)
         return {
             "backup_id": backup_id,
             "private_manifest_sha256": fingerprint,
-            "payload_bytes": total,
+            "payload_bytes": stored,
+            "logical_bytes": total,
             "source_sha": manifest["source_sha"],
             "captured": True,
             "restored": False,
@@ -410,26 +414,6 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
         }
     finally:
         os.close(descriptor)
-
-
-def copy_file(incoming, outgoing, before, deadline: float, h) -> None:
-    keys = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
-    observed = os.fstat(incoming.fileno())
-    if any(getattr(before, key) != getattr(observed, key) for key in keys):
-        raise DeliveryError("backup source changed before capture")
-    count = 0
-    while block := incoming.read(65536):
-        count += len(block)
-        if count > before.st_size or time.monotonic() >= deadline:
-            raise DeliveryError("backup source or deadline changed")
-        h.update(block)
-        outgoing.write(block)
-    after = os.fstat(incoming.fileno())
-    if count != before.st_size or any(getattr(before, key) != getattr(after, key) for key in keys):
-        raise DeliveryError("backup source changed during capture")
-    outgoing.flush()
-    os.fsync(outgoing.fileno())
-    os.fchmod(outgoing.fileno(), 0o600)
 
 
 def retention_eligible(expired: dict, retained: dict, now: int) -> None:
@@ -461,10 +445,11 @@ def prune(backup_id: str, expected: str, keep_id: str, keep_expected: str) -> di
         retention_eligible(value, keep, int(time.time()))
         # Remove exactly the already verified inventory, never traverse or delete
         # an unknown tree. Any interruption leaves a private partial target.
-        for item in value["files"]:
+        storage = target / backup_manifest.storage_directory(value)
+        for item in backup_manifest.physical_files(value):
             if time.monotonic() >= deadline:
                 raise DeliveryError("private backup pruning deadline")
-            path = target / "payload" / item["path"]
+            path = storage / item["path"]
             info = path.lstat()
             if (
                 not stat.S_ISREG(info.st_mode)
@@ -476,15 +461,17 @@ def prune(backup_id: str, expected: str, keep_id: str, keep_expected: str) -> di
             path.unlink()
             install.sync_directory(path.parent)
         for item in sorted(
-            value["directories"], key=lambda item: item["path"].count("/"), reverse=True
+            value["directories"] if value["schema_version"] == 3 else [],
+            key=lambda item: item["path"].count("/"),
+            reverse=True,
         ):
-            path = target / "payload" / item["path"]
+            path = storage / item["path"]
             preflight.protected(path, directory=True)
             if stat.S_IMODE(path.stat().st_mode) != 0o700:
                 raise DeliveryError("private backup directory changed before pruning")
             path.rmdir()
             install.sync_directory(path.parent)
-        (target / "payload").rmdir()
+        storage.rmdir()
         configuration.private(target / "manifest.json")
         if digest(target / "manifest.json") != sha256(expected):
             raise DeliveryError("private backup receipt changed before pruning")
@@ -591,7 +578,11 @@ def launch(args) -> dict:
     result = subprocess.run(command, capture_output=True, timeout=1820, check=False)
     if result.returncode or len(result.stdout) > 4096:
         raise DeliveryError(
-            "private backup action failed; source unchanged and partial target retained"
+            "private backup action failed; exit="
+            + str(result.returncode)
+            + "; stderr_sha256="
+            + hashlib.sha256(result.stderr).hexdigest()
+            + "; source unchanged and partial target retained"
         )
     return json.loads(result.stdout)
 
@@ -599,13 +590,19 @@ def launch(args) -> dict:
 def selected_operator() -> None:
     selected = install.selection()
     payload = install.RELEASES / selected["release_id"] / "payload"
-    for name in ("backup.py", "backup_manifest.py"):
+    for name in (
+        "backup.py",
+        "backup_manifest.py",
+        "backup_objects.py",
+        "file_copy.py",
+    ):
         if digest(payload / "delivery/scripts/release" / name) != digest(
             Path(__file__).parent / name
         ):
             raise DeliveryError("backup operator differs from selected release")
 
 
+@release_manifest.verified_operation
 def main() -> None:
     parser = argparse.ArgumentParser(description="Private bounded cold backup operator")
     sub = parser.add_subparsers(dest="action", required=True)

@@ -152,7 +152,11 @@ def admission_guard():
             if stat.S_IMODE(directory.stat().st_mode) != 0o700:
                 raise DeliveryError("private recovery record directory required")
             records = {}
-            for name in ("prepared.json", "data-restored.json", "identity-recovered.json"):
+            for name in (
+                "prepared.json",
+                "data-restored.json",
+                "identity-recovered.json",
+            ):
                 path = directory / name
                 preflight.protected(path)
                 configuration.private(path)
@@ -231,10 +235,18 @@ def validate_data_receipt(
         raise DeliveryError("cold data restoration is not this boot's selected complete data step")
     backup.identifier(value["backup_id"])
     sha256(value["private_backup_sha256"])
-    integer(value["restored_payload_bytes"], 1, 7 * 1024**3, "restored bytes")
+    integer(
+        value["restored_payload_bytes"],
+        1,
+        backup_manifest.MAX_LOGICAL_BYTES,
+        "restored bytes",
+    )
     for key in ("restored_files", "restored_directories"):
-        integer(value[key], 1, 50000, "restored entries")
-    if value["restored_files"] + value["restored_directories"] > 50000:
+        integer(value[key], 1, backup_manifest.MAX_LOGICAL_ENTRIES, "restored entries")
+    if (
+        value["restored_files"] + value["restored_directories"]
+        > backup_manifest.MAX_LOGICAL_ENTRIES
+    ):
         raise DeliveryError("restored inventory limit differs")
     return value
 
@@ -395,7 +407,11 @@ def recover_locked(recovery_id: str, data_sha: str, password_file: Path, passwor
     try:
         dispatched = True
         completed = subprocess.run(
-            command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=290, check=False
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=290,
+            check=False,
         )
         if completed.returncode or len(completed.stdout) > 16384:
             raise DeliveryError("DB identity recovery failed; target remains stopped")
@@ -403,7 +419,9 @@ def recover_locked(recovery_id: str, data_sha: str, password_file: Path, passwor
     finally:
         if dispatched:
             active = backup.manager(
-                "show", unit, "--property=LoadState,ActiveState,MainPID,Description,Transient"
+                "show",
+                unit,
+                "--property=LoadState,ActiveState,MainPID,Description,Transient",
             )
             if active.get("LoadState") != "not-found":
                 if active.get("Description") != description or active.get("Transient") != "yes":
@@ -491,10 +509,17 @@ def read_result(raw: bytes) -> dict:
     ):
         raise DeliveryError("ordinary DB recovery result is incomplete or unproven")
     integer(
-        value["data_filesystem_bytes"], 2 * 1024**3 * 9 // 10, 2 * 1024**3, "DB recovery volume"
+        value["data_filesystem_bytes"],
+        2 * 1024**3 * 9 // 10,
+        2 * 1024**3,
+        "DB recovery volume",
     )
     sha256(value["role_authority_sha256"])
-    fields(value["effective_settings"], set(recovery_identity.recovery_settings()), "PG settings")
+    fields(
+        value["effective_settings"],
+        set(recovery_identity.recovery_settings()),
+        "PG settings",
+    )
     for item in value["effective_settings"].values():
         fields(item, {"setting", "unit"}, "PG effective setting")
         if (
@@ -520,7 +545,10 @@ def main() -> None:
     args = parser.parse_args()
     try:
         value = recover(
-            args.recovery_id, args.data_receipt_sha256, args.password_file, args.password_sha256
+            args.recovery_id,
+            args.data_receipt_sha256,
+            args.password_file,
+            args.password_sha256,
         )
         print(json.dumps(value, sort_keys=True))
     except (OSError, ValueError, subprocess.SubprocessError) as error:

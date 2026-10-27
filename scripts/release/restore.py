@@ -62,7 +62,10 @@ def guarded() -> None:
         raise DeliveryError("fixed recovery operator unit required")
     for path, expected in (
         (group, ["536870912", "0", "32", f"{CPU_PERCENT * 1000} 100000"]),
-        (Path("/sys/fs/cgroup/kfonlinejudge.slice"), ["4026531840", "0", "384", "200000 100000"]),
+        (
+            Path("/sys/fs/cgroup/kfonlinejudge.slice"),
+            ["4026531840", "0", "384", "200000 100000"],
+        ),
     ):
         observed = [
             (path / key).read_text().strip()
@@ -86,7 +89,9 @@ def stopped() -> None:
     dependency_install.require_stopped()
     for name in (*lifecycle.APPS, *lifecycle.DEPENDENCIES):
         values = backup.manager(
-            "show", "kf-" + name + ".service", "--property=MainPID,ActiveState,ControlGroup"
+            "show",
+            "kf-" + name + ".service",
+            "--property=MainPID,ActiveState,ControlGroup",
         )
         if values.get("MainPID") != "0" or values.get("ActiveState") != "inactive":
             raise DeliveryError("cold recovery requires stopped required services")
@@ -100,7 +105,8 @@ def stopped() -> None:
         except FileNotFoundError:
             continue
         row = next(
-            (line.split()[1:] for line in status.splitlines() if line.startswith("Uid:")), None
+            (line.split()[1:] for line in status.splitlines() if line.startswith("Uid:")),
+            None,
         )
         if row is None or len(row) != 4:
             raise DeliveryError("recovery process identity unavailable")
@@ -182,18 +188,22 @@ def write_file(
     if path.exists() or path.is_symlink():
         # Existing destinations are read and checked, never overwritten.
         return readback(path, item, uid, gid, mode, deadline)
-    with os.fdopen(os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC), "rb") as incoming:
-        with os.fdopen(
+    with (
+        os.fdopen(os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC), "rb") as incoming,
+        os.fdopen(
             os.open(
-                path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600
+                path,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
             ),
             "wb",
-        ) as outgoing:
-            file_copy.transfer(incoming, outgoing, item["bytes"], deadline=deadline)
-            outgoing.flush()
-            os.fchown(outgoing.fileno(), uid, gid)
-            os.fchmod(outgoing.fileno(), mode)
-            os.fsync(outgoing.fileno())
+        ) as outgoing,
+    ):
+        file_copy.transfer(incoming, outgoing, item["bytes"], deadline=deadline)
+        outgoing.flush()
+        os.fchown(outgoing.fileno(), uid, gid)
+        os.fchmod(outgoing.fileno(), mode)
+        os.fsync(outgoing.fileno())
     # The backup was fully verified before copying. Independently read every
     # flushed destination while its pages are still local, then bind that proof
     # to its unchanged inode/metadata through completion on the stopped node.
@@ -211,6 +221,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
         "restore_policy.py",
         "backup.py",
         "backup_manifest.py",
+        "backup_objects.py",
         "manifest.py",
         "file_copy.py",
     ):
@@ -271,9 +282,10 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
                 )
         for domain in ("postgres", "artifacts", "imports", "factory"):
             path = LIVE[domain]
-            if path.exists() or path.is_symlink():
-                if path.is_symlink() or not path.is_dir() or next(path.iterdir(), None) is not None:
-                    raise DeliveryError("cold recovery target is not clean")
+            if (path.exists() or path.is_symlink()) and (
+                path.is_symlink() or not path.is_dir() or next(path.iterdir(), None) is not None
+            ):
+                raise DeliveryError("cold recovery target is not clean")
         recovery.mkdir(mode=0o700)
         (recovery / "history").mkdir(mode=0o700)
         install.exclusive_file(recovery / "prepared.json", canonical(record), 0o600)
@@ -290,12 +302,20 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
                 # Keep new directories Root-owned and writable until verified
                 # children are complete. Final ownership/mode is applied below.
         free = os.statvfs(Path("/var/lib/kf-onlinejudge"))
-        if free.f_frsize * free.f_bavail < value["payload_bytes"] + 128 * 1024**2:
+        if free.f_frsize * free.f_bavail < backup_manifest.logical_bytes(value) + 128 * 1024**2:
             raise DeliveryError("cold recovery destination reserve insufficient")
 
         def copy(item: dict) -> tuple[int, ...]:
             path, uid, gid, mode = target(item, recovery)
-            return write_file(root / "payload" / item["path"], path, item, uid, gid, mode, deadline)
+            return write_file(
+                backup_manifest.member_path(root, value, item),
+                path,
+                item,
+                uid,
+                gid,
+                mode,
+                deadline,
+            )
 
         witnesses = file_copy.bounded_copies(value["files"], copy, deadline=deadline)
         verified = {
@@ -326,7 +346,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
             unchanged_file(path, verified[item["path"]], uid, gid, mode)
         record.update(
             data_restored=True,
-            restored_payload_bytes=value["payload_bytes"],
+            restored_payload_bytes=backup_manifest.logical_bytes(value),
             restored_files=len(value["files"]),
             restored_directories=len(value["directories"]),
             historical_configuration_active=False,

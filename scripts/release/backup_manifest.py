@@ -17,9 +17,13 @@ from .policy import (
 )
 
 FORMAT = "kf.private.cold-backup.v3"
+OBJECT_FORMAT = "kf.private.cold-backup.v4"
 MAX_BYTES = 7 * 1024**3
 MAX_FILE_BYTES = 256 * 1024**2
 MAX_ENTRIES = 65536
+# v4 preserves logical versions independently of their deduplicated storage.
+MAX_LOGICAL_BYTES = 12 * 1024**3
+MAX_LOGICAL_ENTRIES = 81920
 MAX_METADATA_BYTES = 16 * 1024**2
 DOMAINS = {
     "postgres",
@@ -130,6 +134,8 @@ def validate_references(value: dict) -> dict:
 
 
 def validate(value: dict) -> dict:
+    version = value.get("schema_version") if isinstance(value, dict) else None
+    object_store = type(version) is int and version == 4
     fields(
         value,
         {
@@ -152,13 +158,14 @@ def validate(value: dict) -> dict:
             "payload_bytes",
             "restored",
             "execution_verified",
-        },
+        }
+        | ({"logical_bytes"} if object_store else set()),
         "private backup",
     )
     if (
         type(value["schema_version"]) is not int
-        or value["schema_version"] != 3
-        or value["format"] != FORMAT
+        or value["schema_version"] not in {3, 4}
+        or value["format"] != (OBJECT_FORMAT if object_store else FORMAT)
         or not isinstance(value["backup_id"], str)
         or re.fullmatch(r"bk-[0-9a-f]{32}", value["backup_id"]) is None
         or not isinstance(value["source_sha"], str)
@@ -238,23 +245,35 @@ def validate(value: dict) -> dict:
     if (
         not isinstance(dirs, list)
         or not isinstance(files, list)
-        or not 1 <= len(dirs) + len(files) <= MAX_ENTRIES
+        or not 1 <= len(dirs) + len(files) <= (MAX_LOGICAL_ENTRIES if object_store else MAX_ENTRIES)
     ):
         raise DeliveryError("backup inventory count exceeds bound")
     seen = set()
     for item in dirs:
         fields(item, {"path", "uid", "gid", "mode"}, "backup directory")
         _member(item, seen, directory=True)
-    total = 0
+    total, objects = 0, {}
     for item in files:
         fields(item, {"path", "uid", "gid", "mode", "bytes", "sha256"}, "backup file")
         _member(item, seen, directory=False)
         total += integer(item["bytes"], 0, MAX_FILE_BYTES, "backup file bytes")
         sha256(item["sha256"])
+        if item["sha256"] in objects and objects[item["sha256"]] != item["bytes"]:
+            raise DeliveryError("private backup object size conflict")
+        objects[item["sha256"]] = item["bytes"]
+    physical = sum(objects.values()) if object_store else total
     if (
         type(value["payload_bytes"]) is not int
-        or value["payload_bytes"] != total
-        or total > MAX_BYTES
+        or value["payload_bytes"] != physical
+        or physical > MAX_BYTES
+        or (
+            object_store
+            and (
+                type(value["logical_bytes"]) is not int
+                or value["logical_bytes"] != total
+                or total > MAX_LOGICAL_BYTES
+            )
+        )
     ):
         raise DeliveryError("private backup aggregate bytes differ")
     directories = {item["path"] for item in dirs}
@@ -276,6 +295,36 @@ def validate(value: dict) -> dict:
     if "postgres/PG_VERSION" not in lookup or "postgres/global/pg_control" not in lookup:
         raise DeliveryError("private backup lacks a cold PostgreSQL cluster")
     return value
+
+
+def logical_bytes(value: dict) -> int:
+    return value["logical_bytes"] if value["schema_version"] == 4 else value["payload_bytes"]
+
+
+def storage_directory(value: dict) -> str:
+    return "objects" if value["schema_version"] == 4 else "payload"
+
+
+def member_path(root: Path, value: dict, item: dict) -> Path:
+    return (
+        root
+        / storage_directory(value)
+        / (item["sha256"] if value["schema_version"] == 4 else item["path"])
+    )
+
+
+def named_member(root: Path, value: dict, name: str) -> Path:
+    for item in value["files"]:
+        if item["path"] == name:
+            return member_path(root, value, item)
+    raise DeliveryError("private backup required logical member missing")
+
+
+def physical_files(value: dict) -> list[dict]:
+    if value["schema_version"] == 3:
+        return value["files"]
+    objects = {item["sha256"]: item["bytes"] for item in value["files"]}
+    return [{"path": key, "sha256": key, "bytes": size} for key, size in objects.items()]
 
 
 def _member(item: dict, seen: set[str], *, directory: bool) -> None:
@@ -307,14 +356,14 @@ def verify(root: Path, expected: str) -> dict:
         raise DeliveryError("private backup directory required")
     path = root / "manifest.json"
     configuration.private(path)
-    if digest(path) != sha256(expected) or {p.name for p in root.iterdir()} != {
-        "manifest.json",
-        "payload",
-    }:
+    if digest(path) != sha256(expected):
         raise DeliveryError("private backup receipt or layout differs")
     value = validate(read_metadata(path))
+    storage = storage_directory(value)
+    if {p.name for p in root.iterdir()} != {"manifest.json", storage}:
+        raise DeliveryError("private backup receipt or layout differs")
     found_files, found_dirs = set(), set()
-    payload = root / "payload"
+    payload = root / storage
     preflight.protected(payload, directory=True)
     if stat.S_IMODE(payload.stat().st_mode) != 0o700:
         raise DeliveryError("private backup payload directory required")
@@ -322,7 +371,11 @@ def verify(root: Path, expected: str) -> dict:
         for member in names + files:
             p = Path(directory) / member
             info = p.lstat()
-            relative = name(p.relative_to(payload).as_posix())
+            relative = p.relative_to(payload).as_posix()
+            if value["schema_version"] == 4:
+                sha256(relative)
+            else:
+                name(relative)
             if info.st_uid != 0 or info.st_gid != 0 or p.is_symlink():
                 raise DeliveryError("private backup member ownership differs")
             if stat.S_ISDIR(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o700:
@@ -335,14 +388,39 @@ def verify(root: Path, expected: str) -> dict:
                 found_files.add(relative)
             else:
                 raise DeliveryError("private backup special or non-private member")
-            if len(found_files) + len(found_dirs) > MAX_ENTRIES:
+            if len(found_files) + len(found_dirs) > (
+                MAX_LOGICAL_ENTRIES if value["schema_version"] == 4 else MAX_ENTRIES
+            ):
                 raise DeliveryError("private backup traversal exceeds bound")
-    if found_dirs != {x["path"] for x in value["directories"]} or found_files != {
-        x["path"] for x in value["files"]
-    }:
+    physical = physical_files(value)
+    if found_dirs != (
+        {x["path"] for x in value["directories"]} if value["schema_version"] == 3 else set()
+    ) or found_files != {x["path"] for x in physical}:
         raise DeliveryError("private backup inventory differs")
-    for item in value["files"]:
+    from . import file_copy
+
+    for item in physical:
         p = payload / item["path"]
-        if p.stat().st_size != item["bytes"] or digest(p) != item["sha256"]:
+        before = p.lstat()
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or (before.st_uid, before.st_gid, stat.S_IMODE(before.st_mode)) != (0, 0, 0o600)
+            or before.st_size != item["bytes"]
+        ):
+            raise DeliveryError("private backup object protection changed")
+        with os.fdopen(os.open(p, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC), "rb") as stream:
+            if file_copy._identity(os.fstat(stream.fileno())) != file_copy._identity(before):
+                raise DeliveryError("private backup object changed before verification")
+            from hashlib import file_digest
+
+            observed = file_digest(stream, "sha256").hexdigest()
+            after = os.fstat(stream.fileno())
+        if (
+            before.st_size != item["bytes"]
+            or observed != item["sha256"]
+            or file_copy._identity(after) != file_copy._identity(before)
+            or file_copy._identity(p.lstat()) != file_copy._identity(before)
+        ):
             raise DeliveryError("private backup byte verification failed")
     return value
