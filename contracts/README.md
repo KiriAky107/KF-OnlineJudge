@@ -38,3 +38,14 @@ Coordinator 必须在事务锁内核对当前租约及状态规则，并将结�
 Python/Rust 的 `manifest_bytes` 输出同一 UTF-8 JSON：递归排序对象键，无额外空白/换行。
 清单摘要是这些确切字节的 SHA-256，不能使用数据库 JSONB 的输出顺序或任意 prettify 后的字节。
 共享 `canonical-manifest.v1.txt` 为合成示例的字节验收，平台内部响应复用这些序列化字节。
+
+## 离线恢复字节复制协议
+
+`restore-io-request/reply` v1 用于 Python 恢复操作器与 Sandbox 的 `kf-restore-io`。
+共享 37 项合法/非法元数据样例在 `tests/fixtures/restore-io/examples.json`。
+请求仅含固定域内规范文件名、既有 OS 身份/模式、字节数和摘要；不接受源/目标宿主路径、
+命令或服务操作。每行请求最多 256 KiB、回复 64 KiB；重复/未知字段、严格整数违规及
+总量/批次/状态不一致均拒绝。单批至多 256 文件、64 MiB，较大单文件独占批次且不超过
+256 MiB；整个已验证清单至多 98304 文件、12 GiB。接收端仍独立核对固定 Root 单元、
+真实限额、只读备份卷与停止的写入者。`execution_verified` 始终为 false；复制回复
+不能证明业务恢复、正常就绪、判题或恢复时间目标。Schema 描述结构，跨字段规则需模型校验。

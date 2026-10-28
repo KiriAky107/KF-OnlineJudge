@@ -37,12 +37,14 @@ Python 业务域分为 `identity`、`problems`、`submissions`、`community`、`
 
 Rust 分为 `kf-contracts`、`kf-sandbox`、`kf-engine`、`kf-worker`、`kf-coordinator` 五个 crate。
 协调器拥有执行状态写入权，判题 Worker 不直接写评测数据库。
+Sandbox 内的 `kf-restore-io` 仅在固定离线恢复单元中复制和核验固定数据域，
+通过共享有界协议接收文件记录；不启动程序、服务或写业务状态。
 沙箱执行入口每次核验隔离与限额，任何未验证配置继续拒绝执行。
 用户程序及隔离/超限验收只在独立、整体限额的无业务凭据测试 VM 内运行。
 
 ## 安装与检查
 
-工具链基线：Python 3.13.16 + uv、Rust 1.99.0、Node 26.10.0 + pnpm 11.28.4。
+工具链基线：Python 3.13.16 + uv、Rust 1.99.0、Node 26.11.1 + pnpm 11.28.4。
 Python 和 Rust 版本由工程配置固定，三套工程分别提交依赖锁文件。
 开发与构建使用 Linux 原生文件系统。
 

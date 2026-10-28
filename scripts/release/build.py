@@ -340,7 +340,7 @@ def build(repo: Path, inputs: Path, output: Path, work: Path) -> dict:
             name = raw.decode()
             relative_name("delivery/" + name)
             copy(repo / name, payload / "delivery" / name)
-    for name in ("kf-sandbox", "kf-worker", "kf-coordinator"):
+    for name in ("kf-sandbox", "kf-worker", "kf-coordinator", "kf-restore-io"):
         copy(repo / "judge/target/release" / name, payload / "bin" / name)
     for name in sorted(records):
         if name.startswith("python/lib/") or name == "python/bin/python3.13":

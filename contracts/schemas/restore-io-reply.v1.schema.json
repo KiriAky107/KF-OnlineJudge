@@ -1,0 +1,75 @@
+{
+  "$id": "urn:kf-oj:restore-io-reply:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "batch_id": {
+      "maximum": 98304,
+      "minimum": 0,
+      "title": "Batch Id",
+      "type": "integer"
+    },
+    "error": {
+      "enum": [
+        "none",
+        "protocol",
+        "guard",
+        "deadline",
+        "filesystem",
+        "bytes",
+        "identity"
+      ],
+      "title": "Error",
+      "type": "string"
+    },
+    "execution_verified": {
+      "const": false,
+      "title": "Execution Verified",
+      "type": "boolean"
+    },
+    "kind": {
+      "const": "restore.io.reply",
+      "title": "Kind",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "stage": {
+      "enum": [
+        "opened",
+        "verified",
+        "finished",
+        "refused"
+      ],
+      "title": "Stage",
+      "type": "string"
+    },
+    "verified_files": {
+      "maximum": 98304,
+      "minimum": 0,
+      "title": "Verified Files",
+      "type": "integer"
+    },
+    "verified_logical_bytes": {
+      "maximum": 12884901888,
+      "minimum": 0,
+      "title": "Verified Logical Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "stage",
+    "batch_id",
+    "verified_files",
+    "verified_logical_bytes",
+    "execution_verified",
+    "error"
+  ],
+  "title": "RestoreIOReply",
+  "type": "object"
+}

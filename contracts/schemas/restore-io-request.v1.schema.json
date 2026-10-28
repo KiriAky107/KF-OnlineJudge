@@ -1,0 +1,187 @@
+{
+  "$defs": {
+    "Batch": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "maximum": 98304,
+          "minimum": 1,
+          "title": "Batch Id",
+          "type": "integer"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/RestoreFile"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "title": "Files",
+          "type": "array"
+        },
+        "kind": {
+          "const": "restore.io.batch",
+          "title": "Kind",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "batch_id",
+        "files"
+      ],
+      "title": "Batch",
+      "type": "object"
+    },
+    "Finish": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "restore.io.finish",
+          "title": "Kind",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind"
+      ],
+      "title": "Finish",
+      "type": "object"
+    },
+    "Open": {
+      "additionalProperties": false,
+      "properties": {
+        "backup_id": {
+          "pattern": "^bk-[0-9a-f]{32}$",
+          "title": "Backup Id",
+          "type": "string"
+        },
+        "deadline_monotonic_ns": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Deadline Monotonic Ns",
+          "type": "integer"
+        },
+        "expected_files": {
+          "maximum": 98304,
+          "minimum": 1,
+          "title": "Expected Files",
+          "type": "integer"
+        },
+        "expected_logical_bytes": {
+          "maximum": 12884901888,
+          "minimum": 0,
+          "title": "Expected Logical Bytes",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "restore.io.open",
+          "title": "Kind",
+          "type": "string"
+        },
+        "recovery_id": {
+          "pattern": "^rr-[0-9a-f]{32}$",
+          "title": "Recovery Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "backup_id",
+        "recovery_id",
+        "expected_files",
+        "expected_logical_bytes",
+        "deadline_monotonic_ns"
+      ],
+      "title": "Open",
+      "type": "object"
+    },
+    "RestoreFile": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "maximum": 268435456,
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "gid": {
+          "maximum": 1205,
+          "minimum": 0,
+          "title": "Gid",
+          "type": "integer"
+        },
+        "mode": {
+          "title": "Mode",
+          "type": "integer"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "uid": {
+          "maximum": 1205,
+          "minimum": 0,
+          "title": "Uid",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "uid",
+        "gid",
+        "mode",
+        "bytes",
+        "sha256"
+      ],
+      "title": "RestoreFile",
+      "type": "object"
+    }
+  },
+  "$id": "urn:kf-oj:restore-io-request:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "restore.io.batch": "#/$defs/Batch",
+      "restore.io.finish": "#/$defs/Finish",
+      "restore.io.open": "#/$defs/Open"
+    },
+    "propertyName": "kind"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Open"
+    },
+    {
+      "$ref": "#/$defs/Batch"
+    },
+    {
+      "$ref": "#/$defs/Finish"
+    }
+  ],
+  "title": "RestoreIORequest"
+}

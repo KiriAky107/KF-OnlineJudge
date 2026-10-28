@@ -1437,3 +1437,35 @@ def test_proxy_previous_snapshot_retains_the_legacy_unit_and_binding_format(tmp_
     unit.chmod(0o644)
     assert proxy_install.known_snapshot(directory) == selected
     assert "--previous-certificate" not in unit.read_text()
+
+
+@pytest.mark.parametrize("support", ["legacy", "complete", "binary-only", "transport-only"])
+def test_native_restore_capability_requires_a_complete_pair_but_keeps_legacy(
+    ordinary_bundle, support
+):
+    bundle, _ = ordinary_bundle
+    data = json.loads((bundle / "manifest.json").read_bytes())
+    names = {
+        "legacy": [],
+        "complete": ["bin/kf-restore-io", "delivery/scripts/release/restore_native.py"],
+        "binary-only": ["bin/kf-restore-io"],
+        "transport-only": ["delivery/scripts/release/restore_native.py"],
+    }[support]
+    parents = set(data["directories"])
+    for name in names:
+        data["files"].append(
+            {
+                "path": name,
+                "bytes": 1,
+                "sha256": "b" * 64,
+                "mode": "0555" if name.startswith("bin/") else "0444",
+            }
+        )
+        data["payload_bytes"] += 1
+        parents.update(str(p) for p in Path(name).parents if str(p) != ".")
+    data["directories"] = sorted(parents)
+    if support in {"legacy", "complete"}:
+        assert manifest.validate(data) is data
+    else:
+        with pytest.raises(policy.DeliveryError, match="incomplete application bundle"):
+            manifest.validate(data)

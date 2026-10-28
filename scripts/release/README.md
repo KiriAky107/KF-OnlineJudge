@@ -411,6 +411,25 @@ all normal services and tasks are stopped. The stopped-state checks precede data
 verification and copying and run again before completion. Original identities,
 modes and replay IDs are preserved. Its PostgreSQL target is writable; the fresh
 RabbitMQ volume is checked through a read-only mount and receives no copied broker state.
+Version 4 delegates its file data plane to the selected bundle's `kf-restore-io`
+binary inside the existing 512 MiB/200% CPU/32-task restore unit. A single native
+process retains two joined worker threads and the verified file witnesses; it
+never forks a copy of Python's full inventory. Its only input is the versioned
+private stdio protocol, with fixed source/target domains and no command or path
+overrides. The binary independently checks Root capabilities, actual unit/node
+limits, the read-only backup volume and stopped writers. It starts no programs
+or services. Python retains its filesystem error cursors from before directory
+creation; the native child holds its own cursors before file writes. Both cursor
+sets are synchronized before completion. The original deadlines remain.
+Each batch copies, joins both workers, flushes the affected filesystems, then
+reads every target. Final directory sync and stopped/selected-identity checks
+precede the native inventory's complete metadata recheck and thread joins.
+Transport, copy, byte, sync or identity failure retains the partial target and
+returns no successful data receipt. There is no fallback after a native failure.
+Version 3 keeps the prior per-file implementation. Older complete bundles remain
+eligible for compatible software rollback; new native support requires both its
+binary and Python transport module in the bundle.
+
 Each restored file is flushed and read back in full. Within a joined half-batch,
 repeated digest/size groups can retain at most 8 MiB of reference bytes per reader.
 The first target receives an actual SHA-256 check; every later target is fully

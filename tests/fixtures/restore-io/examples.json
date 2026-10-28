@@ -1,0 +1,631 @@
+[
+  {
+    "name": "open",
+    "direction": "request",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.open",
+      "backup_id": "bk-11111111111111111111111111111111",
+      "recovery_id": "rr-22222222222222222222222222222222",
+      "expected_files": 1,
+      "expected_logical_bytes": 4,
+      "deadline_monotonic_ns": 1700000000000
+    }
+  },
+  {
+    "name": "batch",
+    "direction": "request",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "finish",
+    "direction": "request",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.finish"
+    }
+  },
+  {
+    "name": "opened",
+    "direction": "reply",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "opened",
+      "batch_id": 0,
+      "verified_files": 0,
+      "verified_logical_bytes": 0,
+      "execution_verified": false,
+      "error": "none"
+    }
+  },
+  {
+    "name": "verified",
+    "direction": "reply",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "verified",
+      "batch_id": 1,
+      "verified_files": 1,
+      "verified_logical_bytes": 4,
+      "execution_verified": false,
+      "error": "none"
+    }
+  },
+  {
+    "name": "finished",
+    "direction": "reply",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "finished",
+      "batch_id": 1,
+      "verified_files": 1,
+      "verified_logical_bytes": 4,
+      "execution_verified": false,
+      "error": "none"
+    }
+  },
+  {
+    "name": "refused",
+    "direction": "reply",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "refused",
+      "batch_id": 0,
+      "verified_files": 0,
+      "verified_logical_bytes": 0,
+      "execution_verified": false,
+      "error": "identity"
+    }
+  },
+  {
+    "name": "bad-open-schema_version-True",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": true,
+      "kind": "restore.io.open",
+      "backup_id": "bk-11111111111111111111111111111111",
+      "recovery_id": "rr-22222222222222222222222222222222",
+      "expected_files": 1,
+      "expected_logical_bytes": 4,
+      "deadline_monotonic_ns": 1700000000000
+    }
+  },
+  {
+    "name": "bad-open-expected_files-0",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.open",
+      "backup_id": "bk-11111111111111111111111111111111",
+      "recovery_id": "rr-22222222222222222222222222222222",
+      "expected_files": 0,
+      "expected_logical_bytes": 4,
+      "deadline_monotonic_ns": 1700000000000
+    }
+  },
+  {
+    "name": "bad-open-expected_files-98305",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.open",
+      "backup_id": "bk-11111111111111111111111111111111",
+      "recovery_id": "rr-22222222222222222222222222222222",
+      "expected_files": 98305,
+      "expected_logical_bytes": 4,
+      "deadline_monotonic_ns": 1700000000000
+    }
+  },
+  {
+    "name": "bad-open-expected_logical_bytes-12884901889",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.open",
+      "backup_id": "bk-11111111111111111111111111111111",
+      "recovery_id": "rr-22222222222222222222222222222222",
+      "expected_files": 1,
+      "expected_logical_bytes": 12884901889,
+      "deadline_monotonic_ns": 1700000000000
+    }
+  },
+  {
+    "name": "bad-open-deadline_monotonic_ns-1.0",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.open",
+      "backup_id": "bk-11111111111111111111111111111111",
+      "recovery_id": "rr-22222222222222222222222222222222",
+      "expected_files": 1,
+      "expected_logical_bytes": 4,
+      "deadline_monotonic_ns": 1.0
+    }
+  },
+  {
+    "name": "bad-open-backup_id-bk-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.open",
+      "backup_id": "bk-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "recovery_id": "rr-22222222222222222222222222222222",
+      "expected_files": 1,
+      "expected_logical_bytes": 4,
+      "deadline_monotonic_ns": 1700000000000
+    }
+  },
+  {
+    "name": "bad-open-recovery_id-rr-../etc",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.open",
+      "backup_id": "bk-11111111111111111111111111111111",
+      "recovery_id": "rr-../etc",
+      "expected_files": 1,
+      "expected_logical_bytes": 4,
+      "deadline_monotonic_ns": 1700000000000
+    }
+  },
+  {
+    "name": "bad-open-extra-1",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.open",
+      "backup_id": "bk-11111111111111111111111111111111",
+      "recovery_id": "rr-22222222222222222222222222222222",
+      "expected_files": 1,
+      "expected_logical_bytes": 4,
+      "deadline_monotonic_ns": 1700000000000,
+      "extra": 1
+    }
+  },
+  {
+    "name": "bad-file-path-artifacts/../x",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/../x",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "bad-file-path-artifacts/x/.ssh/id",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/x/.ssh/id",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "bad-file-path-artifacts",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "bad-file-path-x/y",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "x/y",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "bad-file-path-artifacts/你好",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/你好",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "bad-file-uid-1000",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1000,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "bad-file-gid-1201",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1201,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "bad-file-mode-2541",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 2541,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "bad-file-bytes--1",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": -1,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "bad-file-bytes-268435457",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 268435457,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "bad-file-bytes-False",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": false,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "bad-file-sha256-0000000000000000000000000000000000000000000000000000000000000000",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ]
+    }
+  },
+  {
+    "name": "duplicate-file",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        },
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "multi-large",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 67108864,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        },
+        {
+          "path": "artifacts/b",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "empty-batch",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 1,
+      "files": []
+    }
+  },
+  {
+    "name": "bad-reply-execution_verified-True",
+    "direction": "reply",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "opened",
+      "batch_id": 0,
+      "verified_files": 0,
+      "verified_logical_bytes": 0,
+      "execution_verified": true,
+      "error": "none"
+    }
+  },
+  {
+    "name": "bad-reply-execution_verified-0",
+    "direction": "reply",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "opened",
+      "batch_id": 0,
+      "verified_files": 0,
+      "verified_logical_bytes": 0,
+      "execution_verified": 0,
+      "error": "none"
+    }
+  },
+  {
+    "name": "bad-reply-stage-unknown",
+    "direction": "reply",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "unknown",
+      "batch_id": 0,
+      "verified_files": 0,
+      "verified_logical_bytes": 0,
+      "execution_verified": false,
+      "error": "none"
+    }
+  },
+  {
+    "name": "bad-reply-error-bytes",
+    "direction": "reply",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "opened",
+      "batch_id": 0,
+      "verified_files": 0,
+      "verified_logical_bytes": 0,
+      "execution_verified": false,
+      "error": "bytes"
+    }
+  },
+  {
+    "name": "bad-reply-verified_files-1",
+    "direction": "reply",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "opened",
+      "batch_id": 0,
+      "verified_files": 1,
+      "verified_logical_bytes": 0,
+      "execution_verified": false,
+      "error": "none"
+    }
+  },
+  {
+    "name": "bad-reply-schema_version-1.0",
+    "direction": "reply",
+    "valid": false,
+    "value": {
+      "schema_version": 1.0,
+      "kind": "restore.io.reply",
+      "stage": "opened",
+      "batch_id": 0,
+      "verified_files": 0,
+      "verified_logical_bytes": 0,
+      "execution_verified": false,
+      "error": "none"
+    }
+  },
+  {
+    "name": "bad-reply-extra-1",
+    "direction": "reply",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "opened",
+      "batch_id": 0,
+      "verified_files": 0,
+      "verified_logical_bytes": 0,
+      "execution_verified": false,
+      "error": "none",
+      "extra": 1
+    }
+  }
+]

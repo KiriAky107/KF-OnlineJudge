@@ -349,6 +349,11 @@ def validate(data: dict) -> dict:
         "frontend/admin/index.html",
         "deploy/release/contract.v1.json",
     }
+    # Older deliveries remain valid rollback candidates. New native restore
+    # support must be complete in both directions when either member is present.
+    restore_pair = {"bin/kf-restore-io", "delivery/scripts/release/restore_native.py"}
+    if seen & restore_pair:
+        required.update(restore_pair)
     required.update(f"images/{name}/manifest.json" for name in data["images"])
     if not required <= seen:
         raise DeliveryError("incomplete application bundle")

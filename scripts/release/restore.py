@@ -23,6 +23,7 @@ from . import (
     manifest,
     preflight,
     restore_io,
+    restore_native,
     restore_policy,
 )
 from .policy import DeliveryError, canonical, digest, sha256
@@ -295,6 +296,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
         "restore.py",
         "restore_policy.py",
         "restore_io.py",
+        "restore_native.py",
         "backup.py",
         "backup_manifest.py",
         "backup_objects.py",
@@ -345,6 +347,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
     }
     deadline = time.monotonic() + 1700
     filesystems = None
+    native = None
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         stopped()
@@ -398,15 +401,15 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
 
         if value["schema_version"] == 4:
             assert filesystems is not None
-            verified = restore_io.materialize(
-                value["files"],
-                lambda item: backup_manifest.member_path(root, value, item),
-                lambda item: _target(item["path"], item, recovery),
-                readback,
-                filesystems,
+            native = restore_native.Session(
+                payload,
+                backup_id,
+                recovery_id,
+                len(value["files"]),
+                backup_manifest.logical_bytes(value),
                 deadline,
-                group_readback=readback_group,
             )
+            native.materialize(value["files"])
         else:
             witnesses = file_copy.bounded_copies(value["files"], copy, deadline=deadline)
             verified = {
@@ -439,11 +442,17 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
         stopped()
         if install.selection() != selected:
             raise DeliveryError("selected recovery identity changed")
-        for item in value["files"]:
-            if time.monotonic() >= deadline:
-                raise DeliveryError("recovery verification deadline exceeded")
-            path, uid, gid, mode = _target(item["path"], item, recovery)
-            unchanged_file(path, verified[item["path"]], uid, gid, mode)
+        if native is not None:
+            # The native child retained every post-sync full-byte witness. It
+            # rechecks the complete inventory after final directory sync and
+            # stopped/selection proofs, then joins before this receipt exists.
+            native.finish()
+        else:
+            for item in value["files"]:
+                if time.monotonic() >= deadline:
+                    raise DeliveryError("recovery verification deadline exceeded")
+                path, uid, gid, mode = _target(item["path"], item, recovery)
+                unchanged_file(path, verified[item["path"]], uid, gid, mode)
         if filesystems is not None:
             filesystems.close()
             filesystems = None
@@ -461,10 +470,14 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
         return record
     finally:
         try:
-            if filesystems is not None:
-                filesystems.close()
+            if native is not None:
+                native.close()
         finally:
-            os.close(descriptor)
+            try:
+                if filesystems is not None:
+                    filesystems.close()
+            finally:
+                os.close(descriptor)
 
 
 def launch(recovery_id: str, backup_id: str, expected: str) -> dict:

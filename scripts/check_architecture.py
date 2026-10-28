@@ -108,8 +108,38 @@ def release_violations() -> list[str]:
     return violations
 
 
+def restore_copy_violations() -> list[str]:
+    """Keep the fixed offline data plane inside Sandbox and free of execution."""
+    root = ROOT / "judge/crates/sandbox"
+    manifest = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
+    entries = [row for row in manifest.get("bin", []) if row.get("name") == "kf-restore-io"]
+    if entries != [{"name": "kf-restore-io", "path": "src/restore_copy/main.rs"}]:
+        return ["kf-restore-io must remain the declared offline Sandbox entry"]
+    violations = []
+    for path in sorted((root / "src/restore_copy").glob("*.rs")):
+        text = path.read_text(encoding="utf-8")
+        # A source boundary check, complemented by actual Root/cgroup/IO VM tests.
+        for forbidden in (
+            "Command",
+            "std::net",
+            "kf_sandbox::",
+            "kf_engine::",
+            "kf_worker::",
+            "kf_coordinator::",
+            "libc::",
+            "execve",
+            "execv(",
+            "fork(",
+        ):
+            if forbidden in text:
+                violations.append(f"{path.relative_to(ROOT)}: offline copy cannot use {forbidden}")
+    return violations
+
+
 def main() -> None:
-    violations = python_violations() + rust_violations() + release_violations()
+    violations = (
+        python_violations() + rust_violations() + release_violations() + restore_copy_violations()
+    )
     if violations:
         print("\n".join(violations), file=sys.stderr)
         raise SystemExit(1)
