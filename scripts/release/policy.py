@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,9 @@ ROOTS = (
     "delivery/",
     "proxy/",
 )
-FORBIDDEN = {".git", ".localplan", "docs", "__pycache__", ".env", ".ssh"}
+FORBIDDEN = frozenset({".git", ".localplan", "docs", "__pycache__", ".env", ".ssh"})
+_UNSAFE_PARTS = FORBIDDEN | {".", ".."}
+_PAYLOAD_PATH = re.compile(r"[A-Za-z0-9_.+@-]{1,255}(?:/[A-Za-z0-9_.+@-]{1,255})*")
 
 
 class DeliveryError(ValueError):
@@ -57,16 +60,27 @@ def integer(value: Any, lower: int, upper: int, label: str) -> int:
     return value
 
 
-def relative_name(value: Any) -> str:
-    if not isinstance(value, str) or len(value) > 512:
-        raise DeliveryError("invalid payload path")
-    if not all(re.fullmatch(r"[A-Za-z0-9_.+@-]{1,255}", p) for p in value.split("/")):
+def _relative_name(value: str) -> str:
+    if _PAYLOAD_PATH.fullmatch(value) is None:
         raise DeliveryError("noncanonical payload path")
-    if any(p in {".", "..", *FORBIDDEN} for p in value.split("/")):
+    if _UNSAFE_PARTS.intersection(value.split("/")):
         raise DeliveryError("private or unsafe payload path")
     if not value.startswith(ROOTS) or value.endswith((".pyc", ".pyo")):
         raise DeliveryError("payload path outside delivery allowlist")
     return value
+
+
+# Only immutable lexical policy results are reused. No byte, path existence,
+# metadata, ownership, topology or execution decision is cached here. At most
+# 8192 already length-bounded strings survive in one process.
+_cached_relative_name = lru_cache(maxsize=8192)(_relative_name)
+
+
+def relative_name(value: Any) -> str:
+    if not isinstance(value, str) or len(value) > 512:
+        raise DeliveryError("invalid payload path")
+    # Custom string equality/hash implementations must never address the cache.
+    return _cached_relative_name(value) if type(value) is str else _relative_name(value)
 
 
 def unique_object(pairs):

@@ -3,10 +3,10 @@
 import errno
 import os
 import stat
+import threading
 import time
 from collections.abc import Callable, Sequence
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from itertools import islice
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from typing import BinaryIO, cast
 
 from .policy import MAX_FILE_BYTES, DeliveryError
@@ -34,32 +34,58 @@ def bounded_copies[Item, Result](
 
     remaining()
     if len(rows) < 2:
-        return [operation(row) for row in rows]
+        single = [operation(row) for row in rows]
+        remaining()
+        return single
     results: list[Result | None] = [None] * len(rows)
     source = iter(enumerate(rows))
-    with ThreadPoolExecutor(max_workers=min(IN_FLIGHT, len(rows))) as executor:
-        pending = {
-            executor.submit(operation, row): index for index, row in islice(source, IN_FLIGHT)
-        }
+    lock = threading.Lock()
+    stopped = False
+
+    def worker() -> None:
+        nonlocal stopped
         try:
-            while pending:
-                ready, _ = wait(pending, timeout=remaining(), return_when=FIRST_COMPLETED)
-                if not ready:
-                    raise DeliveryError("copy deadline exceeded; private partial target retained")
-                # Observe every completed failure before dispatching more work.
-                completed = [(pending.pop(future), future.result()) for future in ready]
-                for index, result in completed:
-                    results[index] = result
+            while True:
+                with lock:
+                    if stopped:
+                        return
+                    remaining()
                     following = next(source, None)
-                    if following is not None:
-                        index, row = following
-                        remaining()
-                        pending[executor.submit(operation, row)] = index
+                    if following is None:
+                        return
+                    index, row = following
+                result = operation(row)
+                with lock:
+                    results[index] = result
+        except BaseException:
+            # Stop dispatch before this future publishes failure. Running calls
+            # are still joined; their partial results cannot become a receipt.
+            with lock:
+                stopped = True
+            raise
+
+    # One future per worker, not per file. The locked iterator still admits
+    # only four individual operations, without an eagerly queued inventory.
+    count = min(IN_FLIGHT, len(rows))
+    with ThreadPoolExecutor(max_workers=count) as executor:
+        pending = []
+        try:
+            for _ in range(count):
+                pending.append(executor.submit(worker))
+            ready, incomplete = wait(pending, timeout=remaining(), return_when=FIRST_EXCEPTION)
+            for future in ready:
+                future.result()
+            if incomplete:
+                raise DeliveryError("copy deadline exceeded; private partial target retained")
+            remaining()
         finally:
+            with lock:
+                stopped = True
             for future in pending:
                 future.cancel()
-            # The executor joins running calls before this function can return
-            # or propagate an error. No success receipt can outrun file I/O.
+            # The executor joins every running call even after cancellation or
+            # deadline expiry. No success receipt can outrun file I/O.
+
     return cast(list[Result], results)
 
 

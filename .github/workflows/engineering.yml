@@ -109,6 +109,7 @@ jobs:
             tests/test_production_logging.py \
             tests/test_delivery.py \
             tests/test_delivery_io.py \
+            tests/test_delivery_validation_work.py \
             tests/test_delivery_backup.py \
             tests/test_delivery_restore_io.py \
             tests/test_restore_io_contracts.py \

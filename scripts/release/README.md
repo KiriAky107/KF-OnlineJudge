@@ -464,7 +464,14 @@ earlier formats retain per-file fsync.
 Public bundle inventories read every payload byte with at most four readers in
 flight. Each reader opens without following a final symlink and verifies the
 file identity and metadata before and after hashing. The inventory checks those
-identities again before returning. All readers are joined on success or failure.
+identities again before returning. Four persistent workers take one item at a
+time from a locked iterator; there is no Future for each file or eagerly queued
+inventory. Failure or deadline expiry stops dispatch, and all running calls join
+before an error or result returns. Results retain the input order.
+Payload path spelling checks use the same immutable allowlist and may retain at
+most 8192 successful, length-bounded strings per process. Custom string subclasses
+bypass this cache. Byte reads, filesystem topology, ownership and all metadata
+checks remain live; no filesystem or execution result enters the lexical cache.
 
 During one `start`, `resume` or `restart`, the fixed Root maintenance helper reads
 the complete bundle once. Its Root startup checks and node-health helpers can
