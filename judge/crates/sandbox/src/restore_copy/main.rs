@@ -488,6 +488,46 @@ mod tests {
     }
 
     #[test]
+    fn streamed_verified_pages_preserve_repeated_large_bytes_and_all_witnesses() {
+        let fixture = files::Fixture::new();
+        let roots = Arc::new(fixture.roots());
+        let data = vec![b'v'; 8 * 1024 * 1024];
+        let hash = format!("{:x}", Sha256::digest(&data));
+        let source = fixture.source().join(&hash);
+        fs::write(&source, &data).unwrap();
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+        use std::os::unix::fs::MetadataExt;
+        let owner = fs::metadata(&source).unwrap();
+        let rows = (0..3)
+            .map(|index| restore_io::RestoreFile {
+                path: format!("artifacts/stream-{index}"),
+                uid: owner.uid(),
+                gid: owner.gid(),
+                mode: 0o644,
+                bytes: data.len() as u64,
+                sha256: hash.clone(),
+            })
+            .collect();
+        let pool = Pool::new(Arc::clone(&roots)).unwrap_or_else(|_| panic!("pool"));
+        let verified = pool
+            .materialize(rows, &roots, now().unwrap() + 10_000_000_000)
+            .unwrap_or_else(|_| panic!("streamed verified copies"));
+        assert_eq!(verified.len(), 3);
+        for row in &verified {
+            roots
+                .final_file(row)
+                .unwrap_or_else(|_| panic!("final witness"));
+            let name = row.row.path.strip_prefix("artifacts/").unwrap();
+            assert_eq!(fs::read(fixture.target().join(name)).unwrap(), data);
+            roots
+                .final_file(row)
+                .unwrap_or_else(|_| panic!("unchanged witness"));
+        }
+        drop(pool);
+        roots.unchanged().unwrap_or_else(|_| panic!("root anchors"));
+    }
+
+    #[test]
     fn request_line_requires_finite_complete_frame() {
         assert!(matches!(
             request(&mut &b"{\"schema_version\":1,\"kind\":\"restore.io.finish\"}\n"[..]),

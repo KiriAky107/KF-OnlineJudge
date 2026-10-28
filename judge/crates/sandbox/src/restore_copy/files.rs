@@ -335,6 +335,12 @@ impl Roots {
                 retain,
                 &mut buffer,
             )?;
+            // These historical destination bytes have already been synchronized
+            // and fully verified. Keep their clean pages out of this finite
+            // restore working set; all descriptor/path witnesses still follow.
+            remaining(deadline)?;
+            rustix::fs::fadvise(&input, 0, None, rustix::fs::Advice::DontNeed)
+                .map_err(|_| Error::Filesystem)?;
             if stamp(&input.metadata().map_err(|_| Error::Filesystem)?)? != pending.witness
                 || anchor.observed(name)? != pending.witness
             {

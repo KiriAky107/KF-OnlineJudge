@@ -515,6 +515,11 @@ The native restore helper keeps two joined threads and partitions each fixed bat
 into contiguous groups that minimize the heavier byte count. Ties prefer balanced
 file counts. Copy order, synchronization, complete byte readback and final
 nine-field witnesses are preserved; no extra worker or batch capacity is added.
+After synchronization and complete byte verification, the native helper asks the
+kernel to release clean cached pages for that restored file. Descriptor and path
+witnesses are still checked afterwards. This per-file streaming hint avoids
+retaining historical file contents in the fixed restore memory budget; it does
+not change file bytes, durability, limits or the live filesystem checks.
 Old configuration and maintenance receipts go into inactive
 `recovery/ID/history/`. The new boot's Sandbox preparation owns cgroup recreation.
 Unknown/nonempty targets and differing existing files are refused; partial restores
