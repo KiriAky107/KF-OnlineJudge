@@ -29,6 +29,24 @@ ROOTS = (
 FORBIDDEN = frozenset({".git", ".localplan", "docs", "__pycache__", ".env", ".ssh"})
 _UNSAFE_PARTS = FORBIDDEN | {".", ".."}
 _PAYLOAD_PATH = re.compile(r"[A-Za-z0-9_.+@-]{1,255}(?:/[A-Za-z0-9_.+@-]{1,255})*")
+BYTECODE_ROOTS = ("python/lib/python3.13/", "site/", "backend/src/", "delivery/")
+BYTECODE_TAG = ".cpython-313.pyc"
+
+
+def bytecode_source(value: str) -> str | None:
+    """A source-adjacent, unoptimized cache has exactly one fixed spelling."""
+    parent, _, leaf = value.rpartition("/")
+    directory, separator, cache = parent.rpartition("/")
+    if (
+        not separator
+        or cache != "__pycache__"
+        or not value.startswith(BYTECODE_ROOTS)
+        or value.split("/").count("__pycache__") != 1
+        or not leaf.endswith(BYTECODE_TAG)
+        or not leaf.removesuffix(BYTECODE_TAG)
+    ):
+        return None
+    return directory + "/" + leaf.removesuffix(BYTECODE_TAG) + ".py"
 
 
 class DeliveryError(ValueError):
@@ -63,9 +81,17 @@ def integer(value: Any, lower: int, upper: int, label: str) -> int:
 def _relative_name(value: str) -> str:
     if _PAYLOAD_PATH.fullmatch(value) is None:
         raise DeliveryError("noncanonical payload path")
-    if _UNSAFE_PARTS.intersection(value.split("/")):
+    parts = value.split("/")
+    cache_file = bytecode_source(value) is not None
+    cache_directory = (
+        value.startswith(BYTECODE_ROOTS)
+        and parts[-2:] == ["__pycache__", ".__directory__"]
+        and parts.count("__pycache__") == 1
+    )
+    unsafe = _UNSAFE_PARTS - {"__pycache__"} if cache_file or cache_directory else _UNSAFE_PARTS
+    if unsafe.intersection(parts):
         raise DeliveryError("private or unsafe payload path")
-    if not value.startswith(ROOTS) or value.endswith((".pyc", ".pyo")):
+    if not value.startswith(ROOTS) or (value.endswith((".pyc", ".pyo")) and not cache_file):
         raise DeliveryError("payload path outside delivery allowlist")
     return value
 

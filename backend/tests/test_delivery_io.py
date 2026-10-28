@@ -308,7 +308,27 @@ def test_payload_reader_refuses_identity_drift_model(ordinary_bundle, monkeypatc
     expected = list(manifest._file_stamp(info))
     expected[index] += 1
     with pytest.raises(policy.DeliveryError, match="changed before byte verification"):
-        manifest._read_payload((path, tuple(expected), {"path": "frontend/index.html"}))
+        manifest._read_payload((path, tuple(expected), {"path": "frontend/index.html"}, None))
+
+
+@pytest.mark.parametrize("source_present,mode", [(False, "0444"), (True, "0555")])
+def test_manifest_rejects_orphan_or_executable_bytecode(ordinary_bundle, source_present, mode):
+    bundle, _ = ordinary_bundle
+    data = json.loads((bundle / "manifest.json").read_bytes())
+    if source_present:
+        data["files"].append(
+            {"path": "site/toy.py", "bytes": 0, "mode": "0444", "sha256": "b" * 64}
+        )
+    data["files"].append(
+        {
+            "path": "site/__pycache__/toy.cpython-313.pyc",
+            "bytes": 0,
+            "mode": mode,
+            "sha256": "b" * 64,
+        }
+    )
+    with pytest.raises(policy.DeliveryError, match="bytecode requires its inventoried source"):
+        manifest.validate(data)
 
 
 def test_same_operation_reuses_bytes_but_not_mutable_metadata(ordinary_bundle, monkeypatch):

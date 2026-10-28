@@ -9,7 +9,7 @@ import stat
 import subprocess
 from pathlib import Path
 
-from . import manifest, proxy_runtime
+from . import bytecode, manifest, proxy_runtime
 from .policy import DeliveryError, contract, digest, fields, read_json, relative_name, sha256
 
 ENTRYPOINTS = {
@@ -406,6 +406,7 @@ def build(repo: Path, inputs: Path, output: Path, work: Path) -> dict:
         proxy_runtime.copy_to_payload(
             Path(spec["proxy"]["root"]), spec["proxy"]["catalog_sha256"], payload / "proxy"
         )
+    bytecode.compile_payload(payload, "sd-" + source_sha[:12])
     for directory, directories, _ in os.walk(payload, topdown=False):
         for name in directories:
             (Path(directory) / name).chmod(0o555)

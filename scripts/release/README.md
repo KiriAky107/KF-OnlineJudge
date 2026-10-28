@@ -22,6 +22,15 @@ production dependencies and separately fingerprinted public runtimes. Backend
 source ships with those dependencies; uvx/pip and startup hooks are not runtime
 entry points.
 
+The pinned Python 3.13.16 builder compiles checked-hash bytecode from the copied
+stdlib, dependencies, backend and delivery sources. It never copies existing
+caches. Each read-only `__pycache__/*.cpython-313.pyc` file is included in the full
+bundle inventory, must have its source in that inventory, and has its interpreter
+header and source hash checked during byte verification. Other cache versions,
+timestamp or unchecked caches, orphan caches and caches inside judging images are
+refused. Services keep `PYTHONDONTWRITEBYTECODE=1`; they can read these verified
+caches without creating runtime files. Original source-only bundles remain valid.
+
 Build inputs contain explicit inventories and expected SHA-256 digests for public
 runtimes and the three image catalogs. Keep real input paths and receipts outside
 Git. The build receipt records source and manifest digests, file count and byte

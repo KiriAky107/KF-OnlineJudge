@@ -21,6 +21,7 @@ from .policy import (
     PLATFORM,
     TOOLCHAINS,
     DeliveryError,
+    bytecode_source,
     canonical,
     digest,
     fields,
@@ -164,12 +165,17 @@ def _file_stamp(info: os.stat_result) -> tuple[int, ...]:
     )
 
 
-def _read_payload(row: tuple[Path, tuple[int, ...], dict]) -> dict:
-    path, expected, record = row
+def _read_payload(row: tuple[Path, tuple[int, ...], dict, Path | None]) -> dict:
+    path, expected, record, source = row
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     with os.fdopen(descriptor, "rb") as stream:
         if _file_stamp(os.fstat(stream.fileno())) != expected:
             raise DeliveryError("payload file changed before byte verification")
+        if source is not None:
+            from .bytecode import verify_header
+
+            verify_header(stream.read(16), source)
+            stream.seek(0)
         checked = hashlib.file_digest(stream, "sha256").hexdigest()
         after = _file_stamp(os.fstat(stream.fileno()))
     if after != expected or _file_stamp(path.lstat()) != expected:
@@ -205,6 +211,7 @@ def inventory(root: Path, *, path_prefix: str = "") -> list[dict]:
                 raise DeliveryError("payload aggregate limit")
             relative = path.relative_to(root).as_posix()
             relative_name(path_prefix + relative)
+            source_name = bytecode_source(path_prefix + relative)
             entries.append(
                 (
                     path,
@@ -214,12 +221,15 @@ def inventory(root: Path, *, path_prefix: str = "") -> list[dict]:
                         "bytes": size,
                         "mode": "0555" if info.st_mode & 0o111 else "0444",
                     },
+                    root / source_name.removeprefix(path_prefix)
+                    if source_name is not None
+                    else None,
                 )
             )
     # The same finite four-call scheduler used for durable file copies also
     # bounds reads. It joins every dispatched reader before returning or raising.
     verified = file_copy.bounded_copies(entries, _read_payload)
-    for path, expected, _ in entries:
+    for path, expected, _, _ in entries:
         if _file_stamp(path.lstat()) != expected:
             raise DeliveryError("payload file changed before inventory completion")
     return sorted(verified, key=lambda x: x["path"])
@@ -339,6 +349,10 @@ def validate(data: dict) -> dict:
         or data["payload_bytes"] != total
     ):
         raise DeliveryError("bundle byte total")
+    for entry in files:
+        source = bytecode_source(entry["path"])
+        if source is not None and (source not in seen or entry["mode"] != "0444"):
+            raise DeliveryError("bytecode requires its inventoried source and read-only mode")
     required = {
         "bin/kf-sandbox",
         "bin/kf-worker",
