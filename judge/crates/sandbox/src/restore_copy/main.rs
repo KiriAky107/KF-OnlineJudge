@@ -29,6 +29,29 @@ fn remaining(deadline: u64) -> Result<()> {
     Ok(())
 }
 
+// Preserve contiguous hash/path order while minimizing the heavier byte group.
+// Equal-byte choices prefer the original balanced file count (including zeroes).
+fn balanced_split(rows: &[restore_io::RestoreFile]) -> usize {
+    if rows.len() <= 1 {
+        return rows.len();
+    }
+    let middle = rows.len().div_ceil(2);
+    let total: u64 = rows.iter().map(|row| row.bytes).sum();
+    let mut prefix = 0;
+    let mut best = (u64::MAX, usize::MAX);
+    let mut chosen = middle;
+    for (index, row) in rows.iter().take(rows.len() - 1).enumerate() {
+        prefix += row.bytes;
+        let split = index + 1;
+        let cost = (prefix.max(total - prefix), split.abs_diff(middle));
+        if cost < best {
+            best = cost;
+            chosen = split;
+        }
+    }
+    chosen
+}
+
 enum Job {
     Copy(Vec<restore_io::RestoreFile>, u64),
     Read(Vec<Pending>, u64),
@@ -89,18 +112,18 @@ impl Pool {
         roots: &Roots,
         deadline: u64,
     ) -> Result<Vec<Pending>> {
-        let size = rows.len().div_ceil(2);
-        let mut groups = vec![Vec::new(), Vec::new()];
-        for (i, row) in rows.into_iter().enumerate() {
-            groups[i / size].push(row);
-        }
+        let count = rows.len();
+        let split = balanced_split(&rows);
+        let mut rows = rows;
+        let second = rows.split_off(split);
+        let groups = [rows, second];
         for (worker, group) in self.workers.iter().zip(groups) {
             worker
                 .sender
                 .send(Job::Copy(group, deadline))
                 .map_err(|_| Error::Filesystem)?;
         }
-        let mut pending = Vec::with_capacity(size * 2);
+        let mut pending = Vec::with_capacity(count);
         let mut error = None;
         // Observe both completions even when the first failed. No sync/readback
         // and no success response can outrun an outstanding copy worker.
@@ -119,17 +142,15 @@ impl Pool {
             return Err(e);
         }
         roots.sync(deadline)?;
-        let mut groups = vec![Vec::new(), Vec::new()];
-        for (i, row) in pending.into_iter().enumerate() {
-            groups[i / size].push(row);
-        }
+        let second = pending.split_off(split);
+        let groups = [pending, second];
         for (worker, group) in self.workers.iter().zip(groups) {
             worker
                 .sender
                 .send(Job::Read(group, deadline))
                 .map_err(|_| Error::Filesystem)?;
         }
-        let mut verified = Vec::with_capacity(size * 2);
+        let mut verified = Vec::with_capacity(count);
         for worker in &self.workers {
             match worker.receiver.recv() {
                 Ok(Completed::Read(Ok(rows))) => verified.extend(rows),
@@ -384,6 +405,86 @@ mod tests {
         }
         drop(pool);
         roots.unchanged().unwrap_or_else(|_| panic!("root anchors"));
+    }
+
+    fn weighted_rows(weights: &[u64]) -> Vec<restore_io::RestoreFile> {
+        weights
+            .iter()
+            .enumerate()
+            .map(|(index, &bytes)| restore_io::RestoreFile {
+                path: format!("artifacts/file-{index}"),
+                uid: 1000,
+                gid: 1000,
+                mode: 0o644,
+                bytes,
+                sha256: "0".repeat(64),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_small_weight_inventory_has_minimal_contiguous_heavier_group() {
+        assert_eq!(balanced_split(&[]), 0);
+        assert_eq!(balanced_split(&weighted_rows(&[9])), 1);
+        assert_eq!(balanced_split(&weighted_rows(&[0; 5])), 3);
+        assert_eq!(balanced_split(&weighted_rows(&[1, 1, 1, 20])), 3);
+        assert_eq!(balanced_split(&weighted_rows(&[20, 1, 1, 1])), 1);
+        for count in 2u32..=6 {
+            for mut encoded in 0..3usize.pow(count) {
+                let weights: Vec<_> = (0..count)
+                    .map(|_| {
+                        let weight = [0, 1, 13][encoded % 3];
+                        encoded /= 3;
+                        weight
+                    })
+                    .collect();
+                let rows = weighted_rows(&weights);
+                let split = balanced_split(&rows);
+                assert!(split > 0 && split < rows.len());
+                let cost = |at| {
+                    let (a, b) = weights.split_at(at);
+                    a.iter().sum::<u64>().max(b.iter().sum())
+                };
+                assert!((1..rows.len()).all(|other| cost(split) <= cost(other)));
+            }
+        }
+    }
+
+    #[test]
+    fn skewed_groups_keep_every_copy_sync_readback_and_final_witness() {
+        for weights in [[64, 64, 64, 4096], [4096, 64, 64, 64]] {
+            let fixture = files::Fixture::new();
+            let roots = Arc::new(fixture.roots());
+            let mut rows = weighted_rows(&weights);
+            use std::os::unix::fs::MetadataExt;
+            let owner = fs::metadata(fixture.source()).unwrap();
+            for row in &mut rows {
+                let data = vec![b'x'; row.bytes as usize];
+                row.sha256 = format!("{:x}", Sha256::digest(&data));
+                row.uid = owner.uid();
+                row.gid = owner.gid();
+                let source = fixture.source().join(&row.sha256);
+                fs::write(&source, &data).unwrap();
+                fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+            }
+            let pool = Pool::new(Arc::clone(&roots)).unwrap_or_else(|_| panic!("pool"));
+            let verified = pool
+                .materialize(rows, &roots, now().unwrap() + 10_000_000_000)
+                .unwrap_or_else(|_| panic!("skewed verified copies"));
+            assert_eq!(verified.len(), weights.len());
+            for row in &verified {
+                roots
+                    .final_file(row)
+                    .unwrap_or_else(|_| panic!("final witness"));
+                let name = row.row.path.strip_prefix("artifacts/").unwrap();
+                assert_eq!(
+                    fs::read(fixture.target().join(name)).unwrap(),
+                    vec![b'x'; row.row.bytes as usize]
+                );
+            }
+            drop(pool);
+            roots.unchanged().unwrap_or_else(|_| panic!("root anchors"));
+        }
     }
 
     #[test]

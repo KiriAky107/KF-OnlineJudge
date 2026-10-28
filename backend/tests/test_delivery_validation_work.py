@@ -87,9 +87,9 @@ def test_lexical_cache_is_bounded_and_custom_hash_cannot_bypass_policy():
         with pytest.raises(policy.DeliveryError, match="private or unsafe"):
             policy.relative_name(Collision("backend/../escape"))
         assert policy._cached_relative_name.cache_info() == before
-        for index in range(9000):
+        for index in range(20000):
             policy.relative_name("backend/member-" + str(index))
-        assert policy._cached_relative_name.cache_info().currsize == 8192
+        assert policy._cached_relative_name.cache_info().currsize == 16384
     finally:
         policy._cached_relative_name.cache_clear()
 

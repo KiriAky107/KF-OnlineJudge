@@ -478,7 +478,7 @@ time from a locked iterator; there is no Future for each file or eagerly queued
 inventory. Failure or deadline expiry stops dispatch, and all running calls join
 before an error or result returns. Results retain the input order.
 Payload path spelling checks use the same immutable allowlist and may retain at
-most 8192 successful, length-bounded strings per process. Custom string subclasses
+most 16384 successful, length-bounded strings per process. Custom string subclasses
 bypass this cache. Byte reads, filesystem topology, ownership and all metadata
 checks remain live; no filesystem or execution result enters the lexical cache.
 
@@ -511,6 +511,10 @@ directory finalization and success receipts wait for all dispatched work. On
 failure, queued work is cancelled and running calls are joined before the error
 returns. Private partial data is retained for inspection. The original operator
 CPU, memory, PID and deadline limits still apply.
+The native restore helper keeps two joined threads and partitions each fixed batch
+into contiguous groups that minimize the heavier byte count. Ties prefer balanced
+file counts. Copy order, synchronization, complete byte readback and final
+nine-field witnesses are preserved; no extra worker or batch capacity is added.
 Old configuration and maintenance receipts go into inactive
 `recovery/ID/history/`. The new boot's Sandbox preparation owns cgroup recreation.
 Unknown/nonempty targets and differing existing files are refused; partial restores

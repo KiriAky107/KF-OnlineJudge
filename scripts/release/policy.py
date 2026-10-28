@@ -98,8 +98,8 @@ def _relative_name(value: str) -> str:
 
 # Only immutable lexical policy results are reused. No byte, path existence,
 # metadata, ownership, topology or execution decision is cached here. At most
-# 8192 already length-bounded strings survive in one process.
-_cached_relative_name = lru_cache(maxsize=8192)(_relative_name)
+# 16384 already length-bounded strings survive in one process.
+_cached_relative_name = lru_cache(maxsize=16384)(_relative_name)
 
 
 def relative_name(value: Any) -> str:
