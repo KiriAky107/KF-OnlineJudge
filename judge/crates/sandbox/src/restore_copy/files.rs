@@ -266,22 +266,20 @@ impl Roots {
         {
             return Err(Error::Identity);
         }
-        let current = output.metadata().map_err(|_| Error::Filesystem)?;
-        let changed = (current.uid(), current.gid()) != (uid, gid);
+        // This descriptor was exclusively created by this copy. Its initial
+        // owner/mode decides the required changes; the final fstat below still
+        // checks the complete resulting file after every write and mode change.
+        let changed = (empty.uid(), empty.gid()) != (uid, gid);
         if changed {
             rustix::fs::fchown(&output, Some(Uid::from_raw(uid)), Some(Gid::from_raw(gid)))
                 .map_err(|_| Error::Filesystem)?;
         }
-        let mode_changed = changed || current.mode() & 0o7777 != mode;
+        let mode_changed = changed || empty.mode() & 0o7777 != mode;
         if mode_changed {
             rustix::fs::fchmod(&output, Mode::from_raw_mode(mode))
                 .map_err(|_| Error::Filesystem)?;
         }
-        let final_info = if mode_changed {
-            output.metadata().map_err(|_| Error::Filesystem)?
-        } else {
-            current
-        };
+        let final_info = output.metadata().map_err(|_| Error::Filesystem)?;
         member(&final_info, &row, uid, gid, mode)?;
         let witness = stamp(&final_info)?;
         drop(output);
@@ -458,6 +456,13 @@ fn verify(
             data.extend_from_slice(&buffer[..count]);
         }
         total = end;
+        // A short read already delivered every declared byte. The caller
+        // checks the same descriptor/path full nine-field witness (including
+        // exact size) before and after verification, so a changed or longer
+        // file still fails. Exact buffer multiples still require an explicit EOF read.
+        if total as u64 == row.bytes && count < buffer.len() {
+            break;
+        }
     }
     if total as u64 != row.bytes
         || hasher.is_some_and(|h| format!("{:x}", h.finalize()) != row.sha256)

@@ -520,6 +520,14 @@ kernel to release clean cached pages for that restored file. Descriptor and path
 witnesses are still checked afterwards. This per-file streaming hint avoids
 retaining historical file contents in the fixed restore memory budget; it does
 not change file bytes, durability, limits or the live filesystem checks.
+For an exclusively created destination, its initial descriptor owner and mode
+select the necessary changes; an unconditional final descriptor check still
+confirms the complete file size, owner, mode and all nine identity fields.
+A short read that supplies every declared byte completes hashing or byte equality
+without another EOF-only read. Full descriptor/path size and identity checks
+still surround the readback; empty files and exact buffer multiples retain an
+explicit EOF read. Source EOF checks, synchronization and final all-file witnesses
+are unchanged.
 Old configuration and maintenance receipts go into inactive
 `recovery/ID/history/`. The new boot's Sandbox preparation owns cgroup recreation.
 Unknown/nonempty targets and differing existing files are refused; partial restores

@@ -528,6 +528,97 @@ mod tests {
     }
 
     #[test]
+    fn exact_lengths_and_unchanged_create_mode_keep_complete_readback() {
+        let fixture = files::Fixture::new();
+        let roots = Arc::new(fixture.roots());
+        use std::os::unix::fs::MetadataExt;
+        let owner = fs::metadata(fixture.source()).unwrap();
+        let mut rows = Vec::new();
+        for (index, size) in [0, 13, 1024 * 1024, 1024 * 1024 + 13]
+            .into_iter()
+            .enumerate()
+        {
+            let mut data = vec![b'a'; size];
+            if let Some(last) = data.last_mut() {
+                *last = b'z';
+            }
+            let hash = format!("{:x}", Sha256::digest(&data));
+            fs::write(fixture.source().join(&hash), &data).unwrap();
+            fs::set_permissions(
+                fixture.source().join(&hash),
+                fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+            rows.push(restore_io::RestoreFile {
+                path: format!("artifacts/length-{index}"),
+                uid: owner.uid(),
+                gid: owner.gid(),
+                mode: 0o600,
+                bytes: size as u64,
+                sha256: hash,
+            });
+        }
+        let pool = Pool::new(Arc::clone(&roots)).unwrap_or_else(|_| panic!("pool"));
+        for _ in 0..2 {
+            let verified = pool
+                .materialize(rows.clone(), &roots, now().unwrap() + 10_000_000_000)
+                .unwrap_or_else(|_| panic!("complete lengths including existing files"));
+            assert_eq!(verified.len(), 4);
+            for pending in &verified {
+                roots
+                    .final_file(pending)
+                    .unwrap_or_else(|_| panic!("final witness"));
+                let name = pending.row.path.strip_prefix("artifacts/").unwrap();
+                let data = fs::read(fixture.target().join(name)).unwrap();
+                assert_eq!(data.len() as u64, pending.row.bytes);
+                assert_eq!(format!("{:x}", Sha256::digest(&data)), pending.row.sha256);
+                assert_eq!(
+                    fs::metadata(fixture.target().join(name))
+                        .unwrap()
+                        .permissions()
+                        .mode()
+                        & 0o7777,
+                    0o600
+                );
+            }
+        }
+        drop(pool);
+        roots.unchanged().unwrap_or_else(|_| panic!("root anchors"));
+    }
+
+    #[test]
+    fn short_final_chunk_still_refuses_a_wrong_last_byte() {
+        for size in [13, 1024 * 1024 + 13] {
+            let fixture = files::Fixture::new();
+            let roots = Arc::new(fixture.roots());
+            let mut data = vec![b'a'; size];
+            let expected = format!("{:x}", Sha256::digest(&data));
+            *data.last_mut().unwrap() = b'z';
+            let source = fixture.source().join(&expected);
+            fs::write(&source, data).unwrap();
+            fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+            use std::os::unix::fs::MetadataExt;
+            let owner = fs::metadata(&source).unwrap();
+            let pool = Pool::new(Arc::clone(&roots)).unwrap_or_else(|_| panic!("pool"));
+            assert!(matches!(
+                pool.materialize(
+                    vec![restore_io::RestoreFile {
+                        path: "artifacts/wrong-last-byte".into(),
+                        uid: owner.uid(),
+                        gid: owner.gid(),
+                        mode: 0o600,
+                        bytes: size as u64,
+                        sha256: expected,
+                    }],
+                    &roots,
+                    now().unwrap() + 10_000_000_000
+                ),
+                Err(Error::Bytes)
+            ));
+        }
+    }
+
+    #[test]
     fn request_line_requires_finite_complete_frame() {
         assert!(matches!(
             request(&mut &b"{\"schema_version\":1,\"kind\":\"restore.io.finish\"}\n"[..]),
