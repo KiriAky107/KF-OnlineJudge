@@ -120,8 +120,11 @@ def pending_file(
 ) -> tuple[int, ...]:
     """Materialize only; this witness cannot certify bytes before batch readback."""
     remaining(deadline)
-    if path.exists() or path.is_symlink():
+    try:
         info = path.lstat()
+    except FileNotFoundError:
+        info = None
+    if info is not None:
         if (
             not stat.S_ISREG(info.st_mode)
             or info.st_nlink != 1
@@ -143,9 +146,17 @@ def pending_file(
     ):
         file_copy.transfer(incoming, outgoing, item["bytes"], deadline=deadline)
         outgoing.flush()
-        os.fchown(outgoing.fileno(), uid, gid)
-        os.fchmod(outgoing.fileno(), mode)
-        witness = file_copy._identity(os.fstat(outgoing.fileno()))
+        current = os.fstat(outgoing.fileno())
+        changed = False
+        if (current.st_uid, current.st_gid) != (uid, gid):
+            os.fchown(outgoing.fileno(), uid, gid)
+            changed = True
+        # fchown may clear executable/set-ID bits; always restore the requested
+        # allowed mode after an ownership change, even if it matched before.
+        if changed or stat.S_IMODE(current.st_mode) != mode:
+            os.fchmod(outgoing.fileno(), mode)
+            changed = True
+        witness = file_copy._identity(os.fstat(outgoing.fileno()) if changed else current)
     if file_copy._identity(path.lstat()) != witness:
         raise DeliveryError("recovery destination changed before synchronization")
     return witness

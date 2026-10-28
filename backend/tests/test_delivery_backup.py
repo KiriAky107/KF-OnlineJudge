@@ -302,3 +302,48 @@ def test_delayed_filesystem_write_error_is_not_success(tmp_path, monkeypatch):
     monkeypatch.setattr(backup_objects.ctypes, "CDLL", lambda *_, **__: Library())
     with pytest.raises(policy.DeliveryError, match="filesystem synchronization failed"):
         backup_objects.sync_filesystem(tmp_path, time.monotonic() + 10)
+
+
+@pytest.mark.parametrize("missing", ["releases/older", "releases/older/nested"])
+def test_every_directory_ancestor_is_required_even_when_file_parent_exists(snapshot, missing):
+    value = object_format(snapshot)
+    value["directories"] = value["directories"] + [
+        {"path": path, "uid": 0, "gid": 0, "mode": 0o700}
+        for path in ("releases/older", "releases/older/nested")
+        if path != missing
+    ]
+    value["files"] = [
+        {**row, "path": "releases/older/nested/file"} if row["path"] == "releases/first" else row
+        for row in value["files"]
+    ]
+    with pytest.raises(policy.DeliveryError, match="private backup parent missing"):
+        backup_manifest.validate(value)
+
+
+def test_v4_complete_version_inventory_keeps_an_explicit_logical_entry_bound(snapshot):
+    value = object_format(snapshot)
+    count = backup_manifest.MAX_LOGICAL_ENTRIES - len(value["directories"])
+    template = {**value["files"][0], "bytes": 1, "sha256": hashlib.sha256(b"x").hexdigest()}
+    value["files"] = [{**template, "path": row["path"]} for row in value["files"][:2]] + [
+        {**template, "path": "releases/item-" + str(i)} for i in range(count - 2)
+    ]
+    value.update(logical_bytes=count, payload_bytes=1)
+    backup_manifest.validate(value)
+    assert len(value["files"]) + len(value["directories"]) == 98304
+    assert backup_manifest.MAX_BYTES == 7 * 1024**3
+    assert backup_manifest.MAX_LOGICAL_BYTES == 12 * 1024**3
+    old = {**value, "schema_version": 3, "format": backup_manifest.FORMAT, "payload_bytes": count}
+    old.pop("logical_bytes")
+    with pytest.raises(policy.DeliveryError, match="inventory count exceeds bound"):
+        backup_manifest.validate(old)
+    value["files"].append({**template, "path": "releases/one-too-many"})
+    value["logical_bytes"] += 1
+    with pytest.raises(policy.DeliveryError, match="inventory count exceeds bound"):
+        backup_manifest.validate(value)
+
+
+def test_private_metadata_rejects_a_file_above_the_explicit_byte_limit(tmp_path):
+    path = tmp_path / "metadata.json"
+    path.write_bytes(b" " * (backup_manifest.MAX_METADATA_BYTES + 1))
+    with pytest.raises(policy.DeliveryError, match="metadata byte limit"):
+        backup_manifest.read_metadata(path)

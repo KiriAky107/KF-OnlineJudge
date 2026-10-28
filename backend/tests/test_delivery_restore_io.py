@@ -509,3 +509,29 @@ def test_grouped_real_copy_workers_join_and_return_independent_verified_files(
         path, uid, gid, mode = destination(row)
         assert path.read_bytes() == b"shared"
         restore.unchanged_file(path, result[row["path"]], uid, gid, mode)
+
+
+@pytest.mark.parametrize(
+    "name", ["releases/../private", "factory//requests", "unknown/file", "releases/.ssh/key"]
+)
+def test_untrusted_restore_target_names_still_require_complete_validation(tmp_path, name):
+    record = {"path": name, "uid": 0, "gid": 0, "mode": 0o600, "bytes": 0}
+    with pytest.raises(DeliveryError, match="private backup member"):
+        restore.target(record, tmp_path)
+
+
+def test_pending_copy_refuses_a_dangling_symlink_without_creating_its_target(tmp_path):
+    source = tmp_path / "source"
+    source.write_bytes(b"trusted bytes")
+    target = tmp_path / "target"
+    missing = tmp_path / "missing"
+    target.symlink_to(missing)
+    item = {
+        "bytes": source.stat().st_size,
+        "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+    }
+    with pytest.raises(DeliveryError, match="existing recovery destination differs"):
+        restore_io.pending_file(
+            source, target, item, os.getuid(), os.getgid(), 0o600, time.monotonic() + 10
+        )
+    assert target.is_symlink() and not missing.exists()

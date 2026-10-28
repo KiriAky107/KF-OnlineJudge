@@ -122,7 +122,11 @@ def stopped() -> None:
 
 
 def target(record: dict, recovery: Path) -> tuple[Path, int, int, int]:
-    name = backup_manifest.name(record["path"])
+    return _target(backup_manifest.name(record["path"]), record, recovery)
+
+
+def _target(name: str, record: dict, recovery: Path) -> tuple[Path, int, int, int]:
+    """Map a name already checked by target() or the complete backup verifier."""
     domain, _, suffix = name.partition("/")
     if domain in LIVE:
         path = LIVE[domain] / suffix if suffix else LIVE[domain]
@@ -367,7 +371,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
         for item in sorted(
             value["directories"], key=lambda row: (row["path"].count("/"), row["path"])
         ):
-            path, uid, gid, mode = target(item, recovery)
+            path, uid, gid, mode = _target(item["path"], item, recovery)
             if path.exists() or path.is_symlink():
                 member(path, uid, gid, mode, directory=True)
             else:
@@ -381,7 +385,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
             raise DeliveryError("cold recovery destination reserve insufficient")
 
         def copy(item: dict) -> tuple[int, ...]:
-            path, uid, gid, mode = target(item, recovery)
+            path, uid, gid, mode = _target(item["path"], item, recovery)
             return write_file(
                 backup_manifest.member_path(root, value, item),
                 path,
@@ -397,7 +401,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
             verified = restore_io.materialize(
                 value["files"],
                 lambda item: backup_manifest.member_path(root, value, item),
-                lambda item: target(item, recovery),
+                lambda item: _target(item["path"], item, recovery),
                 readback,
                 filesystems,
                 deadline,
@@ -412,7 +416,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
         for item in sorted(
             value["directories"], key=lambda row: row["path"].count("/"), reverse=True
         ):
-            path, uid, gid, mode = target(item, recovery)
+            path, uid, gid, mode = _target(item["path"], item, recovery)
             current = path.lstat()
             if (current.st_uid, current.st_gid) != (uid, gid):
                 os.chown(path, uid, gid, follow_symlinks=False)
@@ -427,7 +431,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
             assert filesystems is not None
             filesystems.sync(deadline)
             for item in value["directories"]:
-                path, uid, gid, mode = target(item, recovery)
+                path, uid, gid, mode = _target(item["path"], item, recovery)
                 member(path, uid, gid, mode, directory=True)
         else:
             install.sync_directory(recovery / "history")
@@ -438,7 +442,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
         for item in value["files"]:
             if time.monotonic() >= deadline:
                 raise DeliveryError("recovery verification deadline exceeded")
-            path, uid, gid, mode = target(item, recovery)
+            path, uid, gid, mode = _target(item["path"], item, recovery)
             unchanged_file(path, verified[item["path"]], uid, gid, mode)
         if filesystems is not None:
             filesystems.close()

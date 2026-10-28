@@ -23,8 +23,8 @@ MAX_FILE_BYTES = 256 * 1024**2
 MAX_ENTRIES = 65536
 # v4 preserves logical versions independently of their deduplicated storage.
 MAX_LOGICAL_BYTES = 12 * 1024**3
-MAX_LOGICAL_ENTRIES = 81920
-MAX_METADATA_BYTES = 16 * 1024**2
+MAX_LOGICAL_ENTRIES = 98304
+MAX_METADATA_BYTES = 20 * 1024**2
 DOMAINS = {
     "postgres",
     "artifacts",
@@ -279,10 +279,13 @@ def validate(value: dict) -> dict:
     directories = {item["path"] for item in dirs}
     if not DOMAINS <= directories:
         raise DeliveryError("private backup omitted a required source domain")
+    # Every normalized file and directory is in seen. Requiring the direct
+    # parent of every node proves the whole ancestor chain transitively,
+    # including ancestors of directories, without rebuilding Path chains.
     for path in seen:
-        for parent in Path(path).parents:
-            if parent.as_posix() != "." and parent.as_posix() not in directories:
-                raise DeliveryError("private backup parent missing")
+        parent = path.rpartition("/")[0]
+        if parent and parent not in directories:
+            raise DeliveryError("private backup parent missing")
     lookup = {item["path"]: item for item in files}
     for reference in value["artifact_references"]["objects"]:
         item = lookup.get("artifacts/" + reference["digest"])
