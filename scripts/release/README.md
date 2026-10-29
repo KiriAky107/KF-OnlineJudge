@@ -637,3 +637,5 @@ outside public API, Git and CI artifacts.
   [namespace interface](https://github.com/systemd/systemd/blob/v262/man/systemd.exec.xml),
   [journal configuration](https://github.com/systemd/systemd/blob/v262/man/journald.conf.xml).
 - Linux: [proc mountinfo](https://github.com/torvalds/linux/blob/v6.18/fs/proc_namespace.c).
+
+恢复大于 64 MiB 的单对象文件时，复制器仅对已复制的只读源区间发出有界缓存回收建议，避免源和目标页面同时占满原恢复单元。目标仍在原同步屏障后完整读回、逐字节/SHA 校验，并在结束前复核全部文件身份；原内存、CPU、线程、期限和失败保留规则保持不变。

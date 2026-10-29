@@ -414,6 +414,18 @@ fn transfer(input: &mut File, output: &mut File, bytes: u64, deadline: u64) -> R
             return Err(Error::Bytes);
         }
         total += count as u64;
+        if bytes > kf_contracts::restore_io::MAX_BATCH_BYTES {
+            // A large singleton cannot share source pages with another batch.
+            // Only release the already copied range of this read-only object;
+            // destination sync, complete readback and every witness still follow.
+            rustix::fs::fadvise(
+                &*input,
+                total - count as u64,
+                std::num::NonZeroU64::new(count as u64),
+                rustix::fs::Advice::DontNeed,
+            )
+            .map_err(|_| Error::Filesystem)?;
+        }
     }
     remaining(deadline)?;
     if input.read(&mut [0; 1]).map_err(|_| Error::Filesystem)? != 0 {

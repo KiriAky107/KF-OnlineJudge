@@ -630,4 +630,68 @@ mod tests {
         assert!(request(&mut &b""[..]).is_err());
         assert!(request(&mut &vec![b' '; restore_io::MAX_REQUEST_BYTES + 1][..]).is_err());
     }
+
+    #[test]
+    fn large_singleton_keeps_complete_source_and_destination_after_cache_advice() {
+        let fixture = files::Fixture::new();
+        let roots = Arc::new(fixture.roots());
+        let data = vec![b's'; restore_io::MAX_BATCH_BYTES as usize + 17];
+        let hash = format!("{:x}", Sha256::digest(&data));
+        let source = fixture.source().join(&hash);
+        fs::write(&source, &data).unwrap();
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+        use std::os::unix::fs::MetadataExt;
+        let stamp = |m: fs::Metadata| {
+            (
+                m.dev(),
+                m.ino(),
+                m.mode(),
+                m.nlink(),
+                m.uid(),
+                m.gid(),
+                m.size(),
+                (m.mtime(), m.mtime_nsec()),
+                (m.ctime(), m.ctime_nsec()),
+            )
+        };
+        let owner = fs::metadata(&source).unwrap();
+        let before = stamp(fs::metadata(&source).unwrap());
+        let rows = vec![restore_io::RestoreFile {
+            path: "artifacts/large-singleton".into(),
+            uid: owner.uid(),
+            gid: owner.gid(),
+            mode: 0o644,
+            bytes: data.len() as u64,
+            sha256: hash,
+        }];
+        // Validate the real wire owner policy separately from the unprivileged
+        // ordinary fixture's owner. Production never accepts the host test UID.
+        let mut wire_rows = rows.clone();
+        wire_rows[0].uid = 1200;
+        wire_rows[0].gid = 1200;
+        Request::Batch {
+            schema_version: SchemaVersion,
+            batch_id: 1,
+            files: wire_rows,
+        }
+        .validate()
+        .unwrap();
+        assert_eq!(rows.len(), 1);
+        let pool = Pool::new(Arc::clone(&roots)).unwrap_or_else(|_| panic!("pool"));
+        let verified = pool
+            .materialize(rows, &roots, now().unwrap() + 30_000_000_000)
+            .unwrap_or_else(|_| panic!("large singleton verified"));
+        assert_eq!(verified.len(), 1);
+        roots
+            .final_file(&verified[0])
+            .unwrap_or_else(|_| panic!("final witness"));
+        assert_eq!(
+            fs::read(fixture.target().join("large-singleton")).unwrap(),
+            data
+        );
+        assert_eq!(fs::read(&source).unwrap(), data);
+        assert_eq!(stamp(fs::metadata(&source).unwrap()), before);
+        drop(pool);
+        roots.unchanged().unwrap_or_else(|_| panic!("root anchors"));
+    }
 }
