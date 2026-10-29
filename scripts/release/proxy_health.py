@@ -10,7 +10,20 @@ from . import proxy_service
 from .policy import DeliveryError, read_json
 
 
-def observe(selected: dict) -> dict:
+class HTTPSNotReady(DeliveryError):
+    """A bounded transport or upstream startup observation is unavailable."""
+
+
+def observe(selected: dict, *, timeout: float = 5.0) -> dict:
+    if type(timeout) not in (int, float) or not 0 < timeout <= 5:
+        raise DeliveryError("HTTPS observation timeout exceeds bound")
+    try:
+        return _observe(selected, timeout=timeout)
+    except (ConnectionRefusedError, TimeoutError) as error:
+        raise HTTPSNotReady("HTTPS listener or API is not ready") from error
+
+
+def _observe(selected: dict, *, timeout: float) -> dict:
     directory = proxy_service.batch(selected)
     spec = read_json(directory / "launch.json", 4096)
     host = urlsplit(spec["origin"]).hostname
@@ -22,9 +35,9 @@ def observe(selected: dict) -> dict:
     ctx.load_verify_locations(cafile=certificate)
     ctx.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    with socket.create_connection(("127.0.0.1", 443), timeout=5) as raw:
+    with socket.create_connection(("127.0.0.1", 443), timeout=timeout) as raw:
         with ctx.wrap_socket(raw, server_hostname=host) as client:
-            client.settimeout(5)
+            client.settimeout(timeout)
             der = client.getpeercert(binary_form=True)
             pem = certificate.read_text()
             leaf = pem[: pem.index("-----END CERTIFICATE-----") + len("-----END CERTIFICATE-----")]
@@ -41,6 +54,8 @@ def observe(selected: dict) -> dict:
             response = http.client.HTTPResponse(client)
             try:
                 response.begin()
+                if response.status in (502, 503, 504):
+                    raise HTTPSNotReady("HTTPS API upstream is not ready")
                 body = response.read(4097)
                 if response.status != 200 or len(body) > 4096:
                     raise DeliveryError("HTTPS health response exceeds bound or is unavailable")

@@ -1123,6 +1123,24 @@ def ordinary_lifecycle_model(monkeypatch):
     monkeypatch.setattr(
         lifecycle.node_health, "inspect_unit", lambda name, _: trace.append(("inspect", name))
     )
+    # This fixture remains an ordinary model; actual TLS/service readiness is VM-only.
+    monkeypatch.setattr(
+        lifecycle.proxy_install,
+        "check_binding",
+        lambda *_: trace.append(("proxy-binding", "proxy")),
+    )
+
+    def https_ready(selected, *, timeout):
+        assert selected == maintenance.selected and 0 < timeout <= 5
+        assert states["proxy"] == "active"
+        trace.append(("https", "proxy"))
+        return {
+            "reachable": True,
+            "pinned_certificate_and_hostname_verified": True,
+            "public_browser_trust_verified": False,
+        }
+
+    monkeypatch.setattr(lifecycle.proxy_health, "observe", https_ready)
     monkeypatch.setattr(lifecycle.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(
         lifecycle.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
@@ -1327,12 +1345,14 @@ def test_startup_dependency_barriers_precede_both_real_readiness_calls(
     def observe(*args):
         verified = {name for kind, name in trace if kind == "inspect"}
         assert verified == set(states) and all(value == "active" for value in states.values())
+        trace.append(("health", gate[-1]))
         observations.append(gate[-1])
         return {"service_preconditions_met": True, "ready_for_admission": gate[-1] == "open"}
 
     monkeypatch.setattr(lifecycle.operator_units, "run", observe)
     maintenance.start_locked(resume=True)
     assert gate == observations == ["draining", "open"]
+    assert trace.index(("https", "proxy")) < trace.index(("health", "draining"))
     dispatches = [name for kind, name in trace if kind == "dispatch"]
     assert dispatches == [*lifecycle.DEPENDENCIES, *lifecycle.START_ORDER]
     for dependency in (*lifecycle.DEPENDENCIES, "sandbox-factory"):

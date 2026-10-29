@@ -577,6 +577,14 @@ checks. Each ordinary helper has one CPU within the node's two-CPU ceiling;
 its memory, process and privilege limits remain fixed. These operator budgets
 do not change student execution budgets. Startup opens admission only after all
 required readiness queries succeed.
+The proxy's `Type=exec` state only confirms its launcher is running. Lifecycle
+startup and resume confirm the real pinned HTTPS/API response within the existing
+130-second service-confirmation deadline. Only connection refusal, timeouts and
+upstream 502/503/504 observations retry within that same deadline. Certificate,
+hostname, configuration and response-validation failures still refuse startup;
+ordinary health queries remain single observations. No service, node or student
+resource limit is increased.
+
 
 Database authority queries use the fixed local TCP/Unix endpoints with TLS disabled
 and a five-second connection deadline. SQL remains read-only with a two-second

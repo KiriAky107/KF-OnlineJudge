@@ -22,6 +22,7 @@ from . import (
     operation_proof,
     operator_units,
     preflight,
+    proxy_health,
     proxy_install,
     proxy_service,
     service_install,
@@ -372,6 +373,8 @@ class Maintenance:
         values = self.unit(name)
         if operation == "start" and values["ActiveState"] == "active":
             node_health.inspect_unit(name, self.selected)
+            if name == "proxy":
+                self._wait_for_proxy(time.monotonic() + 130)
             return
         if operation == "stop" and values["ActiveState"] == "inactive" and values["MainPID"] == "0":
             self.empty_cgroup(name)
@@ -396,6 +399,8 @@ class Maintenance:
                 and values["SubState"] == "running"
             ):
                 node_health.inspect_unit(name, self.selected)
+                if name == "proxy":
+                    self._wait_for_proxy(deadline)
                 break
             if (
                 operation == "stop"
@@ -409,6 +414,40 @@ class Maintenance:
             time.sleep(0.5)
         self.record["events"][-1]["confirmed"] = True
         self.save(operation + "_confirmed")
+
+    def _wait_for_proxy(self, deadline: float) -> None:
+        """Type=exec is process startup; confirm actual HTTPS before admission."""
+        while True:
+            if time.monotonic() >= deadline:
+                raise DeliveryError("bounded HTTPS startup unconfirmed")
+            if install.selection(check_configuration=False) != self.selected:
+                raise DeliveryError("selected binding changed during maintenance")
+            # Invalid selected TLS/configuration is fatal, never a retry reason.
+            proxy_install.check_binding(
+                self.selected["release_id"], self.selected["configuration_id"]
+            )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise DeliveryError("bounded HTTPS startup unconfirmed")
+            try:
+                ready = proxy_health.observe(self.selected, timeout=min(5.0, remaining))
+            except proxy_health.HTTPSNotReady as error:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise DeliveryError("bounded HTTPS startup unconfirmed") from error
+                time.sleep(min(0.5, remaining))
+                continue
+            if time.monotonic() >= deadline:
+                raise DeliveryError("bounded HTTPS startup unconfirmed")
+            if install.selection(check_configuration=False) != self.selected:
+                raise DeliveryError("selected binding changed during maintenance")
+            if ready != {
+                "reachable": True,
+                "pinned_certificate_and_hostname_verified": True,
+                "public_browser_trust_verified": False,
+            }:
+                raise DeliveryError("HTTPS startup proof differs")
+            return
 
     def start_group(self, names: tuple[str, ...]) -> None:
         """Dispatch one fixed dependency stage; confirm each real unit separately."""
@@ -424,6 +463,8 @@ class Maintenance:
             values = self.unit(name)
             if values["ActiveState"] == "active":
                 node_health.inspect_unit(name, self.selected)
+                if name == "proxy":
+                    self._wait_for_proxy(time.monotonic() + 130)
             else:
                 inactive.append(name)
         pending = {}
@@ -448,6 +489,8 @@ class Maintenance:
                     raise DeliveryError("bounded lifecycle operation unconfirmed")
                 if values["ActiveState"] == "active" and values["SubState"] == "running":
                     node_health.inspect_unit(name, self.selected)
+                    if name == "proxy":
+                        self._wait_for_proxy(deadline)
                     event["confirmed"] = True
                     self.save("start_confirmed")
                     del pending[name]
