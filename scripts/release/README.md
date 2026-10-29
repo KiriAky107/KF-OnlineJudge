@@ -341,6 +341,15 @@ the outer operator also closes admission. If that record cannot be written, it
 stops only the verified API unit. A refusal before dispatch, such as an already
 active helper, does not change admission or stop another operation.
 
+Dispatched failures append one `KF_OPERATOR_DIAGNOSTIC` JSON line to the CLI
+error. Its versioned, bounded chain records fixed helper names, failure stages,
+exit codes, output sizes and SHA-256 digests. Failed readiness includes only
+allowlisted component error codes and at most two dependency helper records.
+Raw child output, arguments, credentials and exception text are excluded from
+the diagnostic line. Malformed, oversized or duplicate child diagnostic lines
+are discarded. This observation does not change service limits, deadlines,
+admission checks or cleanup requirements; a failed start remains a failure.
+
 Drain keeps API available to accepted work and polls Coordinator, outbox, import,
 broker and factory within a finite deadline. Untruncated owner counts, stopped
 process groups, empty tasks/identity/capture resources and an absent factory socket

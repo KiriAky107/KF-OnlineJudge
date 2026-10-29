@@ -639,12 +639,16 @@ class Maintenance:
             self.start_group(group)
         ready = operator_units.run("node-health", self.payload)
         if ready.get("service_preconditions_met") is not True:
-            raise DeliveryError("service preconditions unavailable; admission remains closed")
+            raise operator_units.readiness_failure(
+                "service preconditions unavailable; admission remains closed", ready
+            )
         try:
             availability.write(self.selected, "open")
             ready = operator_units.run("node-health", self.payload)
             if ready.get("ready_for_admission") is not True:
-                raise DeliveryError("admission readiness readback unconfirmed")
+                raise operator_units.readiness_failure(
+                    "admission readiness readback unconfirmed", ready, admission=True
+                )
             self.save("accepting")
         except (OSError, ValueError, subprocess.SubprocessError):
             self.close_failed_admission()
@@ -751,7 +755,8 @@ def main() -> None:
             1,
             "Lifecycle refused: "
             + (str(error) if isinstance(error, DeliveryError) else type(error).__name__)
-            + "\n",
+            + "\n"
+            + operator_units.diagnostic_suffix(error),
         )
 
 

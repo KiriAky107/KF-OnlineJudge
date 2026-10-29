@@ -525,6 +525,13 @@ def observe(*, probe: bool) -> dict:
         "errors": [],
     }
     components, errors = result["components"], result["errors"]
+    helper_failures = []
+
+    def remember_helper(error):
+        if isinstance(error, operator_units.OperatorExecutionError):
+            helper_failures.extend(error.failures[: max(0, 2 - len(helper_failures))])
+            result["operator_failures"] = helper_failures
+
     try:
         components["journal"] = journal.check_ready()
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -580,13 +587,15 @@ def observe(*, probe: bool) -> dict:
     with _status_helpers(payload) as pending:
         try:
             components["broker"] = pending["broker-health"].result()
-        except (OSError, ValueError, subprocess.SubprocessError):
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            remember_helper(error)
             errors.append("broker_metadata_unavailable")
         try:
             state = pending["outbox-health"].result()
             validate_outbox(state)
             components["outbox_pipeline"] = state
-        except (OSError, ValueError, subprocess.SubprocessError):
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            remember_helper(error)
             errors.append("outbox_pipeline_unavailable")
         try:
             state = pending["import-health"].result()
@@ -617,13 +626,15 @@ def observe(*, probe: bool) -> dict:
                 if type(state[key]) is not int or not 0 <= state[key] <= maximum:
                     raise DeliveryError("import status bound differs")
             components["import_pipeline"] = state
-        except (OSError, ValueError, subprocess.SubprocessError):
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            remember_helper(error)
             errors.append("import_pipeline_unavailable")
         try:
             status = pending["factory-health"].result()
             validate_factory(status, digest(paths["runtime.json"]))
             components["factory_status"] = status
-        except (OSError, ValueError, subprocess.SubprocessError):
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            remember_helper(error)
             errors.append("factory_status_unavailable")
     if probe:
         try:
@@ -723,7 +734,8 @@ def main() -> None:
             1,
             "Node health refused: "
             + (str(error) if isinstance(error, DeliveryError) else type(error).__name__)
-            + "\n",
+            + "\n"
+            + operator_units.diagnostic_suffix(error),
         )
 
 

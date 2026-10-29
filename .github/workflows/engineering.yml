@@ -116,6 +116,7 @@ jobs:
             tests/test_delivery_restore_io.py \
             tests/test_restore_io_contracts.py \
             tests/test_restore_native_transport.py \
+            tests/test_operator_diagnostics.py \
             tests/test_operator_imports.py \
             tests/test_health.py \
             tests/test_identity.py \

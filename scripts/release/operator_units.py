@@ -1,7 +1,9 @@
 """Finite fixed-purpose operator helpers; no caller-controlled executable or identity."""
 
+import hashlib
 import json
 import os
+import re
 import resource
 import subprocess
 from pathlib import Path
@@ -12,6 +14,10 @@ from .policy import DeliveryError, invalid_constant, unique_object
 
 class OperatorExecutionError(DeliveryError):
     """A fixed helper was dispatched but its result or cleanup was unconfirmed."""
+
+    def __init__(self, message: str, failures: list | None = None):
+        super().__init__(message)
+        self.failures = failures or []
 
 
 PROFILES = {
@@ -27,6 +33,156 @@ PROFILES = {
 
 # OTP 27 reserves a 32 MiB dual-mapped JIT block before serving CLI queries.
 FILE_LIMIT_MIB = {"broker-health": 64}
+
+DIAGNOSTIC_PREFIX = "KF_OPERATOR_DIAGNOSTIC "
+READINESS_ERRORS = frozenset(
+    {
+        "bounded_journal_unavailable",
+        "https_entry_unavailable",
+        "selected_binding_changed",
+        "db_authority_unavailable",
+        "api_live_unavailable",
+        "execution_owner_unavailable",
+        "broker_metadata_unavailable",
+        "outbox_pipeline_unavailable",
+        "import_pipeline_unavailable",
+        "factory_status_unavailable",
+        "notification_delivery_unconfirmed",
+        *(
+            name + "_unavailable"
+            for name in (
+                "api",
+                "coordinator",
+                "outbox",
+                "problem-import",
+                "worker",
+                "postgres",
+                "rabbitmq",
+                "sandbox-factory",
+                "proxy",
+            )
+        ),
+    }
+)
+
+
+def failure_record(name: str, outcome: str, result=None, error=None) -> dict:
+    """Record only fixed identifiers, sizes and digests; never child output or argv."""
+    record = {"helper": name, "outcome": outcome, "returncode": None}
+    if result is not None:
+        record["returncode"] = result.returncode
+    for stream in ("stdout", "stderr"):
+        value = getattr(result, stream, b"") if result is not None else b""
+        if isinstance(error, subprocess.TimeoutExpired):
+            value = getattr(error, stream, None) or b""
+        record[stream + "_bytes"] = len(value)
+        record[stream + "_sha256"] = hashlib.sha256(value).hexdigest()
+    record["error_sha256"] = hashlib.sha256(
+        (str(error) if isinstance(error, DeliveryError) else type(error).__name__).encode()
+    ).hexdigest()
+    return record
+
+
+def diagnostic_chain(stderr: bytes) -> list:
+    """Accept one small, strictly shaped record from a fixed child CLI."""
+    if len(stderr) > 4096:
+        return []
+    lines = [line for line in stderr.splitlines() if line.startswith(DIAGNOSTIC_PREFIX.encode())]
+    try:
+        if len(lines) != 1:
+            return []
+        value = decode(lines[0][len(DIAGNOSTIC_PREFIX) :], 3072)
+        if (
+            set(value) != {"schema_version", "failures"}
+            or type(value["schema_version"]) is not int
+            or value["schema_version"] != 1
+        ):
+            return []
+        failures = value["failures"]
+        if not isinstance(failures, list) or not 1 <= len(failures) <= 3:
+            return []
+        fields = {
+            "helper",
+            "outcome",
+            "returncode",
+            "stdout_bytes",
+            "stdout_sha256",
+            "stderr_bytes",
+            "stderr_sha256",
+            "error_sha256",
+        }
+        for row in failures:
+            if not isinstance(row, dict) or set(row) not in (
+                fields,
+                fields | {"readiness_errors"},
+            ):
+                return []
+            if row["helper"] not in PROFILES or row["outcome"] not in {
+                "dispatch",
+                "exit",
+                "decode",
+                "cleanup",
+                "timeout",
+                "preconditions",
+                "admission",
+            }:
+                return []
+            code = row["returncode"]
+            if code is not None and (type(code) is not int or not -255 <= code <= 255):
+                return []
+            if any(
+                type(row[k]) is not int or not 0 <= row[k] <= 2**63 - 1
+                for k in ("stdout_bytes", "stderr_bytes")
+            ):
+                return []
+            if any(
+                not isinstance(row[k], str) or not re.fullmatch("[a-f0-9]{64}", row[k])
+                for k in ("stdout_sha256", "stderr_sha256", "error_sha256")
+            ):
+                return []
+            errors = row.get("readiness_errors", [])
+            if (
+                not isinstance(errors, list)
+                or len(errors) > len(READINESS_ERRORS)
+                or any(not isinstance(code, str) or code not in READINESS_ERRORS for code in errors)
+            ):
+                return []
+        return failures
+    except (TypeError, ValueError, KeyError):
+        return []
+
+
+def diagnostic_suffix(error: Exception) -> str:
+    if not isinstance(error, OperatorExecutionError) or not error.failures:
+        return ""
+    # Revalidate even internally built records before they cross a CLI boundary.
+    value = json.dumps({"schema_version": 1, "failures": error.failures}, separators=(",", ":"))
+    line = DIAGNOSTIC_PREFIX + value
+    if len(error.failures) > 4 or len(line) > 3072:
+        return ""
+    # The child decoder allows three ancestors; validate the fourth separately.
+    for row in error.failures:
+        single = DIAGNOSTIC_PREFIX + json.dumps({"schema_version": 1, "failures": [row]})
+        if not diagnostic_chain(single.encode()):
+            return ""
+    return line + "\n"
+
+
+def readiness_failure(message: str, result: dict, *, admission: bool = False):
+    error = OperatorExecutionError(message)
+    row = failure_record("node-health", "admission" if admission else "preconditions", error=error)
+    errors = result.get("errors")
+    if (
+        isinstance(errors, list)
+        and len(errors) <= len(READINESS_ERRORS)
+        and all(isinstance(code, str) and code in READINESS_ERRORS for code in errors)
+    ):
+        row["readiness_errors"] = errors
+    child = DIAGNOSTIC_PREFIX + json.dumps(
+        {"schema_version": 1, "failures": result.get("operator_failures", [])}
+    )
+    error.failures = diagnostic_chain(child.encode())[:2] + [row]
+    return error
 
 
 def guarded(name: str) -> None:
@@ -239,6 +395,8 @@ def run(
             command.append("--probe-notification")
         elif notification_probe:
             raise DeliveryError("unexpected broker probe override")
+    result = None
+    outcome = "dispatch"
     try:
         try:
             # Pipe output is bounded by the fixed helper and the service file/memory
@@ -249,12 +407,15 @@ def run(
                 timeout=seconds + 15,
                 env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
             )
+            outcome = "exit"
             if result.returncode or len(result.stderr) > 4096:
                 raise DeliveryError("operator helper unavailable")
+            outcome = "decode"
             value = decode(result.stdout)
             if not isinstance(value, dict):
                 raise DeliveryError("operator helper object required")
         finally:
+            previous_outcome, outcome = outcome, "cleanup"
             actual = dict(
                 line.split("=", 1)
                 for line in service_install.systemctl(
@@ -277,7 +438,12 @@ def run(
                 )
                 if actual.get("ActiveState") != "inactive" or actual.get("MainPID") != "0":
                     raise DeliveryError("operator helper cleanup unconfirmed")
+            outcome = previous_outcome
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         message = str(error) if isinstance(error, DeliveryError) else type(error).__name__
-        raise OperatorExecutionError(message) from error
+        if isinstance(error, subprocess.TimeoutExpired) and outcome != "cleanup":
+            outcome = "timeout"
+        failures = diagnostic_chain(result.stderr) if result is not None else []
+        failures.append(failure_record(name, outcome, result, error))
+        raise OperatorExecutionError(message, failures) from error
     return value
