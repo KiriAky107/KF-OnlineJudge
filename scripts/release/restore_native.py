@@ -1,22 +1,141 @@
 """One bounded native data-copy child in the existing exclusive restore unit."""
 
+import hashlib
 import json
 import os
 import selectors
 import signal
 import stat
 import subprocess
+import tempfile
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 from kf_oj.contracts.restore_io import RestoreIOReply
 
-from . import file_copy, preflight, restore_io
+from . import backup_manifest, file_copy, preflight, restore_io
 from .policy import DeliveryError, invalid_constant, unique_object
 
 MAX_REQUEST_BYTES = 256 * 1024
 MAX_REPLY_BYTES = 64 * 1024
 MAX_STDERR_BYTES = 16 * 1024
+# Only additional list/newline framing beyond the already bounded source metadata.
+MAX_SPOOL_BYTES = backup_manifest.MAX_METADATA_BYTES + 4 * backup_manifest.MAX_LOGICAL_ENTRIES
+
+
+class BatchSpool:
+    """Consume validated rows into private, completely verified descriptor-only input."""
+
+    def __init__(self, rows: list[dict], directory: Path, deadline: float):
+        self.deadline = deadline
+        self.files = len(rows)
+        self.logical_bytes = sum(row["bytes"] for row in rows)
+        self.started = self.complete = False
+        self.size = 0
+        self.stream = None
+        restore_io.remaining(deadline)
+        if self.files > backup_manifest.MAX_LOGICAL_ENTRIES:
+            raise DeliveryError("recovery planner inventory exceeds bound")
+        try:
+            self.stream = tempfile.TemporaryFile(mode="w+b", dir=directory)  # noqa: SIM115
+            # Ownership spans construction, consumption and every failure path.
+            info = os.fstat(self.stream.fileno())
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_nlink != 0
+                or (info.st_uid, info.st_gid) != (os.geteuid(), os.getegid())
+                or stat.S_IMODE(info.st_mode) != 0o600
+                or os.get_inheritable(self.stream.fileno())
+            ):
+                raise DeliveryError("private recovery planner descriptor required")
+            expected = hashlib.sha256()
+            batch = None
+            for batch in restore_io.batches(rows):
+                restore_io.remaining(deadline)
+                raw = json.dumps(batch, separators=(",", ":"), ensure_ascii=True).encode() + b"\n"
+                self.size += len(raw)
+                if len(raw) > MAX_REQUEST_BYTES or self.size > MAX_SPOOL_BYTES:
+                    raise DeliveryError("recovery planner input exceeds bound")
+                if self.stream.write(raw) != len(raw):
+                    raise DeliveryError("recovery planner write incomplete")
+                expected.update(raw)
+            # No row dictionary or duplicate decoded string remains here while
+            # the native child materializes the full logical data inventory.
+            batch = None
+            rows.clear()
+            self.stream.flush()
+            os.fsync(self.stream.fileno())
+            self.witness = file_copy._identity(os.fstat(self.stream.fileno()))
+            self.digest = expected.hexdigest()
+            self.stream.seek(0)
+            observed = hashlib.file_digest(self.stream, "sha256").hexdigest()
+            self.unchanged()
+            if observed != self.digest:
+                raise DeliveryError("recovery planner complete input verification failed")
+            self.stream.seek(0)
+            restore_io.remaining(deadline)
+        except BaseException:
+            self.close()
+            raise
+
+    def unchanged(self) -> None:
+        if (
+            self.stream is None
+            or self.stream.closed
+            or file_copy._identity(os.fstat(self.stream.fileno())) != self.witness
+        ):
+            raise DeliveryError("recovery planner descriptor changed")
+
+    def __iter__(self) -> Iterator[list[dict]]:
+        if self.started:
+            raise DeliveryError("recovery planner input already consumed")
+        self.started = True
+        files = logical_bytes = 0
+        observed = hashlib.sha256()
+        assert self.stream is not None
+        while True:
+            restore_io.remaining(self.deadline)
+            self.unchanged()
+            raw = self.stream.readline(MAX_REQUEST_BYTES + 1)
+            if not raw:
+                break
+            if len(raw) > MAX_REQUEST_BYTES or not raw.endswith(b"\n"):
+                raise DeliveryError("recovery planner input framing differs")
+            observed.update(raw)
+            batch = json.loads(
+                raw, object_pairs_hook=unique_object, parse_constant=invalid_constant
+            )
+            if not isinstance(batch, list) or not 1 <= len(batch) <= restore_io.BATCH_FILES:
+                raise DeliveryError("recovery planner batch shape differs")
+            files += len(batch)
+            logical_bytes += sum(row["bytes"] for row in batch)
+            if files > self.files or logical_bytes > self.logical_bytes:
+                raise DeliveryError("recovery planner inventory differs")
+            yield batch
+        self.unchanged()
+        if (files, logical_bytes, observed.hexdigest()) != (
+            self.files,
+            self.logical_bytes,
+            self.digest,
+        ):
+            raise DeliveryError("recovery planner complete input differs")
+        restore_io.remaining(self.deadline)
+        self.complete = True
+
+    def close(self) -> None:
+        if self.stream is not None:
+            self.stream.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, kind, _value, _traceback):
+        try:
+            if kind is None and not self.complete:
+                raise DeliveryError("recovery planner input incomplete")
+        finally:
+            self.close()
 
 
 class Session:
@@ -67,7 +186,11 @@ class Session:
             if file_copy._identity(helper.lstat()) != witness:
                 raise DeliveryError("selected native recovery helper changed")
             assert self.process.stdin and self.process.stdout and self.process.stderr
-            for handle in (self.process.stdin, self.process.stdout, self.process.stderr):
+            for handle in (
+                self.process.stdin,
+                self.process.stdout,
+                self.process.stderr,
+            ):
                 os.set_blocking(handle.fileno(), False)
             self.selector.register(self.process.stdout, selectors.EVENT_READ, "stdout")
             self.selector.register(self.process.stderr, selectors.EVENT_READ, "stderr")
@@ -145,7 +268,11 @@ class Session:
                         if (
                             reply.stage != stage
                             or reply.error != "none"
-                            or (reply.batch_id, reply.verified_files, reply.verified_logical_bytes)
+                            or (
+                                reply.batch_id,
+                                reply.verified_files,
+                                reply.verified_logical_bytes,
+                            )
                             != (self.batch_id, self.files, self.bytes)
                         ):
                             raise DeliveryError("native recovery file verification refused")
@@ -158,7 +285,14 @@ class Session:
                 self.selector.unregister(self.process.stdin)
 
     def materialize(self, rows: list[dict]) -> None:
-        for batch in restore_io.batches(rows):
+        self._materialize(restore_io.batches(rows))
+
+    def materialize_owned(self, rows: list[dict], directory: Path) -> None:
+        with BatchSpool(rows, directory, self.deadline) as batches:
+            self._materialize(iter(batches))
+
+    def _materialize(self, batches: Iterator[list[dict]]) -> None:
+        for batch in batches:
             self.batch_id += 1
             self.files += len(batch)
             self.bytes += sum(item["bytes"] for item in batch)

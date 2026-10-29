@@ -348,6 +348,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
     deadline = time.monotonic() + 1700
     filesystems = None
     native = None
+    file_count = len(value["files"])
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         stopped()
@@ -405,11 +406,15 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
                 payload,
                 backup_id,
                 recovery_id,
-                len(value["files"]),
+                file_count,
                 backup_manifest.logical_bytes(value),
                 deadline,
             )
-            native.materialize(value["files"])
+            # Compatibility and every original private object were verified
+            # above. Release decoded file rows before copying the full logical
+            # inventory; the private input spool is completely verified too.
+            del data
+            native.materialize_owned(value.pop("files"), recovery)
         else:
             witnesses = file_copy.bounded_copies(value["files"], copy, deadline=deadline)
             verified = {
@@ -459,7 +464,7 @@ def restore(recovery_id: str, backup_id: str, expected: str) -> dict:
         record.update(
             data_restored=True,
             restored_payload_bytes=backup_manifest.logical_bytes(value),
-            restored_files=len(value["files"]),
+            restored_files=file_count,
             restored_directories=len(value["directories"]),
             historical_configuration_active=False,
             factory_replay_history_retained=True,

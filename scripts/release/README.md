@@ -430,6 +430,16 @@ limits, the read-only backup volume and stopped writers. It starts no programs
 or services. Python retains its filesystem error cursors from before directory
 creation; the native child holds its own cursors before file writes. Both cursor
 sets are synchronized before completion. The original deadlines remain.
+After the complete private manifest and its objects have been verified, Python
+writes the same sorted batches to a bounded, unlinked 0600 temporary descriptor
+in the private recovery directory. It checks the complete spool digest and
+stable descriptor identity before sending any batch, then releases the decoded
+file inventory and selected bundle manifest. Each streamed batch remains bounded;
+its descriptor identity, complete stream digest, count and logical byte total
+are checked through EOF. The descriptor is closed on success or failure. This
+reduces retained planner objects during copying without changing the native
+copy, synchronization, full target readback or final witness checks. The spool
+adds no recovery memory, CPU, process or time allowance.
 Each batch copies, joins both workers, flushes the affected filesystems, then
 reads every target. Final directory sync and stopped/selected-identity checks
 precede the native inventory's complete metadata recheck and thread joins.
