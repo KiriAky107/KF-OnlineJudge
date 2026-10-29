@@ -7,6 +7,8 @@ import logging
 import os
 import subprocess
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from importlib import import_module
 from pathlib import Path
 from uuid import UUID
@@ -126,6 +128,14 @@ def binding() -> tuple[dict, dict, Path]:
         paths, payload, data, attest=receipt["operator_attested_measurement"]
     )
     return selected, paths, payload
+
+
+@contextmanager
+def _status_helpers(payload: Path):
+    """Join at most two fixed read-only helpers before returning any observation."""
+    names = ("broker-health", "outbox-health", "import-health", "factory-health")
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="kf-health") as executor:
+        yield {name: executor.submit(operator_units.run, name, payload) for name in names}
 
 
 def service_profile(name: str) -> tuple[int, int, int, int, int]:
@@ -567,53 +577,54 @@ def observe(*, probe: bool) -> dict:
         components["execution"] = counters
     except (OSError, ValueError):
         errors.append("execution_owner_unavailable")
-    try:
-        components["broker"] = operator_units.run("broker-health", payload)
-    except (OSError, ValueError, subprocess.SubprocessError):
-        errors.append("broker_metadata_unavailable")
-    try:
-        state = operator_units.run("outbox-health", payload)
-        validate_outbox(state)
-        components["outbox_pipeline"] = state
-    except (OSError, ValueError, subprocess.SubprocessError):
-        errors.append("outbox_pipeline_unavailable")
-    try:
-        state = operator_units.run("import-health", payload)
-        fields(
-            state,
-            {
-                "schema_version",
-                "worker_ready",
-                "reserved_bytes",
-                "uploaded_capped",
-                "validating_capped",
-                "truncated",
-            },
-            "import status",
-        )
-        if (
-            type(state["schema_version"]) is not int
-            or state["schema_version"] != 1
-            or state["worker_ready"] is not True
-            or state["truncated"] is not False
-        ):
-            raise DeliveryError("import heartbeat or counter unavailable")
-        for key, maximum in (
-            ("reserved_bytes", 268435456),
-            ("uploaded_capped", 128),
-            ("validating_capped", 1),
-        ):
-            if type(state[key]) is not int or not 0 <= state[key] <= maximum:
-                raise DeliveryError("import status bound differs")
-        components["import_pipeline"] = state
-    except (OSError, ValueError, subprocess.SubprocessError):
-        errors.append("import_pipeline_unavailable")
-    try:
-        status = operator_units.run("factory-health", payload)
-        validate_factory(status, digest(paths["runtime.json"]))
-        components["factory_status"] = status
-    except (OSError, ValueError, subprocess.SubprocessError):
-        errors.append("factory_status_unavailable")
+    with _status_helpers(payload) as pending:
+        try:
+            components["broker"] = pending["broker-health"].result()
+        except (OSError, ValueError, subprocess.SubprocessError):
+            errors.append("broker_metadata_unavailable")
+        try:
+            state = pending["outbox-health"].result()
+            validate_outbox(state)
+            components["outbox_pipeline"] = state
+        except (OSError, ValueError, subprocess.SubprocessError):
+            errors.append("outbox_pipeline_unavailable")
+        try:
+            state = pending["import-health"].result()
+            fields(
+                state,
+                {
+                    "schema_version",
+                    "worker_ready",
+                    "reserved_bytes",
+                    "uploaded_capped",
+                    "validating_capped",
+                    "truncated",
+                },
+                "import status",
+            )
+            if (
+                type(state["schema_version"]) is not int
+                or state["schema_version"] != 1
+                or state["worker_ready"] is not True
+                or state["truncated"] is not False
+            ):
+                raise DeliveryError("import heartbeat or counter unavailable")
+            for key, maximum in (
+                ("reserved_bytes", 268435456),
+                ("uploaded_capped", 128),
+                ("validating_capped", 1),
+            ):
+                if type(state[key]) is not int or not 0 <= state[key] <= maximum:
+                    raise DeliveryError("import status bound differs")
+            components["import_pipeline"] = state
+        except (OSError, ValueError, subprocess.SubprocessError):
+            errors.append("import_pipeline_unavailable")
+        try:
+            status = pending["factory-health"].result()
+            validate_factory(status, digest(paths["runtime.json"]))
+            components["factory_status"] = status
+        except (OSError, ValueError, subprocess.SubprocessError):
+            errors.append("factory_status_unavailable")
     if probe:
         try:
             # Blocking module initialization belongs to the fixed 300-second

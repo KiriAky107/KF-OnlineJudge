@@ -572,9 +572,12 @@ end-to-end target still requires measured acceptance.
 
 Fixed health helpers include interpreter startup in their wall-clock deadline.
 Outbox and import queries have 60 seconds each; factory status has 30 seconds and
-broker metadata has 45 seconds. Node readiness has 300 seconds for the sequential
-checks. Each ordinary helper has one CPU within the node's two-CPU ceiling;
-its memory, process and privilege limits remain fixed. These operator budgets
+broker metadata has 45 seconds. Node readiness has 300 seconds. The independent
+broker, outbox, import and factory queries run with at most two fixed helpers
+in flight; every dispatched helper is joined before readiness returns, including
+a failed observation. Results keep their existing validation and failure codes.
+Each ordinary helper has one CPU within the node's two-CPU ceiling; its memory,
+process and privilege limits remain fixed. These operator budgets
 do not change student execution budgets. Startup opens admission only after all
 required readiness queries succeed.
 The proxy's `Type=exec` state only confirms its launcher is running. Lifecycle

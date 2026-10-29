@@ -189,3 +189,67 @@ def test_iterator_failure_joins_in_flight_work_without_dispatching_rest():
         collector.join(5)
     assert not collector.is_alive() and calls == [0]
     assert len(errors) == 1 and str(errors[0]) == "finite inventory refusal"
+
+
+def test_readiness_projection_ports_overlap_with_at_most_two_workers(monkeypatch):
+    """Live ordinary threads over modeled ports, not systemd or VM acceptance."""
+    node_health = importlib.import_module("scripts.release.node_health")
+    lock = threading.Lock()
+    barrier = threading.Barrier(2, timeout=10)
+    active = 0
+    peak = 0
+    started = []
+    finished = []
+    payload = Path("/ordinary-readiness-port-model")
+
+    def query(name, actual_payload):
+        nonlocal active, peak
+        assert actual_payload == payload
+        with lock:
+            active += 1
+            peak = max(peak, active)
+            started.append(name)
+        try:
+            barrier.wait()
+            return {"component": name}
+        finally:
+            with lock:
+                active -= 1
+                finished.append(name)
+
+    monkeypatch.setattr(node_health.operator_units, "run", query)
+    with node_health._status_helpers(payload) as pending:
+        results = {name: future.result(timeout=15) for name, future in pending.items()}
+    names = {"broker-health", "outbox-health", "import-health", "factory-health"}
+    assert peak == 2 and active == 0
+    assert set(started) == set(finished) == set(results) == names
+    assert len(started) == len(finished) == 4
+    assert all(results[name] == {"component": name} for name in names)
+    assert all(future.done() for future in pending.values())
+
+
+def test_readiness_projection_failure_keeps_error_and_joins_all_workers(monkeypatch):
+    """A consumer error cannot abandon a dispatched ordinary helper model."""
+    node_health = importlib.import_module("scripts.release.node_health")
+    lock = threading.Lock()
+    barrier = threading.Barrier(2, timeout=10)
+    finished = []
+
+    def query(name, payload):
+        try:
+            barrier.wait()
+            if name == "broker-health":
+                raise policy.DeliveryError("bounded helper refused")
+            return {"component": name}
+        finally:
+            with lock:
+                finished.append(name)
+
+    monkeypatch.setattr(node_health.operator_units, "run", query)
+    with pytest.raises(RuntimeError, match="consumer refused observation"):
+        with node_health._status_helpers(Path("/ordinary-readiness-port-model")) as pending:
+            raise RuntimeError("consumer refused observation")
+    assert len(finished) == 4 and set(finished) == set(pending)
+    assert all(future.done() for future in pending.values())
+    with pytest.raises(policy.DeliveryError, match="bounded helper refused"):
+        pending["broker-health"].result()
