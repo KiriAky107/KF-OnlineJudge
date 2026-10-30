@@ -358,6 +358,13 @@ and replay journals. Root uses its signal/guardian recovery path; import finishe
 its current authorized operation before claiming another. The maintenance receipt
 records manager operations and cleanup results.
 
+The ordinary outbox process emits `KF_OUTBOX_START_FAILURE` only after a fatal
+entrypoint failure. Its bounded JSON record contains an allowlisted startup phase,
+exception types, SQLSTATE codes and source basenames/line numbers. Error text,
+connection inputs, SQL, environment values and full paths are omitted. The
+original nonzero exit and finite service restart policy remain in force; this
+record does not establish readiness or explain an unobserved earlier failure.
+
 ## Cold backups
 
 Collect the private artifact inventory with
