@@ -84,9 +84,9 @@ impl Pool {
                 .spawn(move || {
                     while let Ok(job) = jobs.recv() {
                         let result = match job {
-                            Job::Copy(rows, deadline) => Completed::Copied(
-                                rows.into_iter().map(|r| roots.copy(r, deadline)).collect(),
-                            ),
+                            Job::Copy(rows, deadline) => {
+                                Completed::Copied(roots.copy_group(rows, deadline))
+                            }
                             Job::Read(rows, deadline) => {
                                 Completed::Read(roots.read_group(rows, deadline))
                             }

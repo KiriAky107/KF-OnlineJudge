@@ -547,6 +547,13 @@ The native restore helper keeps two joined threads and partitions each fixed bat
 into contiguous groups that minimize the heavier byte count. Ties prefer balanced
 file counts. Copy order, synchronization, complete byte readback and final
 nine-field witnesses are preserved; no extra worker or batch capacity is added.
+Each copy worker keeps at most one read-only source object descriptor within its
+joined half-batch. Repeated objects rewind that descriptor instead of reopening
+the same path. Every logical copy still checks the protected source, its complete
+descriptor/path identity before and after copying, and its exact byte length.
+Switching objects closes the old descriptor; synchronization starts only after
+both copy groups have returned and closed their source descriptors.
+
 After synchronization and complete byte verification, the native helper asks the
 kernel to release clean cached pages for that restored file. Descriptor and path
 witnesses are still checked afterwards. This per-file streaming hint avoids

@@ -117,6 +117,14 @@ pub struct Roots {
     #[cfg(test)]
     ordinary_fixture: bool,
 }
+
+struct CopySource {
+    object: String,
+    bytes: u64,
+    file: File,
+    witness: Stamp,
+}
+
 impl Roots {
     pub fn production(backup_id: &str, recovery_id: &str) -> Result<Self> {
         let source = Path::new("/var/lib/kf-onlinejudge/backups")
@@ -214,7 +222,21 @@ impl Roots {
         }
         Ok(())
     }
-    pub fn copy(&self, row: RestoreFile, deadline: u64) -> Result<Pending> {
+    pub fn copy_group(&self, rows: Vec<RestoreFile>, deadline: u64) -> Result<Vec<Pending>> {
+        // One descriptor per joined half-batch, never shared with another
+        // worker or retained across synchronization/readback. Repeated objects
+        // still get fresh descriptor/path witnesses before and after each copy.
+        let mut source = None;
+        rows.into_iter()
+            .map(|row| self.copy(row, deadline, &mut source))
+            .collect()
+    }
+    fn copy(
+        &self,
+        row: RestoreFile,
+        deadline: u64,
+        source: &mut Option<CopySource>,
+    ) -> Result<Pending> {
         remaining(deadline)?;
         let (anchor, name, uid, gid, mode) = self.target(&row)?;
         match rustix::fs::openat2(
@@ -235,9 +257,34 @@ impl Roots {
             Err(rustix::io::Errno::NOENT) => {}
             Err(_) => return Err(Error::Filesystem),
         }
-        let mut input = self
-            .source
-            .file(&row.sha256, OFlags::RDONLY | OFlags::NONBLOCK)?;
+        if source
+            .as_ref()
+            .is_none_or(|s| s.object != row.sha256 || s.bytes != row.bytes)
+        {
+            // Close the prior object before opening another; the bound is one
+            // source descriptor even while switching between distinct hashes.
+            *source = None;
+            let file = self
+                .source
+                .file(&row.sha256, OFlags::RDONLY | OFlags::NONBLOCK)?;
+            let info = file.metadata().map_err(|_| Error::Filesystem)?;
+            member(&info, &row, self.source_owner.0, self.source_owner.1, 0o600)?;
+            *source = Some(CopySource {
+                object: row.sha256.clone(),
+                bytes: row.bytes,
+                witness: stamp(&info)?,
+                file,
+            });
+        } else {
+            source
+                .as_mut()
+                .ok_or(Error::Filesystem)?
+                .file
+                .rewind()
+                .map_err(|_| Error::Filesystem)?;
+        }
+        let cached = source.as_mut().ok_or(Error::Filesystem)?;
+        let input = &mut cached.file;
         let before = input.metadata().map_err(|_| Error::Filesystem)?;
         member(
             &before,
@@ -247,7 +294,7 @@ impl Roots {
             0o600,
         )?;
         let original = stamp(&before)?;
-        if self.source.observed(&row.sha256)? != original {
+        if original != cached.witness || self.source.observed(&row.sha256)? != original {
             return Err(Error::Identity);
         }
         let mut output = anchor.file(name, OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL)?;
@@ -260,7 +307,7 @@ impl Roots {
         {
             return Err(Error::Identity);
         }
-        transfer(&mut input, &mut output, row.bytes, deadline)?;
+        transfer(input, &mut output, row.bytes, deadline)?;
         if stamp(&input.metadata().map_err(|_| Error::Filesystem)?)? != original
             || self.source.observed(&row.sha256)? != original
         {
@@ -521,5 +568,84 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         std::fs::remove_dir_all(&self.0).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+    use std::{fs, os::unix::fs::PermissionsExt};
+
+    // Ordinary owned data fixtures only; no Root, service, student program,
+    // symlink/permission boundary or isolation acceptance is exercised here.
+    fn row(fixture: &Fixture, name: &str, data: &[u8]) -> RestoreFile {
+        let hash = format!("{:x}", Sha256::digest(data));
+        let source = fixture.source().join(&hash);
+        fs::write(&source, data).unwrap();
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+        let owner = source.metadata().unwrap();
+        RestoreFile {
+            path: format!("artifacts/{name}"),
+            uid: owner.uid(),
+            gid: owner.gid(),
+            mode: 0o600,
+            bytes: data.len() as u64,
+            sha256: hash,
+        }
+    }
+
+    #[test]
+    fn repeated_objects_rewind_and_switch_before_full_destination_readback() {
+        let fixture = Fixture::new();
+        let roots = fixture.roots();
+        let a = row(&fixture, "a", b"ordinary first object");
+        let empty = row(&fixture, "empty", b"");
+        let b = row(
+            &fixture,
+            "b",
+            b"second ordinary object with a different length",
+        );
+        let mut rows = Vec::new();
+        for (index, item) in [&a, &a, &empty, &empty, &b, &b, &a].into_iter().enumerate() {
+            let mut item = item.clone();
+            item.path = format!("artifacts/file-{index}");
+            rows.push(item);
+        }
+        let deadline = super::super::now().unwrap() + 10_000_000_000;
+        let copied = roots.copy_group(rows, deadline).unwrap();
+        roots.sync(deadline).unwrap();
+        let verified = roots.read_group(copied, deadline).unwrap();
+        assert_eq!(verified.len(), 7);
+        for item in &verified {
+            roots.final_file(item).unwrap();
+            let name = item.row.path.strip_prefix("artifacts/").unwrap();
+            let actual = fs::read(fixture.target().join(name)).unwrap();
+            assert_eq!(actual.len() as u64, item.row.bytes);
+            assert_eq!(format!("{:x}", Sha256::digest(actual)), item.row.sha256);
+        }
+        roots.unchanged().unwrap();
+    }
+
+    #[test]
+    fn edited_owned_source_invalidates_retained_witness_before_another_target() {
+        let fixture = Fixture::new();
+        let roots = fixture.roots();
+        let first = row(&fixture, "first", b"ordinary original");
+        let deadline = super::super::now().unwrap() + 10_000_000_000;
+        let mut cursor = None;
+        roots.copy(first.clone(), deadline, &mut cursor).unwrap();
+        let original = cursor.as_ref().unwrap().witness;
+        fs::write(fixture.source().join(&first.sha256), b"ordinary edited!!").unwrap();
+        assert_ne!(
+            stamp(&cursor.as_ref().unwrap().file.metadata().unwrap()).unwrap(),
+            original
+        );
+        let mut second = first;
+        second.path = "artifacts/second".into();
+        assert!(matches!(
+            roots.copy(second, deadline, &mut cursor),
+            Err(Error::Identity)
+        ));
+        assert!(!fixture.target().join("second").exists());
     }
 }
