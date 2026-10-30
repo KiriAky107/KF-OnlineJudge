@@ -119,6 +119,7 @@ jobs:
             tests/test_operator_diagnostics.py \
             tests/test_outbox_startup_diagnostics.py \
             tests/test_delivery_role_projection.py \
+            tests/test_delivery_unit_snapshots.py \
             tests/test_operator_imports.py \
             tests/test_health.py \
             tests/test_identity.py \

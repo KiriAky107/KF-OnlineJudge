@@ -608,6 +608,7 @@ def test_start_on_active_node_model_refuses_before_proof_or_admission_changes(mo
     monkeypatch.setattr(recovery_database, "admission_guard", nullcontext)
     maintenance = object.__new__(lifecycle.Maintenance)
     maintenance.unit = lambda _: {"ActiveState": "active", "MainPID": "7"}
+    maintenance.units = lambda names: {name: maintenance.unit(name) for name in names}
     calls = []
     monkeypatch.setattr(operation_proof, "publish", lambda *args: calls.append("proof"))
     maintenance.close_failed_admission = lambda: calls.append("admission")
@@ -1117,6 +1118,9 @@ def ordinary_lifecycle_model(monkeypatch):
         states[name] = "active"
 
     monkeypatch.setattr(maintenance, "unit", unit)
+    monkeypatch.setattr(
+        maintenance, "units", lambda names: {name: maintenance.unit(name) for name in names}
+    )
     monkeypatch.setattr(maintenance, "save", lambda phase: trace.append(("save", phase)))
     monkeypatch.setattr(lifecycle.install, "selection", lambda **_: maintenance.selected)
     monkeypatch.setattr(lifecycle.service_install, "systemctl", dispatch)

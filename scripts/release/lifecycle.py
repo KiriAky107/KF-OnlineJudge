@@ -238,7 +238,7 @@ def projection_empty(snapshot: dict) -> bool:
     )
 
 
-def selected_unit(selected: dict, name: str) -> dict:
+def _selected_unit_target(selected: dict, name: str) -> tuple[Path, Path]:
     if name not in {*APPS, *DEPENDENCIES}:
         raise DeliveryError("unknown lifecycle target")
     path = service_install.SYSTEM_UNITS / ("kf-" + name + ".service")
@@ -256,6 +256,11 @@ def selected_unit(selected: dict, name: str) -> dict:
         base = dependency_install.ROOT
     if directory != base / (selected["release_id"] + "." + selected["configuration_id"]):
         raise DeliveryError("lifecycle target is not the selected snapshot")
+    return path, directory
+
+
+def selected_unit(selected: dict, name: str) -> dict:
+    path, directory = _selected_unit_target(selected, name)
     values = dict(
         line.split("=", 1)
         for line in service_install.systemctl(
@@ -271,6 +276,57 @@ def selected_unit(selected: dict, name: str) -> dict:
     }:
         raise DeliveryError("lifecycle manager target differs")
     return values
+
+
+def selected_units(selected: dict, names: tuple[str, ...]) -> dict[str, dict]:
+    """Read one bounded manager snapshot, retaining each selected unit binding."""
+    if (
+        type(names) is not tuple
+        or not 1 <= len(names) <= len(APPS) + len(DEPENDENCIES)
+        or any(type(name) is not str or name not in (*APPS, *DEPENDENCIES) for name in names)
+        or len(set(names)) != len(names)
+    ):
+        raise DeliveryError("unknown or duplicate lifecycle targets")
+    if len(names) == 1:
+        return {names[0]: selected_unit(selected, names[0])}
+    targets = {name: _selected_unit_target(selected, name) for name in names}
+    identifiers = {path.name: name for name, (path, _) in targets.items()}
+    contents = service_install.systemctl(
+        "show",
+        *identifiers,
+        "--property=Id,LoadState,ActiveState,SubState,MainPID,FragmentPath",
+    )
+    observed = {}
+    for block in contents.strip().split("\n\n"):
+        values = {}
+        for line in block.splitlines():
+            key, separator, value = line.partition("=")
+            if not separator or key in values:
+                raise DeliveryError("lifecycle manager snapshot fields differ")
+            values[key] = value
+        if set(values) != {
+            "Id",
+            "LoadState",
+            "ActiveState",
+            "SubState",
+            "MainPID",
+            "FragmentPath",
+        }:
+            raise DeliveryError("lifecycle manager snapshot fields differ")
+        identifier = values.pop("Id")
+        if identifier not in identifiers or identifiers[identifier] in observed:
+            raise DeliveryError("lifecycle manager snapshot identities differ")
+        name = identifiers[identifier]
+        path, directory = targets[name]
+        if values["LoadState"] != "loaded" or values["FragmentPath"] not in {
+            str(path),
+            str(directory / path.name),
+        }:
+            raise DeliveryError("lifecycle manager target differs")
+        observed[name] = values
+    if set(observed) != set(names):
+        raise DeliveryError("lifecycle manager snapshot identities differ")
+    return observed
 
 
 def close_failed_admission(selected: dict) -> None:
@@ -339,6 +395,11 @@ class Maintenance:
 
     def unit(self, name: str) -> dict:
         return selected_unit(self.selected, name)
+
+    def units(self, names: tuple[str, ...]) -> dict[str, dict]:
+        if len(names) == 1:
+            return {names[0]: self.unit(names[0])}
+        return selected_units(self.selected, names)
 
     @staticmethod
     def empty_cgroup(name: str) -> None:
@@ -459,8 +520,9 @@ class Maintenance:
             raise DeliveryError("selected binding changed during maintenance")
         # Validate every target before dispatching any member of this stage.
         inactive = []
+        initial = self.units(names)
         for name in names:
-            values = self.unit(name)
+            values = initial[name]
             if values["ActiveState"] == "active":
                 node_health.inspect_unit(name, self.selected)
                 if name == "proxy":
@@ -481,10 +543,13 @@ class Maintenance:
             # A later dispatch or wait cannot reset an earlier unit's deadline.
             pending[name] = (event, time.monotonic() + seconds + 10)
         while pending:
+            if install.selection(check_configuration=False) != self.selected:
+                raise DeliveryError("selected binding changed during maintenance")
+            current = self.units(tuple(pending))
             for name, (event, deadline) in list(pending.items()):
                 if install.selection(check_configuration=False) != self.selected:
                     raise DeliveryError("selected binding changed during maintenance")
-                values = self.unit(name)
+                values = current[name]
                 if time.monotonic() >= deadline or values["ActiveState"] == "failed":
                     raise DeliveryError("bounded lifecycle operation unconfirmed")
                 if values["ActiveState"] == "active" and values["SubState"] == "running":
@@ -624,8 +689,9 @@ class Maintenance:
                 raise
 
     def require_fresh_start(self) -> None:
+        current = self.units(APPS)
         for name in APPS:
-            value = self.unit(name)
+            value = current[name]
             if value["ActiveState"] != "inactive" or value["MainPID"] != "0":
                 raise DeliveryError("fresh start requires stopped application units")
             self.empty_cgroup(name)

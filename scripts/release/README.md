@@ -324,6 +324,12 @@ does not publish; probe failures are reported separately.
 `python3.13 -m scripts.release.lifecycle --action start|resume|drain|stop|restart`
 controls the fixed units and a Root-protected release/batch availability record:
 
+Startup groups read a bounded manager snapshot for their fixed unit IDs. Every
+unit still requires its selected unit-file binding, effective profile and
+original deadline; missing, duplicate or foreign snapshot entries are refused.
+The initial stopped-application check uses the same per-unit bindings in one
+snapshot and retains the separate Root cleanup proof.
+
 | Action | Behaviour |
 | --- | --- |
 | `start` | Requires stopped known application units; opens admission after readiness passes |
