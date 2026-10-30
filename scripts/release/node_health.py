@@ -313,33 +313,52 @@ async def roles(endpoints: dict) -> dict:
             },
         )
         try:
-            row = await connection.fetchrow(
-                "SELECT session_user login,current_database() database,rolcanlogin canlogin,"
-                "rolsuper superuser,rolcreatedb createdb,rolcreaterole createrole,"
-                "rolreplication replication,"
-                "rolbypassrls bypassrls,rolconnlimit connection_limit,"
-                "pg_has_role(session_user,$1,'MEMBER') member,"
-                "pg_has_role(session_user,$1,'USAGE') inherited,"
-                "pg_has_role(session_user,$1,'SET') set_role "
-                "FROM pg_roles WHERE rolname=session_user",
-                database.MEMBERSHIP[configuration.PROFILES[role]],
-            )
-            observed = dict(row)
-            observed["privileges"] = {}
+            # One catalog snapshot per login preserves every role/grant check.
+            # Fixed function names are code; names and privilege tokens stay parameters.
+            parameters = [database.MEMBERSHIP[configuration.PROFILES[role]]]
+            privilege_checks = []
             for key in requirements:
                 parts = key.split(":")
-                observed["privileges"][key] = await connection.fetchval(
-                    "SELECT has_table_privilege(current_user,$1,$2)"
-                    if len(parts) == 2
-                    else "SELECT has_column_privilege(current_user,$1,$2,$3)",
-                    *parts,
+                function = "has_table_privilege" if len(parts) == 2 else "has_column_privilege"
+                placeholders = ",".join(
+                    f"${len(parameters) + index + 1}" for index in range(len(parts))
                 )
-            observed["functions"] = {
-                name: await connection.fetchval(
-                    "SELECT has_function_privilege(current_user,$1,'EXECUTE')", name
+                privilege_checks.append(f"{function}(current_user,{placeholders})")
+                parameters.extend(parts)
+            function_checks = []
+            for name in AUTHORITY_FUNCTIONS:
+                parameters.append(name)
+                function_checks.append(
+                    f"has_function_privilege(current_user,${len(parameters)},'EXECUTE')"
                 )
-                for name in AUTHORITY_FUNCTIONS
-            }
+            query = (
+                "SELECT session_user login,current_database() database,rolcanlogin canlogin,"
+                "rolsuper superuser,rolcreatedb createdb,rolcreaterole createrole,"
+                "rolreplication replication,rolbypassrls bypassrls,rolconnlimit connection_limit,"
+                "pg_has_role(session_user,$1,'MEMBER') member,"
+                "pg_has_role(session_user,$1,'USAGE') inherited,"
+                "pg_has_role(session_user,$1,'SET') set_role"
+                + ",ARRAY["
+                + ",".join(privilege_checks)
+                + "] privileges"
+                + ",ARRAY["
+                + ",".join(function_checks)
+                + "] functions"
+                + " FROM pg_roles WHERE rolname=session_user"
+            )
+            observed = dict(await connection.fetchrow(query, *parameters))
+            for field, keys in (
+                ("privileges", requirements),
+                ("functions", AUTHORITY_FUNCTIONS),
+            ):
+                values = observed.get(field)
+                if (
+                    type(values) is not list
+                    or len(values) != len(keys)
+                    or any(type(value) is not bool for value in values)
+                ):
+                    raise DeliveryError("database role projection values differ")
+                observed[field] = dict(zip(keys, values, strict=True))
             validate_role(role, observed)
             result[role] = {"authority_verified": True}
         finally:
