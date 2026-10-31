@@ -226,9 +226,9 @@ def inventory(root: Path, *, path_prefix: str = "") -> list[dict]:
                     else None,
                 )
             )
-    # Keep byte verification to two readers within the shared four-operation
-    # ceiling. Every dispatched reader is joined before returning or raising.
-    verified = file_copy.bounded_copies(entries, _read_payload, max_workers=2)
+    # Read synchronously in the caller. Each complete byte/header read retains
+    # its before/after witnesses and the inventory's final metadata recheck.
+    verified = file_copy.bounded_copies(entries, _read_payload, max_workers=1)
     for path, expected, _, _ in entries:
         if _file_stamp(path.lstat()) != expected:
             raise DeliveryError("payload file changed before inventory completion")

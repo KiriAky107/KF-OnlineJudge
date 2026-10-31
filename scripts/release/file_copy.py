@@ -37,8 +37,17 @@ def bounded_copies[Item, Result](
         return value
 
     remaining()
-    if len(rows) < 2:
-        single = [operation(row) for row in rows]
+    if workers == 1 or len(rows) < 2:
+        single: list[Result] = []
+        single_source = iter(rows)
+        while True:
+            remaining()
+            try:
+                row = next(single_source)
+            except StopIteration:
+                break
+            remaining()
+            single.append(operation(row))
         remaining()
         return single
     results: list[Result | None] = [None] * len(rows)

@@ -261,15 +261,16 @@ def test_payload_byte_reads_are_bounded_joined_and_complete(ordinary_bundle, mon
     release, saturated = threading.Event(), threading.Event()
     lock = threading.Lock()
     active = maximum = 0
-    started, results, errors = [], [], []
+    started, readers, results, errors = [], [], [], []
 
     def read(row):
         nonlocal active, maximum
         with lock:
             started.append(row[0])
+            readers.append(threading.get_ident())
             active += 1
             maximum = max(active, maximum)
-            if active == 2:
+            if active == 1:
                 saturated.set()
         try:
             assert release.wait(5)
@@ -290,7 +291,7 @@ def test_payload_byte_reads_are_bounded_joined_and_complete(ordinary_bundle, mon
     try:
         assert saturated.wait(5)
         with lock:
-            assert len(started) == maximum == 2
+            assert len(started) == maximum == 1
         assert collector.is_alive() and not results
     finally:
         release.set()
@@ -298,6 +299,7 @@ def test_payload_byte_reads_are_bounded_joined_and_complete(ordinary_bundle, mon
     assert not collector.is_alive() and not errors and active == 0
     assert results == expected
     assert Counter(started) == Counter(payload / row["path"] for row in expected)
+    assert readers == [collector.ident] * len(expected)
 
 
 @pytest.mark.parametrize("index", range(9))
@@ -862,6 +864,76 @@ def test_copy_worker_bound_refuses_before_dispatch(max_workers):
     with pytest.raises(policy.DeliveryError, match="concurrency exceeds fixed bound"):
         file_copy.bounded_copies(list(range(8)), calls.append, max_workers=max_workers)
     assert calls == []
+
+
+def test_single_reader_uses_caller_thread_without_prefetching_inventory():
+    owner = threading.get_ident()
+    consumed, completed, threads = [], [], []
+
+    class Inventory(Sequence):
+        def __len__(self):
+            return 32
+
+        def __getitem__(self, index):
+            if not 0 <= index < len(self):
+                raise IndexError
+            assert index == len(completed)
+            consumed.append(index)
+            return index
+
+    def read(index):
+        threads.append(threading.get_ident())
+        completed.append(index)
+        return index * 3
+
+    assert file_copy.bounded_copies(Inventory(), read, max_workers=1) == [
+        index * 3 for index in range(32)
+    ]
+    assert consumed == completed == list(range(32))
+    assert threads == [owner] * 32
+
+
+@pytest.mark.parametrize("failed_index", [0, 5, 31])
+def test_single_reader_failure_propagates_without_later_dispatch(failed_index):
+    calls = []
+    refusal = ValueError("ordinary callback refusal model")
+
+    def read(index):
+        calls.append(index)
+        if index == failed_index:
+            raise refusal
+        return index
+
+    with pytest.raises(ValueError) as error:
+        file_copy.bounded_copies(list(range(32)), read, max_workers=1)
+    assert error.value is refusal
+    assert calls == list(range(failed_index + 1))
+
+
+def test_single_reader_deadline_refuses_before_consuming_another_item(monkeypatch):
+    # Deterministic ordinary deadline control model; no real VM timing claim.
+    clock = [0.0]
+    monkeypatch.setattr(file_copy, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    consumed, calls = [], []
+
+    class Inventory(Sequence):
+        def __len__(self):
+            return 32
+
+        def __getitem__(self, index):
+            if not 0 <= index < len(self):
+                raise IndexError
+            consumed.append(index)
+            return index
+
+    def read(index):
+        calls.append(index)
+        clock[0] = 2.0
+        return index
+
+    with pytest.raises(policy.DeliveryError, match="copy deadline exceeded"):
+        file_copy.bounded_copies(Inventory(), read, max_workers=1, deadline=1.0)
+    assert consumed == calls == [0]
 
 
 def test_expired_copy_deadline_refuses_before_dispatch():

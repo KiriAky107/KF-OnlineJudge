@@ -86,8 +86,8 @@ read back with their manifest before atomic publication. Each installed runtime
 image has its own full readback. Repeat installation checks the release, runtime
 images and legacy GNU copy independently; it uses the already checked GNU records
 to compare the legacy copy without reading the runtime image a second time.
-Payload inventories use at most two concurrent byte readers; durable file transfers
-retain their four-operation ceiling. Every dispatched read is joined and each
+Payload inventories use one synchronous byte reader in the caller; durable file
+transfers retain their four-operation ceiling. Every dispatched read completes and each
 file's complete bytes and metadata are checked before publication.
 
 `generate-configuration` reads separate 0600 node and endpoint inputs and writes
@@ -505,12 +505,14 @@ Unsupported transfer falls back at the same offsets. Source size/EOF, filesystem
 durability and full destination byte verification remain required. Version 4
 flushes each affected filesystem through error cursors held before writing;
 earlier formats retain per-file fsync.
-Public bundle inventories read every payload byte with at most four readers in
-flight. Each reader opens without following a final symlink and verifies the
+Public bundle inventories read every payload byte with one reader in the caller.
+The reader opens without following a final symlink and verifies the
 file identity and metadata before and after hashing. The inventory checks those
-identities again before returning. Four persistent workers take one item at a
-time from a locked iterator; there is no Future for each file or eagerly queued
-inventory. Failure or deadline expiry stops dispatch, and all running calls join
+identities again before returning. The general copy scheduler keeps its default
+of four persistent workers taking one item at a time from a locked iterator;
+there is no Future for each file or eagerly queued inventory. An explicit single
+worker runs inline and checks its deadline before consuming and dispatching each
+item. Failure or deadline expiry stops dispatch, and all running calls finish
 before an error or result returns. Results retain the input order.
 Payload path spelling checks use the same immutable allowlist and may retain at
 most 16384 successful, length-bounded strings per process. Custom string subclasses
