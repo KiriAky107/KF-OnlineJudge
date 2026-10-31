@@ -5,6 +5,7 @@ import json
 import os
 import re
 import stat
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -183,6 +184,20 @@ def _read_payload(row: tuple[Path, tuple[int, ...], dict, Path | None]) -> dict:
     return {**record, "sha256": checked}
 
 
+def _walk_payload(root: Path) -> Iterator[tuple[Path, str, list[str], list[str]]]:
+    """Carry lexical relative names through the same non-following walk."""
+    root_name = os.fspath(root)
+    root_prefix = os.path.join(root_name, "")
+    for directory, names, files in os.walk(root, followlinks=False):
+        if directory == root_name:
+            prefix = ""
+        elif directory.startswith(root_prefix):
+            prefix = directory[len(root_prefix) :].replace(os.sep, "/") + "/"
+        else:
+            raise DeliveryError("payload walk escaped its root")
+        yield Path(directory), prefix, names, files
+
+
 def inventory(root: Path, *, path_prefix: str = "") -> list[dict]:
     """No links/devices or inferred inclusion; bounds apply before hashing."""
     if not root.is_dir() or root.is_symlink():
@@ -190,16 +205,16 @@ def inventory(root: Path, *, path_prefix: str = "") -> list[dict]:
     entries = []
     total = 0
     directory_count = 0
-    for directory, directories, files in os.walk(root, followlinks=False):
+    for directory, prefix, directories, files in _walk_payload(root):
         directory_count += len(directories)
         if directory_count + len(entries) + len(files) > MAX_FILES:
             raise DeliveryError("payload entry count limit")
         for name in directories:
-            path = Path(directory) / name
+            path = directory / name
             if path.is_symlink():
                 raise DeliveryError("payload directory link refused")
         for name in sorted(files):
-            path = Path(directory) / name
+            path = directory / name
             info = path.lstat()
             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
                 raise DeliveryError("payload must contain single-link regular files")
@@ -209,7 +224,7 @@ def inventory(root: Path, *, path_prefix: str = "") -> list[dict]:
             total += size
             if total > MAX_BUNDLE_BYTES or len(entries) >= MAX_FILES:
                 raise DeliveryError("payload aggregate limit")
-            relative = path.relative_to(root).as_posix()
+            relative = prefix + name
             relative_name(path_prefix + relative)
             source_name = bytecode_source(path_prefix + relative)
             entries.append(
@@ -237,10 +252,10 @@ def inventory(root: Path, *, path_prefix: str = "") -> list[dict]:
 
 def directories(root: Path, *, path_prefix: str = "") -> list[str]:
     result = []
-    for directory, names, _ in os.walk(root, followlinks=False):
+    for directory, prefix, names, _ in _walk_payload(root):
         for name in names:
-            path = Path(directory) / name
-            value = path.relative_to(root).as_posix()
+            path = directory / name
+            value = prefix + name
             relative_name(path_prefix + value + "/.__directory__")
             if path.is_symlink() or stat.S_IMODE(path.stat().st_mode) != 0o555:
                 raise DeliveryError("payload directories must be read-only ordinary directories")

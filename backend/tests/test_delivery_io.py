@@ -251,6 +251,67 @@ def test_repeat_install_still_refuses_legacy_byte_change_model(ordinary_installa
         installer.files(model["bundle"], model["expected"])
 
 
+@pytest.mark.parametrize("root_form", ["absolute", "relative", "dot", "parent"])
+@pytest.mark.parametrize("path_prefix", ["", "site/"])
+def test_inventory_keeps_nested_names_for_each_root_form(
+    tmp_path, monkeypatch, root_form, path_prefix
+):
+    # Ordinary owned fixture bytes only, never runtime or isolation acceptance.
+    payload = tmp_path / "ordinary-root"
+    contents = {
+        "frontend/top.txt": b"ordinary trusted inventory bytes\n",
+        "frontend/branch/leaf.txt": b"another ordinary file\n",
+        "frontend/branch/ordinary-root/leaf.txt": b"nested root name remains a member\n",
+    }
+    for name, data in contents.items():
+        path = payload / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        path.chmod(0o555 if name == "frontend/top.txt" else 0o444)
+    (payload / "frontend/branch/empty").mkdir()
+    for path in payload.rglob("*"):
+        if path.is_dir():
+            path.chmod(0o555)
+    payload.chmod(0o555)
+    monkeypatch.chdir(payload if root_form == "dot" else tmp_path)
+    root = {
+        "absolute": payload,
+        "relative": Path("ordinary-root"),
+        "dot": Path("."),
+        "parent": Path("ordinary-root/../ordinary-root"),
+    }[root_form]
+    expected = [
+        {
+            "path": name,
+            "bytes": len(data),
+            "mode": "0555" if name == "frontend/top.txt" else "0444",
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+        for name, data in sorted(contents.items())
+    ]
+    assert manifest.inventory(root, path_prefix=path_prefix) == expected
+    assert manifest.directories(root, path_prefix=path_prefix) == [
+        "frontend",
+        "frontend/branch",
+        "frontend/branch/empty",
+        "frontend/branch/ordinary-root",
+    ]
+
+
+@pytest.mark.parametrize("operation", ["inventory", "directories"])
+def test_payload_walk_refuses_a_sibling_root_record(tmp_path, monkeypatch, operation):
+    # Synthetic walker record only; no file outside the owned root is accessed.
+    root = tmp_path / "root"
+    root.mkdir()
+    monkeypatch.setattr(
+        manifest.os,
+        "walk",
+        lambda *_args, **_kwargs: iter([(str(tmp_path / "root-sibling"), [], ["file.txt"])]),
+    )
+    with pytest.raises(policy.DeliveryError, match="payload walk escaped its root"):
+        getattr(manifest, operation)(root)
+
+
 def test_payload_byte_reads_are_bounded_joined_and_complete(ordinary_bundle, monkeypatch):
     # Ordinary owned bytes only. This observes the inventory's actual reads,
     # not service permissions, isolation, or VM recovery latency.

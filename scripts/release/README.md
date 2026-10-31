@@ -506,6 +506,8 @@ durability and full destination byte verification remain required. Version 4
 flushes each affected filesystem through error cursors held before writing;
 earlier formats retain per-file fsync.
 Public bundle inventories read every payload byte with one reader in the caller.
+Traversal carries each directory's relative prefix and constructs its path once;
+file and directory names keep their existing validation and complete inventories.
 The reader opens without following a final symlink and verifies the
 file identity and metadata before and after hashing. The inventory checks those
 identities again before returning. The general copy scheduler keeps its default
