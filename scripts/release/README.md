@@ -354,6 +354,8 @@ Dispatched failures append one `KF_OPERATOR_DIAGNOSTIC` JSON line to the CLI
 error. Its versioned, bounded chain records fixed helper names, failure stages,
 exit codes, output sizes and SHA-256 digests. Failed readiness includes only
 allowlisted component error codes and at most two dependency helper records.
+Maintenance keeps this chain when it records a failed operation, so the outer
+CLI can report the confirmed helper stage and component codes.
 Raw child output, arguments, credentials and exception text are excluded from
 the diagnostic line. Malformed, oversized or duplicate child diagnostic lines
 are discarded. This observation does not change service limits, deadlines,

@@ -778,6 +778,10 @@ def run(action: str) -> dict:
             maintenance.record["failure_code"] = "maintenance_unconfirmed"
             # Publication errors are not hidden by a successful-looking receipt.
             maintenance.save("failed")
+            if isinstance(error, operator_units.OperatorExecutionError):
+                raise operator_units.OperatorExecutionError(
+                    "maintenance failed; admission not reopened automatically", error.failures
+                ) from error
             raise DeliveryError(
                 "maintenance failed; admission not reopened automatically"
             ) from error

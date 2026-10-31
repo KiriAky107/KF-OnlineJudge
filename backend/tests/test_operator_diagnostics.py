@@ -225,3 +225,72 @@ def test_readonly_health_keeps_failed_components_and_bounded_nested_causes(monke
         "node-health",
     ]
     assert "private-" not in units.diagnostic_suffix(error)
+
+
+@pytest.mark.parametrize("failure", ["preconditions", "admission", "nested", "plain"])
+def test_failed_lifecycle_cli_preserves_safe_readiness_diagnostics(
+    monkeypatch, tmp_path, capsys, failure
+):
+    lifecycle = importlib.import_module("scripts.release.lifecycle")
+    # Only the error path and CLI codec are real here. Fixed helper/kernel/service
+    # enforcement and the cause of a prior VM failure need separate evidence.
+    selected = {"release_id": "sd-" + "a" * 12, "configuration_id": "cfg-" + "b" * 24}
+    payload = tmp_path / selected["release_id"] / "payload"
+    state = tmp_path / "operations"
+    state.mkdir(mode=0o700)
+    (state / "maintenance.lock").touch(mode=0o600)
+    monkeypatch.setattr(lifecycle, "STATE", state)
+    monkeypatch.setattr(lifecycle, "LAST", state / "maintenance.last.json")
+    monkeypatch.setattr(units, "guarded", lambda _: None)
+    monkeypatch.setattr(lifecycle.node_health, "binding", lambda: (selected, {}, payload))
+    monkeypatch.setattr(lifecycle.preflight, "protected", lambda *args, **kwargs: None)
+    monkeypatch.setattr(lifecycle.configuration, "private", lambda _: None)
+    monkeypatch.setattr(lifecycle, "digest", lambda _: "ordinary-matching-fixture")
+    inner = []
+    if failure == "nested":
+        inner = [units.failure_record("broker-health", "timeout", error=TimeoutError())]
+    original = (
+        units.DeliveryError("private-not-for-CLI")
+        if failure == "plain"
+        else units.readiness_failure(
+            "private-not-for-CLI",
+            {"errors": ["broker_metadata_unavailable"], "operator_failures": inner},
+            admission=failure == "admission",
+        )
+    )
+    expected = copy.deepcopy(getattr(original, "failures", []))
+    saved = []
+
+    class Maintenance:
+        def __init__(self, *args):
+            self.record = {"success": False, "events": []}
+
+        def start(self, *, resume):
+            assert resume is False
+            raise original
+
+        def save(self, phase):
+            saved.append({"phase": phase, **copy.deepcopy(self.record)})
+
+    monkeypatch.setattr(lifecycle, "Maintenance", Maintenance)
+    monkeypatch.setattr(sys, "argv", ["lifecycle", "--inside", "--action", "start"])
+    with pytest.raises(SystemExit) as caught:
+        lifecycle.main()
+    assert caught.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and "private-" not in captured.err
+    assert captured.err.startswith(
+        "Lifecycle refused: maintenance failed; admission not reopened automatically\n"
+    )
+    assert saved == [
+        {
+            "phase": "failed",
+            "success": False,
+            "events": [],
+            "failure_code": "maintenance_unconfirmed",
+        }
+    ]
+    assert units.diagnostic_chain(captured.err.encode()) == expected
+    if failure != "plain":
+        outer = units.OperatorExecutionError("unavailable", expected)
+        assert json.loads(units.diagnostic_suffix(outer).split(" ", 1)[1])["failures"] == expected
