@@ -86,6 +86,9 @@ read back with their manifest before atomic publication. Each installed runtime
 image has its own full readback. Repeat installation checks the release, runtime
 images and legacy GNU copy independently; it uses the already checked GNU records
 to compare the legacy copy without reading the runtime image a second time.
+Payload inventories use at most two concurrent byte readers; durable file transfers
+retain their four-operation ceiling. Every dispatched read is joined and each
+file's complete bytes and metadata are checked before publication.
 
 `generate-configuration` reads separate 0600 node and endpoint inputs and writes
 a new private batch. API, publisher, import, migration and account operations use

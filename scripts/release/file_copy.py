@@ -21,8 +21,12 @@ def bounded_copies[Item, Result](
     operation: Callable[[Item], Result],
     *,
     deadline: float | None = None,
+    max_workers: int | None = None,
 ) -> list[Result]:
     """Join a finite verified inventory, with at most four operations in flight."""
+    workers = IN_FLIGHT if max_workers is None else max_workers
+    if type(workers) is not int or not 1 <= workers <= IN_FLIGHT:
+        raise DeliveryError("file operation concurrency exceeds fixed bound")
 
     def remaining() -> float | None:
         if deadline is None:
@@ -66,7 +70,7 @@ def bounded_copies[Item, Result](
 
     # One future per worker, not per file. The locked iterator still admits
     # only four individual operations, without an eagerly queued inventory.
-    count = min(IN_FLIGHT, len(rows))
+    count = min(workers, len(rows))
     with ThreadPoolExecutor(max_workers=count) as executor:
         pending = []
         try:
@@ -104,7 +108,11 @@ def _identity(info: os.stat_result) -> tuple[int, ...]:
 
 
 def transfer(
-    incoming: BinaryIO, outgoing: BinaryIO, expected_bytes: int, *, deadline: float | None = None
+    incoming: BinaryIO,
+    outgoing: BinaryIO,
+    expected_bytes: int,
+    *,
+    deadline: float | None = None,
 ) -> None:
     """Use fresh streams; unsupported kernel transfer resumes at the same offsets."""
     source, target = incoming.fileno(), outgoing.fileno()

@@ -269,7 +269,7 @@ def test_payload_byte_reads_are_bounded_joined_and_complete(ordinary_bundle, mon
             started.append(row[0])
             active += 1
             maximum = max(active, maximum)
-            if active == 4:
+            if active == 2:
                 saturated.set()
         try:
             assert release.wait(5)
@@ -290,7 +290,7 @@ def test_payload_byte_reads_are_bounded_joined_and_complete(ordinary_bundle, mon
     try:
         assert saturated.wait(5)
         with lock:
-            assert len(started) == maximum == 4
+            assert len(started) == maximum == 2
         assert collector.is_alive() and not results
     finally:
         release.set()
@@ -748,8 +748,10 @@ def test_fixed_regular_transfer_preserves_exact_bytes_and_offsets(
     assert policy.digest(target) == policy.digest(source)
 
 
-def test_copy_inventory_prefetch_is_bounded_and_results_keep_input_order():
+@pytest.mark.parametrize("max_workers", [None, 2])
+def test_copy_inventory_prefetch_is_bounded_and_results_keep_input_order(max_workers):
     # Trusted callbacks only: ordinary concurrency control, no VM/Root acceptance.
+    limit = 4 if max_workers is None else max_workers
     release, saturated, second = (threading.Event() for _ in range(3))
     lock = threading.Lock()
     consumed, results, errors = [], [], []
@@ -771,7 +773,7 @@ def test_copy_inventory_prefetch_is_bounded_and_results_keep_input_order():
         with lock:
             active += 1
             maximum = max(active, maximum)
-            if active == 4:
+            if active == limit:
                 saturated.set()
         try:
             assert release.wait(5)
@@ -786,7 +788,7 @@ def test_copy_inventory_prefetch_is_bounded_and_results_keep_input_order():
 
     def collect():
         try:
-            results.extend(file_copy.bounded_copies(Inventory(), copy))
+            results.extend(file_copy.bounded_copies(Inventory(), copy, max_workers=max_workers))
         except BaseException as error:
             errors.append(error)
 
@@ -795,19 +797,21 @@ def test_copy_inventory_prefetch_is_bounded_and_results_keep_input_order():
     try:
         assert saturated.wait(5)
         with lock:
-            assert consumed == [0, 1, 2, 3]
-            assert maximum == 4
+            assert consumed == list(range(limit))
+            assert maximum == limit
     finally:
         release.set()
         collector.join(10)
     assert not collector.is_alive() and not errors
     assert results == [index * 3 for index in range(32)]
-    assert active == 0 and maximum == 4
+    assert active == 0 and maximum == limit
 
 
-def test_copy_failure_joins_dispatched_calls_before_propagating():
+@pytest.mark.parametrize("max_workers", [None, 2])
+def test_copy_failure_joins_dispatched_calls_before_propagating(max_workers):
     # No files/privileges: observe failure quiescence of trusted callbacks.
-    together = threading.Barrier(4)
+    limit = 4 if max_workers is None else max_workers
+    together = threading.Barrier(limit)
     release, failing, returned = (threading.Event() for _ in range(3))
     lock = threading.Lock()
     active = 0
@@ -818,7 +822,7 @@ def test_copy_failure_joins_dispatched_calls_before_propagating():
         with lock:
             active += 1
         try:
-            if index < 4:
+            if index < limit:
                 together.wait(timeout=5)
             if index == 0:
                 failing.set()
@@ -831,7 +835,7 @@ def test_copy_failure_joins_dispatched_calls_before_propagating():
 
     def collect():
         try:
-            file_copy.bounded_copies(list(range(32)), copy)
+            file_copy.bounded_copies(list(range(32)), copy, max_workers=max_workers)
         except BaseException as error:
             errors.append(error)
         finally:
@@ -850,6 +854,14 @@ def test_copy_failure_joins_dispatched_calls_before_propagating():
     assert not collector.is_alive() and active_when_returned == [0]
     assert len(errors) == 1 and isinstance(errors[0], policy.DeliveryError)
     assert str(errors[0]) == "ordinary callback refusal model"
+
+
+@pytest.mark.parametrize("max_workers", [0, 5, True, 1.5])
+def test_copy_worker_bound_refuses_before_dispatch(max_workers):
+    calls = []
+    with pytest.raises(policy.DeliveryError, match="concurrency exceeds fixed bound"):
+        file_copy.bounded_copies(list(range(8)), calls.append, max_workers=max_workers)
+    assert calls == []
 
 
 def test_expired_copy_deadline_refuses_before_dispatch():
