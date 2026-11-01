@@ -88,6 +88,14 @@ mutable data and operations. Repeated installation therefore does not reserve a
 second copy of an already verified payload. Its byte proof is confined to the
 current operation and all recorded identities are checked again before return.
 
+Ownership checks traverse the complete protected tree in batches. Each pass
+checks the root's full parent chain, every directory including empty ones, and
+every single-link file. Directory parents must be present and are checked before
+their children; ownership results are never cached between passes. Fresh copies
+recheck both complete trees before sealing, while standalone file copies retain
+their full ancestor checks. Complete byte readback and publication checks remain
+required.
+
 New release files are copied into a private staging directory, synced and fully
 read back with their manifest before atomic publication. Each installed runtime
 image has its own full readback. Repeat installation checks the release, runtime

@@ -102,17 +102,18 @@ def _copy_verified(
     readback: bool,
     expected_bytes: int | None = None,
     synchronize: bool = True,
+    ancestors: bool = True,
 ) -> None:
-    preflight.protected(source)
+    preflight.protected(source, ancestors=ancestors)
     sha256(expected)
     if target.exists() or target.is_symlink():
         if digest(source) != expected:
             raise DeliveryError("source changed after bundle verification")
-        preflight.protected(target)
+        preflight.protected(target, ancestors=ancestors)
         if digest(target) != expected or stat.S_IMODE(target.stat().st_mode) != mode:
             raise DeliveryError("existing release differs; refused overwrite")
         return
-    preflight.protected(target.parent, directory=True)
+    preflight.protected(target.parent, directory=True, ancestors=ancestors)
     incoming = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
     outgoing = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
     try:
@@ -231,10 +232,11 @@ def frozen_copy(
             or manifest.directories(target, path_prefix=path_prefix) != directories
         ):
             raise DeliveryError("existing protected image differs")
-        for record in records:
-            preflight.protected(target / record["path"])
+        preflight.protected_tree(
+            target, [record["path"] for record in records], directories, path_prefix=path_prefix
+        )
         return
-    _copy_new_tree(source, target, records, directories)
+    _copy_new_tree(source, target, records, directories, path_prefix=path_prefix)
     if (
         manifest.inventory(target, path_prefix=path_prefix) != records
         or manifest.directories(target, path_prefix=path_prefix) != directories
@@ -242,8 +244,18 @@ def frozen_copy(
         raise DeliveryError("installed image readback differs")
 
 
-def _copy_new_tree(source: Path, target: Path, records: list[dict], directories: list[str]) -> None:
+def _copy_new_tree(
+    source: Path,
+    target: Path,
+    records: list[dict],
+    directories: list[str],
+    *,
+    path_prefix: str = "",
+) -> None:
     """Create a new sealed tree; the caller must verify the complete destination."""
+    names = [record["path"] for record in records]
+    preflight.protected_tree(source, names, directories, path_prefix=path_prefix)
+    preflight.protected(target.parent, directory=True)
 
     def copy(record: dict) -> None:
         # frozen_copy verifies this image immediately; a release staging tree
@@ -256,6 +268,7 @@ def _copy_new_tree(source: Path, target: Path, records: list[dict], directories:
             readback=False,
             expected_bytes=record["bytes"],
             synchronize=False,
+            ancestors=False,
         )
 
     # Retain the filesystem error cursor before creating any destination.
@@ -268,6 +281,11 @@ def _copy_new_tree(source: Path, target: Path, records: list[dict], directories:
         for batch in restore_io.batches(records):
             file_copy.bounded_copies(batch, copy)
             filesystems.sync(None)
+        # Recheck both complete trees before sealing or publishing. Individual
+        # copies still check their source and immediate destination parent; the
+        # closed parent inventory above avoids repeating the entire root chain.
+        preflight.protected_tree(source, names, directories, path_prefix=path_prefix)
+        preflight.protected_tree(target, names, directories, path_prefix=path_prefix)
         for name in sorted(directories, key=lambda name: name.count("/"), reverse=True):
             (target / name).chmod(0o555)
         target.chmod(0o555)
@@ -286,10 +304,11 @@ def files(bundle: Path, expected: str) -> dict:
     if not observation["eligible"]:
         raise DeliveryError("installation preflight refused: " + "; ".join(observation["errors"]))
     # Per-entry ownership matters even when the inventory is identical.
-    for record in data["files"]:
-        preflight.protected(bundle / "payload" / record["path"])
-    for name in data["directories"]:
-        preflight.protected(bundle / "payload" / name, directory=True)
+    preflight.protected_tree(
+        bundle / "payload",
+        [record["path"] for record in data["files"]],
+        data["directories"],
+    )
     ensure_accounts()
     for name, mode in (
         ("/opt/kf-onlinejudge", 0o755),
@@ -313,8 +332,11 @@ def files(bundle: Path, expected: str) -> dict:
     if release.exists():
         preflight.protected(release, directory=True)
         manifest.verify(release, expected)
-        for record in data["files"]:
-            preflight.protected(release / "payload" / record["path"])
+        preflight.protected_tree(
+            release / "payload",
+            [record["path"] for record in data["files"]],
+            data["directories"],
+        )
     else:
         stage = RELEASES / ("." + data["release_id"] + ".installing")
         if stage.exists() or stage.is_symlink():

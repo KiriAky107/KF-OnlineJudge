@@ -174,6 +174,121 @@ def ordinary_installation_model(ordinary_bundle, monkeypatch, tmp_path):
     }
 
 
+def test_protected_tree_keeps_complete_coverage_with_shared_ancestor_bound_model(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "ordinary-protected-tree-model"
+    folders = ["lib", "lib/nested", "lib/nested/deep", "lib/empty"]
+    files = [f"lib/nested/deep/item-{index}" for index in range(64)]
+    observed = []
+
+    def protected(path, *, directory=False, ancestors=True):
+        observed.append((path, directory, ancestors))
+
+    monkeypatch.setattr(installer.preflight, "protected", protected)
+    installer.preflight.protected_tree(root, files, folders)
+    assert {path for path, _, _ in observed} == {
+        root,
+        *(root / name for name in files + folders),
+    }
+    assert [(path, directory) for path, directory, ancestors in observed if ancestors] == [
+        (root, True),
+        (root, True),
+    ]
+    assert len(observed) == len(files) + len(folders) + 2
+    assert (
+        observed.index((root / "lib/nested", True, False))
+        < observed.index((root / "lib/nested/deep", True, False))
+        < observed.index((root / files[0], False, False))
+    )
+    assert (root / "lib/empty", True, False) in observed
+
+
+def test_protected_tree_requires_closed_unambiguous_inventory_before_lookup_model(
+    tmp_path, monkeypatch
+):
+    observed = []
+    monkeypatch.setattr(installer.preflight, "protected", lambda *a, **k: observed.append(a))
+    for files, folders in (
+        (["lib/missing/leaf"], []),
+        (["lib/nested/deep/leaf"], ["lib/nested/deep"]),
+        (["lib/same", "lib/same"], ["lib"]),
+        ([], ["lib", "lib", "lib/same"]),
+        (["lib/same"], ["lib", "lib/same"]),
+    ):
+        with pytest.raises(policy.DeliveryError, match="protected tree"):
+            installer.preflight.protected_tree(tmp_path, files, folders)
+        assert observed == []
+
+
+def test_protected_tree_rechecks_owner_refusal_on_each_call_model(tmp_path, monkeypatch):
+    root = tmp_path / "ordinary-protected-tree-model"
+    refused = set()
+    visited = []
+
+    def protected(path, **_):
+        visited.append(path)
+        if path in refused:
+            raise policy.DeliveryError("ordinary modeled ownership refusal")
+
+    monkeypatch.setattr(installer.preflight, "protected", protected)
+    installer.preflight.protected_tree(
+        root, ["lib/nested/leaf"], ["lib", "lib/nested", "lib/empty"]
+    )
+    refused.add(root / "lib/empty")
+    visited.clear()
+    with pytest.raises(policy.DeliveryError, match="modeled ownership refusal"):
+        installer.preflight.protected_tree(
+            root, ["lib/nested/leaf"], ["lib", "lib/nested", "lib/empty"]
+        )
+    assert root / "lib/empty" in visited
+
+
+def test_single_file_copy_retains_full_ancestor_checks_model(
+    ordinary_installation_model, monkeypatch
+):
+    model = ordinary_installation_model
+    source = model["bundle"] / "payload/backend/alembic.ini"
+    target = model["root"] / "ordinary-single-file"
+    observed = []
+
+    def protected(path, *, directory=False, ancestors=True):
+        observed.append((path, directory, ancestors))
+
+    monkeypatch.setattr(installer.preflight, "protected", protected)
+    installer.copy_verified(source, target, policy.digest(source), 0o444)
+    assert target.read_bytes() == source.read_bytes()
+    assert observed and all(ancestors for _, _, ancestors in observed)
+    assert (source, False, True) in observed
+    assert (target.parent, True, True) in observed
+
+
+def test_new_tree_owner_change_model_refuses_before_publication(
+    ordinary_installation_model, monkeypatch
+):
+    model = ordinary_installation_model
+    source = model["bundle"] / "payload"
+    changed = False
+    original = installer._copy_verified
+
+    def copy(path, target, *args, **kwargs):
+        nonlocal changed
+        result = original(path, target, *args, **kwargs)
+        if path == source / "backend/alembic.ini":
+            changed = True
+        return result
+
+    def protected(path, *, directory=False, ancestors=True):
+        if changed and directory and path == source / "backend":
+            raise policy.DeliveryError("ordinary modeled directory owner changed")
+
+    monkeypatch.setattr(installer.preflight, "protected", protected)
+    monkeypatch.setattr(installer, "_copy_verified", copy)
+    with pytest.raises(policy.DeliveryError, match="modeled directory owner changed"):
+        installer.files(model["bundle"], model["expected"])
+    assert changed and model["stage"].is_dir() and not model["release"].exists()
+
+
 def test_new_staged_install_reads_each_destination_once(ordinary_installation_model, monkeypatch):
     model = ordinary_installation_model
     reads = []

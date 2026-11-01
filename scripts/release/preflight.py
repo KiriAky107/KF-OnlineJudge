@@ -9,10 +9,11 @@ import shutil
 import socket
 import stat
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 
 from .layout import RELEASES
-from .policy import DeliveryError, digest
+from .policy import MAX_FILES, DeliveryError, digest, relative_name
 
 GIB = 1024**3
 ACCOUNTS = {"kf-oj": 1200, "kf-coordinator": 1201, "kf-worker": 1202}
@@ -34,10 +35,51 @@ def protected(path: Path, *, directory: bool = False, ancestors: bool = True) ->
             raise DeliveryError("ordinary protected single-link file required")
 
 
+def protected_tree(
+    root: Path, files: Sequence[str], directories: Sequence[str], *, path_prefix: str = ""
+) -> None:
+    """Check a closed tree afresh, walking its shared ancestors only at the root."""
+    if len(files) + len(directories) > MAX_FILES:
+        raise DeliveryError("protected tree entry count limit")
+    names, folders = list(files), list(directories)
+    for name in names:
+        relative_name(path_prefix + name)
+    for name in folders:
+        relative_name(path_prefix + name + "/.__directory__")
+    file_set, directory_set = set(names), set(folders)
+    if (
+        len(file_set) != len(names)
+        or len(directory_set) != len(folders)
+        or file_set & directory_set
+    ):
+        raise DeliveryError("protected tree inventory differs")
+    for name in file_set | directory_set:
+        parent, separator, _ = name.rpartition("/")
+        if separator and parent not in directory_set:
+            raise DeliveryError("protected tree parent directory missing")
+    protected(root, directory=True)
+    # Parents precede children: no leaf lookup traverses an unchecked directory.
+    # Every directory, including empty ones, and every file is checked on each
+    # call. There is no remembered ownership result between calls or operations.
+    for name in sorted(folders, key=lambda name: (name.count("/"), name)):
+        protected(root / name, directory=True, ancestors=False)
+    for name in names:
+        protected(root / name, ancestors=False)
+    protected(root, directory=True)
+
+
 def hardware() -> dict:
     """Conservative measurement binding; no performance claim is inferred."""
     cpu = Path("/proc/cpuinfo").read_text()[: 1024 * 1024]
-    keys = {"vendor_id", "cpu family", "model", "model name", "stepping", "microcode", "flags"}
+    keys = {
+        "vendor_id",
+        "cpu family",
+        "model",
+        "model name",
+        "stepping",
+        "microcode",
+        "flags",
+    }
     processor = {}
     for line in cpu.split("\n\n", 1)[0].splitlines():
         if ":" in line:
@@ -172,10 +214,11 @@ def installation_space(payload: Path, *, bundle_data: dict) -> dict:
             raise DeliveryError("existing release seal differs; operator inspection required")
         if manifest.verify(release, digest(payload.parent / "manifest.json")) != bundle_data:
             raise DeliveryError("existing release inventory differs")
-        for record in bundle_data["files"]:
-            protected(release / "payload" / record["path"])
-        for name in bundle_data["directories"]:
-            protected(release / "payload" / name, directory=True)
+        protected_tree(
+            release / "payload",
+            [record["path"] for record in bundle_data["files"]],
+            bundle_data["directories"],
+        )
         existing_payload = bundle_data["payload_bytes"]
     protected_images = sum(
         entry["bytes"] for entry in bundle_data["files"] if entry["path"].startswith("images/")
