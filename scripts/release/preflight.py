@@ -11,6 +11,7 @@ import stat
 import subprocess
 from pathlib import Path
 
+from .layout import RELEASES
 from .policy import DeliveryError, digest
 
 GIB = 1024**3
@@ -154,7 +155,53 @@ def system_bus() -> dict:
         raise DeliveryError("system message bus unavailable") from error
 
 
+def installation_space(payload: Path, *, bundle_data: dict) -> dict:
+    """Keep the fresh image/data reserve; discount only a fully verified release."""
+    from . import manifest
+
+    release = RELEASES / bundle_data["release_id"]
+    existing_payload = 0
+    if release.exists() or release.is_symlink():
+        protected(release, directory=True)
+        protected(release / "manifest.json")
+        protected(release / "payload", directory=True)
+        if (
+            stat.S_IMODE(release.stat().st_mode) != 0o555
+            or stat.S_IMODE((release / "manifest.json").stat().st_mode) != 0o444
+        ):
+            raise DeliveryError("existing release seal differs; operator inspection required")
+        if manifest.verify(release, digest(payload.parent / "manifest.json")) != bundle_data:
+            raise DeliveryError("existing release inventory differs")
+        for record in bundle_data["files"]:
+            protected(release / "payload" / record["path"])
+        for name in bundle_data["directories"]:
+            protected(release / "payload" / name, directory=True)
+        existing_payload = bundle_data["payload_bytes"]
+    protected_images = sum(
+        entry["bytes"] for entry in bundle_data["files"] if entry["path"].startswith("images/")
+    )
+    legacy_image = sum(
+        entry["bytes"] for entry in bundle_data["files"] if entry["path"].startswith("images/gnu/")
+    )
+    new_payload = bundle_data["payload_bytes"] - existing_payload
+    return {
+        "required_free_bytes": new_payload + protected_images + legacy_image + 4 * GIB,
+        "new_payload_bytes": new_payload,
+        "verified_existing_payload_bytes": existing_payload,
+        "protected_image_reserve_bytes": protected_images,
+        "legacy_image_reserve_bytes": legacy_image,
+        "mutable_operation_reserve_bytes": 4 * GIB,
+    }
+
+
 def observe(payload: Path, *, bundle_data: dict, require_root: bool = True) -> dict:
+    from . import manifest
+
+    with manifest.verification_scope():
+        return _observe(payload, bundle_data=bundle_data, require_root=require_root)
+
+
+def _observe(payload: Path, *, bundle_data: dict, require_root: bool) -> dict:
     errors = []
     observations = {}
     if platform.system() != "Linux" or platform.machine() != "x86_64":
@@ -222,20 +269,14 @@ def observe(payload: Path, *, bundle_data: dict, require_root: bool = True) -> d
     if memory["MemTotal"] < 15 * GIB // 4 or memory["MemAvailable"] < 5 * GIB // 2:
         errors.append("physical/available memory below installation capacity")
     disk = shutil.disk_usage("/var/lib")
-    protected_images = sum(
-        entry["bytes"] for entry in bundle_data["files"] if entry["path"].startswith("images/")
-    )
-    legacy_image = sum(
-        entry["bytes"] for entry in bundle_data["files"] if entry["path"].startswith("images/gnu/")
-    )
-    # Count a full new application + protected image copies + legacy image and
-    # four GiB of mutable data/operation reserve. Filesystem metadata makes a
-    # 12-GiB device expose less than 12 GiB free even when it is empty.
-    required = bundle_data["payload_bytes"] + protected_images + legacy_image + 4 * GIB
+    # A sealed identical release requires no second payload allocation. Images
+    # and the four-GiB mutable reserve retain their full fresh-install budgets.
+    space = installation_space(payload, bundle_data=bundle_data)
+    required = space["required_free_bytes"]
     observations["disk"] = {
         "total_bytes": disk.total,
         "free_bytes": disk.free,
-        "required_free_bytes": required,
+        **space,
     }
     if disk.total < 12 * GIB or disk.free < required:
         errors.append("installation/data capacity or inventory-derived free reserve insufficient")

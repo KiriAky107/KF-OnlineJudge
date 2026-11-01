@@ -276,6 +276,7 @@ def _copy_new_tree(source: Path, target: Path, records: list[dict], directories:
         filesystems.close()
 
 
+@manifest.verified_operation
 def files(bundle: Path, expected: str) -> dict:
     if os.geteuid() != 0:
         raise DeliveryError("installer requires root")

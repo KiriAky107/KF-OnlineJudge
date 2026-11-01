@@ -251,6 +251,132 @@ def test_repeat_install_still_refuses_legacy_byte_change_model(ordinary_installa
         installer.files(model["bundle"], model["expected"])
 
 
+def installation_space_model(model, monkeypatch):
+    # Existing ordinary fixtures model Root ownership; only their real bytes,
+    # inventories and modes are exercised here. Actual capacity belongs to VM acceptance.
+    monkeypatch.setattr(installer.preflight, "RELEASES", model["release"].parent)
+    return installer.preflight.installation_space(
+        model["bundle"] / "payload", bundle_data=model["data"]
+    )
+
+
+def test_fresh_install_keeps_full_payload_images_and_data_reserve_model(
+    ordinary_installation_model, monkeypatch
+):
+    model = ordinary_installation_model
+    space = installation_space_model(model, monkeypatch)
+    assert space["new_payload_bytes"] == model["data"]["payload_bytes"]
+    assert space["verified_existing_payload_bytes"] == 0
+    assert space["mutable_operation_reserve_bytes"] == 4 * 1024**3
+    assert space["required_free_bytes"] == sum(
+        space[key]
+        for key in (
+            "new_payload_bytes",
+            "protected_image_reserve_bytes",
+            "legacy_image_reserve_bytes",
+            "mutable_operation_reserve_bytes",
+        )
+    )
+
+
+def test_repeat_install_proves_payload_once_and_keeps_image_and_data_reserves_model(
+    ordinary_installation_model, monkeypatch
+):
+    model = ordinary_installation_model
+    fresh = installation_space_model(model, monkeypatch)
+    first = installer.files(model["bundle"], model["expected"])
+    free = fresh["required_free_bytes"] - 1
+    spaces = []
+    reads = []
+    original = manifest._read_payload
+
+    def read(row):
+        if model["release"] in row[0].parents:
+            reads.append(row[0].relative_to(model["release"] / "payload").as_posix())
+        return original(row)
+
+    def eligible(payload, *, bundle_data):
+        space = installer.preflight.installation_space(payload, bundle_data=bundle_data)
+        spaces.append(space)
+        return {"eligible": space["required_free_bytes"] <= free, "errors": []}
+
+    monkeypatch.setattr(manifest, "_read_payload", read)
+    monkeypatch.setattr(installer.preflight, "observe", eligible)
+    assert installer.files(model["bundle"], model["expected"]) == first
+    assert Counter(reads) == Counter(row["path"] for row in model["data"]["files"])
+    assert len(spaces) == 1
+    assert spaces[0]["new_payload_bytes"] == 0
+    assert spaces[0]["verified_existing_payload_bytes"] == model["data"]["payload_bytes"]
+    assert (
+        fresh["required_free_bytes"] - spaces[0]["required_free_bytes"]
+        == model["data"]["payload_bytes"]
+    )
+    for key in (
+        "protected_image_reserve_bytes",
+        "legacy_image_reserve_bytes",
+        "mutable_operation_reserve_bytes",
+    ):
+        assert spaces[0][key] == fresh[key]
+    assert manifest._READ_SCOPE.get() is None
+
+
+def test_repeat_install_below_unchanged_reserve_still_refuses_model(
+    ordinary_installation_model, monkeypatch
+):
+    model = ordinary_installation_model
+    installer.files(model["bundle"], model["expected"])
+    repeat = installation_space_model(model, monkeypatch)
+    before = manifest._bundle_signature(model["release"])
+    free = repeat["required_free_bytes"] - 1
+
+    def eligible(payload, *, bundle_data):
+        space = installer.preflight.installation_space(payload, bundle_data=bundle_data)
+        return {"eligible": space["required_free_bytes"] <= free, "errors": ["capacity"]}
+
+    monkeypatch.setattr(installer.preflight, "observe", eligible)
+    with pytest.raises(policy.DeliveryError, match="installation preflight refused: capacity"):
+        installer.files(model["bundle"], model["expected"])
+    assert manifest._bundle_signature(model["release"]) == before
+
+
+def test_changed_installed_payload_is_not_counted_as_available_space_model(
+    ordinary_installation_model, monkeypatch
+):
+    model = ordinary_installation_model
+    installer.files(model["bundle"], model["expected"])
+    leaf = model["release"] / "payload/frontend/index.html"
+    leaf.chmod(0o600)
+    leaf.write_bytes(b"different ordinary fixture bytes\n")
+    leaf.chmod(0o444)
+    with pytest.raises(policy.DeliveryError, match="contents differ"):
+        installation_space_model(model, monkeypatch)
+    assert leaf.read_bytes() == b"different ordinary fixture bytes\n"
+
+
+def test_existing_release_seal_is_not_repaired_for_space_accounting_model(
+    ordinary_installation_model, monkeypatch
+):
+    model = ordinary_installation_model
+    installer.files(model["bundle"], model["expected"])
+    model["release"].chmod(0o700)
+    with pytest.raises(policy.DeliveryError, match="existing release seal differs"):
+        installation_space_model(model, monkeypatch)
+    assert model["release"].stat().st_mode & 0o777 == 0o700
+
+
+def test_unpublished_stage_does_not_reduce_fresh_install_reserve_model(
+    ordinary_installation_model, monkeypatch
+):
+    model = ordinary_installation_model
+    before = installation_space_model(model, monkeypatch)
+    model["stage"].parent.mkdir(parents=True, exist_ok=True)
+    model["stage"].mkdir(mode=0o700)
+    assert installation_space_model(model, monkeypatch) == before
+    with pytest.raises(policy.DeliveryError, match="incomplete release"):
+        installer.files(model["bundle"], model["expected"])
+    assert model["stage"].is_dir() and not model["release"].exists()
+
+
 @pytest.mark.parametrize("root_form", ["absolute", "relative", "dot", "parent"])
 @pytest.mark.parametrize("path_prefix", ["", "site/"])
 def test_inventory_keeps_nested_names_for_each_root_form(

@@ -81,6 +81,13 @@ verified input tree and the fixed target profile. It installs protected versions
 images and OS identities. Repeat installation checks identical files; unknown
 ownership/modes, changed bytes and incomplete staging directories require inspection.
 
+Disk preflight counts a full new payload unless the exact installed release has
+passed its complete byte, inventory, ownership and seal checks. It always retains
+the full protected-image and legacy-image allocation reserve plus four GiB for
+mutable data and operations. Repeated installation therefore does not reserve a
+second copy of an already verified payload. Its byte proof is confined to the
+current operation and all recorded identities are checked again before return.
+
 New release files are copied into a private staging directory, synced and fully
 read back with their manifest before atomic publication. Each installed runtime
 image has its own full readback. Repeat installation checks the release, runtime
