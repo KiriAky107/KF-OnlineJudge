@@ -476,7 +476,7 @@ def validate_execution(value: dict, admission: dict) -> dict:
     return counters
 
 
-def admission_ready(root: dict, counters: dict, broker: dict, admission: dict) -> bool:
+def admission_blockers(root: dict, counters: dict, broker: dict, admission: dict) -> list[str]:
     reserve_seconds = (
         max(
             admission["legacy"]["max_job_wall_time_us"],
@@ -484,15 +484,26 @@ def admission_ready(root: dict, counters: dict, broker: dict, admission: dict) -
         )
         + 999999
     ) // 1000000 + 60
-    return bool(
-        root["cleanup_complete"]
-        and root["active_helpers"] == 0
-        and root["remaining_requests"] >= 257
-        and root["remaining_lifetime_seconds"] >= reserve_seconds
-        and counters["in_flight"] == {"count_capped": 0, "truncated": False}
-        and counters["cleanup_unconfirmed"] == {"count_capped": 0, "truncated": False}
-        and broker["consumers"] == 1
-    )
+    blockers = []
+    if not root["cleanup_complete"] and root["active_helpers"] == 0:
+        blockers.append("factory_cleanup_unconfirmed")
+    if root["active_helpers"] != 0:
+        blockers.append("factory_active")
+    if root["remaining_requests"] < 257:
+        blockers.append("factory_request_capacity")
+    if root["remaining_lifetime_seconds"] < reserve_seconds:
+        blockers.append("factory_lifetime")
+    if counters["in_flight"] != {"count_capped": 0, "truncated": False}:
+        blockers.append("execution_in_flight")
+    if counters["cleanup_unconfirmed"] != {"count_capped": 0, "truncated": False}:
+        blockers.append("execution_cleanup_unconfirmed")
+    if broker["consumers"] != 1:
+        blockers.append("broker_consumer_count")
+    return blockers
+
+
+def admission_ready(root: dict, counters: dict, broker: dict, admission: dict) -> bool:
+    return not admission_blockers(root, counters, broker, admission)
 
 
 async def notification_probe(url: str, identifier: str) -> None:
@@ -542,6 +553,7 @@ def observe(*, probe: bool) -> dict:
         "isolation_verified": False,
         "components": {},
         "errors": [],
+        "readiness_blockers": [],
     }
     components, errors = result["components"], result["errors"]
     helper_failures = []
@@ -693,9 +705,10 @@ def observe(*, probe: bool) -> dict:
     if not errors:
         root = components["factory_status"]
         counters = components["execution"]
-        result["service_preconditions_met"] = admission_ready(
+        result["readiness_blockers"] = admission_blockers(
             root, counters, components["broker"], coordinator["admission"]
         )
+        result["service_preconditions_met"] = not result["readiness_blockers"]
         record = availability.read()
         result["ready_for_admission"] = bool(
             result["service_preconditions_met"]

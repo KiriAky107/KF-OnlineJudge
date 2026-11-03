@@ -360,14 +360,20 @@ API returns 503 for an absent, unknown, closed or wrong-bound availability recor
 Reads, logout, cancellation and receipt-bound archive uploads keep their existing
 identity/lease checks. Both startup paths keep admission closed until the opening
 is read back; failed final readiness closes it again.
-Before opening admission, startup may repeat the complete health read once when
-the only failure is the broker snapshot query's exact 30-second deadline and
-the helper has confirmed cleanup. It first reads back the selected release and
-configuration's closed admission and saves `readiness_rechecks: 1` in the
-maintenance receipt. The existing 900-second maintenance deadline, 300-second
-health deadline and 45-second broker helper deadline stay unchanged. The retry
-does not restart services. A second failure, another failure kind, unconfirmed
-cleanup or a failure after opening admission is not retried.
+Before opening admission, startup may repeat the complete health read once for
+the broker snapshot query's exact 30-second deadline with confirmed helper
+cleanup, or for a valid single-slot owner-activity observation with no component
+errors or other readiness blockers. Accepted work can still finish while new
+admission is closed. Truncated counts, a standalone cleanup blocker, insufficient
+factory lifetime/request capacity and an absent broker consumer do not qualify.
+The selected release and configuration's closed admission are read back before
+the recheck. The maintenance receipt saves `readiness_rechecks: 1` and the fixed
+`readiness_recheck_reason` codes before dispatch. Both causes share this one
+recheck; they cannot each obtain another attempt. The existing 900-second
+maintenance, 300-second health and 45-second broker helper deadlines stay
+unchanged. No service is restarted, and every original admission and cleanup
+condition must pass on the new observation. A second failure, an unconfirmed
+helper cleanup or a failure after opening admission is not retried.
 If a dispatched maintenance helper exits unsuccessfully or reaches its deadline,
 the outer operator also closes admission. If that record cannot be written, it
 stops only the verified API unit. A refusal before dispatch, such as an already
@@ -376,7 +382,10 @@ active helper, does not change admission or stop another operation.
 Dispatched failures append one `KF_OPERATOR_DIAGNOSTIC` JSON line to the CLI
 error. Its versioned, bounded chain records fixed helper names, failure stages,
 exit codes, output sizes and SHA-256 digests. Failed readiness includes only
-allowlisted component error codes and at most two dependency helper records.
+allowlisted component error codes, fixed readiness-blocker codes and at most
+two dependency helper records. Blocker codes identify observed factory activity,
+cleanup, request/lifetime reserve, execution counters or broker consumer count;
+they do not establish the cause of an earlier unrecorded observation.
 Maintenance keeps this chain when it records a failed operation, so the outer
 CLI can report the confirmed helper stage and component codes.
 Raw child output, arguments, credentials and exception text are excluded from

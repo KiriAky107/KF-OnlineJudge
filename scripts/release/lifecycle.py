@@ -79,7 +79,8 @@ def validate_record(value: dict) -> dict:
     if (
         not isinstance(value, dict)
         or not required <= set(value)
-        or not set(value) - required <= {"drain_projection", "failure_code", "readiness_rechecks"}
+        or not set(value) - required
+        <= {"drain_projection", "failure_code", "readiness_rechecks", "readiness_recheck_reason"}
     ):
         raise DeliveryError("unknown maintenance receipt fields")
     if (
@@ -135,6 +136,14 @@ def validate_record(value: dict) -> dict:
         or value["action"] not in {"start", "resume", "restart"}
     ):
         raise DeliveryError("unknown maintenance readiness recheck")
+    if "readiness_recheck_reason" in value and (
+        value.get("readiness_rechecks") != 1
+        or (
+            value["readiness_recheck_reason"] != ["broker_query_deadline"]
+            and not operator_units.activity_blockers(value["readiness_recheck_reason"])
+        )
+    ):
+        raise DeliveryError("unknown maintenance readiness recheck reason")
     if "drain_projection" in value and not projection_empty(value["drain_projection"]):
         raise DeliveryError("maintenance quiescence proof differs")
     return value
@@ -739,6 +748,53 @@ class Maintenance:
         # cannot become a transient timeout by matching only an error label.
         return operator_units.diagnostic_chain(frame.encode()) == [expected]
 
+    def owner_activity_only(self, ready: dict) -> bool:
+        """A valid single-slot owner observation may precede its completion."""
+        if (
+            not isinstance(ready, dict)
+            or type(ready.get("schema_version")) is not int
+            or ready["schema_version"] != 1
+            or ready.get("source_sha") != self.record["source_sha"]
+            or ready.get("configuration_id") != self.selected["configuration_id"]
+            or ready.get("service_preconditions_met") is not False
+            or ready.get("ready_for_admission") is not False
+            or ready.get("isolation_verified") is not False
+            or ready.get("errors") != []
+            or ready.get("operator_failures", []) != []
+            or not operator_units.activity_blockers(ready.get("readiness_blockers"))
+        ):
+            return False
+        try:
+            components = ready["components"]
+            root = components["factory_status"]
+            counters = components["execution"]
+            if (
+                type(root["active_helpers"]) is not int
+                or root["active_helpers"] not in (0, 1)
+                or type(root["cleanup_complete"]) is not bool
+                or root["cleanup_complete"] != (root["active_helpers"] == 0)
+            ):
+                return False
+            observed = ["factory_active"] if root["active_helpers"] else []
+            for key, code in (
+                ("in_flight", "execution_in_flight"),
+                ("cleanup_unconfirmed", "execution_cleanup_unconfirmed"),
+            ):
+                count = counters[key]
+                if (
+                    not isinstance(count, dict)
+                    or set(count) != {"count_capped", "truncated"}
+                    or type(count["count_capped"]) is not int
+                    or count["count_capped"] not in (0, 1)
+                    or count["truncated"] is not False
+                ):
+                    return False
+                if count["count_capped"]:
+                    observed.append(code)
+            return ready["readiness_blockers"] == observed
+        except (KeyError, TypeError):
+            return False
+
     def start_locked(self, *, resume: bool) -> None:
         if not resume:
             self.require_fresh_start()
@@ -746,7 +802,12 @@ class Maintenance:
         for group in START_GROUPS:
             self.start_group(group)
         ready = operator_units.run("node-health", self.payload)
-        if self.broker_query_timeout_only(ready) and "readiness_rechecks" not in self.record:
+        reason = None
+        if self.broker_query_timeout_only(ready):
+            reason = ["broker_query_deadline"]
+        elif self.owner_activity_only(ready):
+            reason = ready["readiness_blockers"]
+        if reason is not None and "readiness_rechecks" not in self.record:
             gate = availability.read()
             if (
                 gate is None
@@ -760,6 +821,7 @@ class Maintenance:
             # health helper keeps 300s and its broker query keeps 30s. No service
             # start/restart or admission opening occurs between observations.
             self.record["readiness_rechecks"] = 1
+            self.record["readiness_recheck_reason"] = reason
             self.save(self.record["phase"])
             ready = operator_units.run("node-health", self.payload)
         if ready.get("service_preconditions_met") is not True:

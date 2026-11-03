@@ -65,6 +65,32 @@ READINESS_ERRORS = frozenset(
         ),
     }
 )
+READINESS_BLOCKERS = frozenset(
+    {
+        "factory_cleanup_unconfirmed",
+        "factory_active",
+        "factory_request_capacity",
+        "factory_lifetime",
+        "execution_in_flight",
+        "execution_cleanup_unconfirmed",
+        "broker_consumer_count",
+    }
+)
+
+
+def activity_blockers(value) -> bool:
+    """Activity codes without capacity or standalone cleanup blockers."""
+    return bool(
+        isinstance(value, list)
+        and 1 <= len(value) <= 3
+        and all(
+            isinstance(code, str)
+            and code in {"factory_active", "execution_in_flight", "execution_cleanup_unconfirmed"}
+            for code in value
+        )
+        and len(set(value)) == len(value)
+        and {"factory_active", "execution_in_flight"}.intersection(value)
+    )
 
 
 def failure_record(name: str, outcome: str, result=None, error=None) -> dict:
@@ -120,7 +146,7 @@ def diagnostic_chain(stderr: bytes) -> list:
             if (
                 not isinstance(row, dict)
                 or not fields <= set(row)
-                or set(row) - fields - {"readiness_errors", "unit_manager"}
+                or set(row) - fields - {"readiness_errors", "readiness_blockers", "unit_manager"}
             ):
                 return []
             if row["helper"] not in PROFILES or row["outcome"] not in {
@@ -151,6 +177,21 @@ def diagnostic_chain(stderr: bytes) -> list:
                 not isinstance(errors, list)
                 or len(errors) > len(READINESS_ERRORS)
                 or any(not isinstance(code, str) or code not in READINESS_ERRORS for code in errors)
+            ):
+                return []
+            blockers = row.get("readiness_blockers", [])
+            if (
+                not isinstance(blockers, list)
+                or len(blockers) > len(READINESS_BLOCKERS)
+                or any(
+                    not isinstance(code, str) or code not in READINESS_BLOCKERS for code in blockers
+                )
+                or len(set(blockers)) != len(blockers)
+                or "readiness_blockers" in row
+                and (
+                    row["helper"] != "node-health"
+                    or row["outcome"] not in {"preconditions", "admission"}
+                )
             ):
                 return []
             if "unit_manager" in row:
@@ -213,6 +254,14 @@ def readiness_failure(message: str, result: dict, *, admission: bool = False):
         and all(isinstance(code, str) and code in READINESS_ERRORS for code in errors)
     ):
         row["readiness_errors"] = errors
+    blockers = result.get("readiness_blockers")
+    if (
+        isinstance(blockers, list)
+        and len(blockers) <= len(READINESS_BLOCKERS)
+        and all(isinstance(code, str) and code in READINESS_BLOCKERS for code in blockers)
+        and len(set(blockers)) == len(blockers)
+    ):
+        row["readiness_blockers"] = blockers
     child = DIAGNOSTIC_PREFIX + json.dumps(
         {"schema_version": 1, "failures": result.get("operator_failures", [])}
     )

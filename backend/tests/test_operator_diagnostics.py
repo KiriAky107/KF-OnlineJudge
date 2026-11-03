@@ -166,6 +166,44 @@ def test_readiness_preserves_two_inner_failures_and_only_fixed_codes():
     assert "readiness_errors" not in refused.failures[0]
 
 
+def test_readiness_blockers_survive_outer_diagnostics_without_private_components():
+    error = units.readiness_failure(
+        "preconditions unavailable",
+        {
+            "errors": [],
+            "readiness_blockers": ["execution_in_flight", "execution_cleanup_unconfirmed"],
+            "components": {"private": "must-not-escape"},
+        },
+    )
+    encoded = units.diagnostic_suffix(error)
+    decoded = units.diagnostic_chain(encoded.encode())
+    assert decoded[0]["readiness_errors"] == []
+    assert decoded[0]["readiness_blockers"] == [
+        "execution_in_flight",
+        "execution_cleanup_unconfirmed",
+    ]
+    assert "must-not-escape" not in encoded and "components" not in encoded
+
+
+@pytest.mark.parametrize(
+    "blockers", [["private-message"], [True], {}, "factory_active", ["factory_active"] * 2]
+)
+def test_malformed_child_blockers_are_discarded(blockers):
+    row = units.failure_record("node-health", "preconditions")
+    row["readiness_blockers"] = blockers
+    frame = units.DIAGNOSTIC_PREFIX + json.dumps({"schema_version": 1, "failures": [row]})
+    assert units.diagnostic_chain(frame.encode()) == []
+    error = units.readiness_failure("unavailable", {"readiness_blockers": blockers})
+    assert "readiness_blockers" not in error.failures[0]
+
+
+def test_blocker_codes_cannot_be_attached_to_another_helper():
+    row = record()
+    row["readiness_blockers"] = ["factory_active"]
+    frame = units.DIAGNOSTIC_PREFIX + json.dumps({"schema_version": 1, "failures": [row]})
+    assert units.diagnostic_chain(frame.encode()) == []
+
+
 def test_readonly_health_keeps_failed_components_and_bounded_nested_causes(monkeypatch, tmp_path):
     from concurrent.futures import Future
     from contextlib import nullcontext
