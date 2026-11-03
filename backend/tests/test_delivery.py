@@ -533,7 +533,7 @@ def test_node_observation_requests_kernel_io_accounting_without_relaxing_limits(
     monkeypatch.setattr(
         service_install,
         "systemctl",
-        lambda *args: "LoadState=not-found\nActiveState=inactive\nMainPID=0\n",
+        lambda *args: "LoadState=not-found\nActiveState=inactive\nMainPID=0\nControlGroup=\n",
     )
     calls = []
 
@@ -2535,7 +2535,7 @@ def test_dispatched_operator_failure_is_distinct_from_preflight_refusal(monkeypa
         observations.append(args)
         if len(observations) > 1 and failure == "cleanup":
             return "LoadState=loaded\nTransient=yes\nDescription=foreign helper\n"
-        return "LoadState=not-found\nActiveState=inactive\nMainPID=0\n"
+        return "LoadState=not-found\nActiveState=inactive\nMainPID=0\nControlGroup=\n"
 
     def dispatch(command, **kwargs):
         assert kwargs["timeout"] == 915

@@ -33,6 +33,7 @@ PROFILES = {
 
 # OTP 27 reserves a 32 MiB dual-mapped JIT block before serving CLI queries.
 FILE_LIMIT_MIB = {"broker-health": 64}
+HELPER_CGROUP = Path("/sys/fs/cgroup/kfonlinejudge.slice")
 
 DIAGNOSTIC_PREFIX = "KF_OPERATOR_DIAGNOSTIC "
 READINESS_ERRORS = frozenset(
@@ -68,6 +69,8 @@ READINESS_ERRORS = frozenset(
 
 def failure_record(name: str, outcome: str, result=None, error=None) -> dict:
     """Record only fixed identifiers, sizes and digests; never child output or argv."""
+    from .service_install import UnitManagerError
+
     record = {"helper": name, "outcome": outcome, "returncode": None}
     if result is not None:
         record["returncode"] = result.returncode
@@ -80,6 +83,8 @@ def failure_record(name: str, outcome: str, result=None, error=None) -> dict:
     record["error_sha256"] = hashlib.sha256(
         (str(error) if isinstance(error, DeliveryError) else type(error).__name__).encode()
     ).hexdigest()
+    if isinstance(error, UnitManagerError):
+        record["unit_manager"] = error.diagnostic
     return record
 
 
@@ -112,9 +117,10 @@ def diagnostic_chain(stderr: bytes) -> list:
             "error_sha256",
         }
         for row in failures:
-            if not isinstance(row, dict) or set(row) not in (
-                fields,
-                fields | {"readiness_errors"},
+            if (
+                not isinstance(row, dict)
+                or not fields <= set(row)
+                or set(row) - fields - {"readiness_errors", "unit_manager"}
             ):
                 return []
             if row["helper"] not in PROFILES or row["outcome"] not in {
@@ -147,6 +153,35 @@ def diagnostic_chain(stderr: bytes) -> list:
                 or any(not isinstance(code, str) or code not in READINESS_ERRORS for code in errors)
             ):
                 return []
+            if "unit_manager" in row:
+                manager = row["unit_manager"]
+                if (
+                    not isinstance(manager, dict)
+                    or set(manager)
+                    != {
+                        "operation",
+                        "returncode",
+                        "not_loaded",
+                        "stdout_bytes",
+                        "stdout_sha256",
+                        "stderr_bytes",
+                        "stderr_sha256",
+                    }
+                    or manager["operation"] not in {"show", "stop", "other"}
+                    or type(manager["returncode"]) is not int
+                    or not -255 <= manager["returncode"] <= 255
+                    or type(manager["not_loaded"]) is not bool
+                    or any(
+                        type(manager[k]) is not int or not 0 <= manager[k] <= 2**63 - 1
+                        for k in ("stdout_bytes", "stderr_bytes")
+                    )
+                    or any(
+                        not isinstance(manager[k], str)
+                        or not re.fullmatch("[a-f0-9]{64}", manager[k])
+                        for k in ("stdout_sha256", "stderr_sha256")
+                    )
+                ):
+                    return []
         return failures
     except (TypeError, ValueError, KeyError):
         return []
@@ -238,6 +273,82 @@ def decode(contents: bytes, maximum: int = 32768):
         object_pairs_hook=unique_object,
         parse_constant=invalid_constant,
     )
+
+
+def _helper_status(unit: str) -> dict:
+    from . import service_install
+
+    return unique_object(
+        [
+            line.split("=", 1)
+            for line in service_install.systemctl(
+                "show",
+                unit,
+                "--property=LoadState,ActiveState,MainPID,Transient,Description,ControlGroup",
+            ).splitlines()
+            if "=" in line
+        ]
+    )
+
+
+def _helper_group_empty(unit: str) -> bool:
+    group = HELPER_CGROUP / unit
+    try:
+        return (
+            not (group / "cgroup.procs").read_text().strip()
+            and "populated 0" in (group / "cgroup.events").read_text().splitlines()
+        )
+    except FileNotFoundError:
+        # Removal after the read is normal; a present group with missing
+        # counters is not evidence of cleanup.
+        return not group.exists()
+
+
+def _helper_owned(actual: dict, unit: str, description: str) -> None:
+    if actual.get("LoadState") == "not-found":
+        if actual.get("ControlGroup") != "":
+            raise DeliveryError("operator helper cleanup unconfirmed")
+    elif (
+        actual.get("LoadState") != "loaded"
+        or actual.get("Transient") != "yes"
+        or actual.get("Description") != description
+        or actual.get("ControlGroup") not in {"", "/kfonlinejudge.slice/" + unit}
+    ):
+        raise DeliveryError("foreign operator helper; refused cleanup")
+
+
+def _helper_stopped(actual: dict, unit: str) -> bool:
+    return (
+        actual.get("ActiveState") == "inactive"
+        and actual.get("MainPID") == "0"
+        and _helper_group_empty(unit)
+    )
+
+
+def _cleanup_helper(unit: str, description: str) -> None:
+    from . import service_install
+
+    actual = _helper_status(unit)
+    _helper_owned(actual, unit, description)
+    if _helper_stopped(actual, unit):
+        # --wait/--collect can finish before this read. Stopping an already
+        # empty transient unit races with systemd's automatic collection.
+        return
+    if actual.get("LoadState") == "not-found":
+        raise DeliveryError("operator helper cleanup unconfirmed")
+    try:
+        service_install.systemctl("stop", unit)
+    except service_install.UnitManagerError as error:
+        if not error.not_loaded:
+            raise
+        actual = _helper_status(unit)
+        if actual.get("LoadState") != "not-found":
+            raise
+    else:
+        actual = _helper_status(unit)
+    _helper_owned(actual, unit, description)
+    if not _helper_stopped(actual, unit):
+        raise DeliveryError("operator helper cleanup unconfirmed")
 
 
 def run(
@@ -416,28 +527,7 @@ def run(
                 raise DeliveryError("operator helper object required")
         finally:
             previous_outcome, outcome = outcome, "cleanup"
-            actual = dict(
-                line.split("=", 1)
-                for line in service_install.systemctl(
-                    "show",
-                    unit,
-                    "--property=LoadState,ActiveState,MainPID,Transient,Description",
-                ).splitlines()
-                if "=" in line
-            )
-            if actual.get("LoadState") != "not-found":
-                if actual.get("Transient") != "yes" or actual.get("Description") != description:
-                    raise DeliveryError("foreign operator helper; refused cleanup")
-                service_install.systemctl("stop", unit)
-                actual = dict(
-                    line.split("=", 1)
-                    for line in service_install.systemctl(
-                        "show", unit, "--property=ActiveState,MainPID"
-                    ).splitlines()
-                    if "=" in line
-                )
-                if actual.get("ActiveState") != "inactive" or actual.get("MainPID") != "0":
-                    raise DeliveryError("operator helper cleanup unconfirmed")
+            _cleanup_helper(unit, description)
             outcome = previous_outcome
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         message = str(error) if isinstance(error, DeliveryError) else type(error).__name__

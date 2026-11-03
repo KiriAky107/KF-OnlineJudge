@@ -142,6 +142,33 @@ def known_link(path: Path) -> Path | None:
     return directory
 
 
+class UnitManagerError(DeliveryError):
+    """Bounded manager failure metadata, without command arguments or output."""
+
+    def __init__(self, arguments: tuple[str, ...], result):
+        super().__init__("bounded unit manager operation refused")
+        self.not_loaded = bool(
+            len(arguments) == 2
+            and arguments[0] == "stop"
+            and re.fullmatch(r"[A-Za-z0-9_.@-]+", arguments[1])
+            and result.returncode
+            and not result.stdout
+            and len(result.stderr) <= 8192
+            and result.stderr == f"Failed to stop {arguments[1]}: Unit {arguments[1]} not loaded.\n"
+        )
+        self.diagnostic = {
+            "operation": arguments[0]
+            if arguments and arguments[0] in {"show", "stop"}
+            else "other",
+            "returncode": result.returncode,
+            "not_loaded": self.not_loaded,
+        }
+        for stream in ("stdout", "stderr"):
+            value = getattr(result, stream).encode()
+            self.diagnostic[stream + "_bytes"] = len(value)
+            self.diagnostic[stream + "_sha256"] = hashlib.sha256(value).hexdigest()
+
+
 def systemctl(*arguments: str) -> str:
     result = subprocess.run(
         ["/usr/bin/systemctl", *arguments],
@@ -151,7 +178,7 @@ def systemctl(*arguments: str) -> str:
         env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
     )
     if result.returncode or len(result.stdout) > 8192 or len(result.stderr) > 8192:
-        raise DeliveryError("bounded unit manager operation refused")
+        raise UnitManagerError(arguments, result)
     return result.stdout
 
 

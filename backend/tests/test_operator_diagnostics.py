@@ -36,7 +36,7 @@ def dispatched(monkeypatch):
 
     def manager(*args):
         calls.append(args)
-        return "LoadState=not-found\nActiveState=inactive\nMainPID=0\n"
+        return "LoadState=not-found\nActiveState=inactive\nMainPID=0\nControlGroup=\n"
 
     monkeypatch.setattr(service_install, "systemctl", manager)
     return payload, calls
