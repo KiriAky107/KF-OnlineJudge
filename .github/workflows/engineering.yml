@@ -118,6 +118,7 @@ jobs:
             tests/test_restore_native_transport.py \
             tests/test_operator_diagnostics.py \
             tests/test_operator_cleanup.py \
+            tests/test_start_readiness.py \
             tests/test_outbox_startup_diagnostics.py \
             tests/test_delivery_role_projection.py \
             tests/test_delivery_unit_snapshots.py \

@@ -79,7 +79,7 @@ def validate_record(value: dict) -> dict:
     if (
         not isinstance(value, dict)
         or not required <= set(value)
-        or not set(value) - required <= {"drain_projection", "failure_code"}
+        or not set(value) - required <= {"drain_projection", "failure_code", "readiness_rechecks"}
     ):
         raise DeliveryError("unknown maintenance receipt fields")
     if (
@@ -129,6 +129,12 @@ def validate_record(value: dict) -> dict:
             or type(event["confirmed"]) is not bool
         ):
             raise DeliveryError("unknown maintenance event authority")
+    if "readiness_rechecks" in value and (
+        type(value["readiness_rechecks"]) is not int
+        or value["readiness_rechecks"] != 1
+        or value["action"] not in {"start", "resume", "restart"}
+    ):
+        raise DeliveryError("unknown maintenance readiness recheck")
     if "drain_projection" in value and not projection_empty(value["drain_projection"]):
         raise DeliveryError("maintenance quiescence proof differs")
     return value
@@ -697,6 +703,42 @@ class Maintenance:
             self.empty_cgroup(name)
         self.root_stopped()
 
+    def broker_query_timeout_only(self, ready: dict) -> bool:
+        """Recognize only one fully cleaned-up helper's fixed query timeout."""
+        if (
+            not isinstance(ready, dict)
+            or type(ready.get("schema_version")) is not int
+            or ready["schema_version"] != 1
+            or ready.get("source_sha") != self.record["source_sha"]
+            or ready.get("configuration_id") != self.selected["configuration_id"]
+            or ready.get("service_preconditions_met") is not False
+            or ready.get("ready_for_admission") is not False
+            or ready.get("isolation_verified") is not False
+            or ready.get("errors") != ["broker_metadata_unavailable"]
+        ):
+            return False
+        expected = operator_units.failure_record(
+            "broker-health",
+            "exit",
+            subprocess.CompletedProcess(
+                [],
+                1,
+                stdout=b"",
+                stderr=b"Broker health refused: broker snapshot query exceeded deadline\n",
+            ),
+            DeliveryError("operator helper unavailable"),
+        )
+        try:
+            frame = operator_units.DIAGNOSTIC_PREFIX + json.dumps(
+                {"schema_version": 1, "failures": ready.get("operator_failures", [])}
+            )
+        except (TypeError, ValueError):
+            return False
+        # The codec rejects unknown fields, booleans-as-integers and oversized
+        # records. Cleanup, authority, RPC/query errors and unknown failures
+        # cannot become a transient timeout by matching only an error label.
+        return operator_units.diagnostic_chain(frame.encode()) == [expected]
+
     def start_locked(self, *, resume: bool) -> None:
         if not resume:
             self.require_fresh_start()
@@ -704,6 +746,22 @@ class Maintenance:
         for group in START_GROUPS:
             self.start_group(group)
         ready = operator_units.run("node-health", self.payload)
+        if self.broker_query_timeout_only(ready) and "readiness_rechecks" not in self.record:
+            gate = availability.read()
+            if (
+                gate is None
+                or gate.state != "draining"
+                or gate.release_id != self.selected["release_id"]
+                or gate.configuration_id != self.selected["configuration_id"]
+            ):
+                raise DeliveryError("readiness recheck requires the selected closed admission")
+            # Persist the one attempted recheck before dispatch. The enclosing
+            # 900s maintenance unit is unchanged and is never restarted; each
+            # health helper keeps 300s and its broker query keeps 30s. No service
+            # start/restart or admission opening occurs between observations.
+            self.record["readiness_rechecks"] = 1
+            self.save(self.record["phase"])
+            ready = operator_units.run("node-health", self.payload)
         if ready.get("service_preconditions_met") is not True:
             raise operator_units.readiness_failure(
                 "service preconditions unavailable; admission remains closed", ready
@@ -780,7 +838,8 @@ def run(action: str) -> dict:
             maintenance.save("failed")
             if isinstance(error, operator_units.OperatorExecutionError):
                 raise operator_units.OperatorExecutionError(
-                    "maintenance failed; admission not reopened automatically", error.failures
+                    "maintenance failed; admission not reopened automatically",
+                    error.failures,
                 ) from error
             raise DeliveryError(
                 "maintenance failed; admission not reopened automatically"

@@ -360,6 +360,14 @@ API returns 503 for an absent, unknown, closed or wrong-bound availability recor
 Reads, logout, cancellation and receipt-bound archive uploads keep their existing
 identity/lease checks. Both startup paths keep admission closed until the opening
 is read back; failed final readiness closes it again.
+Before opening admission, startup may repeat the complete health read once when
+the only failure is the broker snapshot query's exact 30-second deadline and
+the helper has confirmed cleanup. It first reads back the selected release and
+configuration's closed admission and saves `readiness_rechecks: 1` in the
+maintenance receipt. The existing 900-second maintenance deadline, 300-second
+health deadline and 45-second broker helper deadline stay unchanged. The retry
+does not restart services. A second failure, another failure kind, unconfirmed
+cleanup or a failure after opening admission is not retried.
 If a dispatched maintenance helper exits unsuccessfully or reaches its deadline,
 the outer operator also closes admission. If that record cannot be written, it
 stops only the verified API unit. A refusal before dispatch, such as an already
