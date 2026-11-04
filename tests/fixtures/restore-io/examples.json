@@ -131,9 +131,9 @@
     }
   },
   {
-    "name": "bad-open-expected_files-98305",
+    "name": "open-above-previous-limit-98305",
     "direction": "request",
-    "valid": false,
+    "valid": true,
     "value": {
       "schema_version": 1,
       "kind": "restore.io.open",
@@ -626,6 +626,154 @@
       "execution_verified": false,
       "error": "none",
       "extra": 1
+    }
+  },
+  {
+    "name": "open-max-files-131072",
+    "direction": "request",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.open",
+      "backup_id": "bk-11111111111111111111111111111111",
+      "recovery_id": "rr-22222222222222222222222222222222",
+      "expected_files": 131072,
+      "expected_logical_bytes": 4,
+      "deadline_monotonic_ns": 1700000000000
+    }
+  },
+  {
+    "name": "bad-open-expected_files-131073",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.open",
+      "backup_id": "bk-11111111111111111111111111111111",
+      "recovery_id": "rr-22222222222222222222222222222222",
+      "expected_files": 131073,
+      "expected_logical_bytes": 4,
+      "deadline_monotonic_ns": 1700000000000
+    }
+  },
+  {
+    "name": "batch-id-boundary-98305",
+    "direction": "request",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 98305,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "batch-id-boundary-131072",
+    "direction": "request",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 131072,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "batch-id-boundary-131073",
+    "direction": "request",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.batch",
+      "batch_id": 131073,
+      "files": [
+        {
+          "path": "artifacts/trusted.txt",
+          "uid": 1200,
+          "gid": 1200,
+          "mode": 420,
+          "bytes": 4,
+          "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+        }
+      ]
+    }
+  },
+  {
+    "name": "finished-count-boundary-98305",
+    "direction": "reply",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "finished",
+      "batch_id": 98305,
+      "verified_files": 98305,
+      "verified_logical_bytes": 4,
+      "execution_verified": false,
+      "error": "none"
+    }
+  },
+  {
+    "name": "finished-count-boundary-131072",
+    "direction": "reply",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "finished",
+      "batch_id": 131072,
+      "verified_files": 131072,
+      "verified_logical_bytes": 4,
+      "execution_verified": false,
+      "error": "none"
+    }
+  },
+  {
+    "name": "bad-finished-verified-files-131073",
+    "direction": "reply",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "finished",
+      "batch_id": 1,
+      "verified_files": 131073,
+      "verified_logical_bytes": 4,
+      "execution_verified": false,
+      "error": "none"
+    }
+  },
+  {
+    "name": "bad-refused-batch-id-131073",
+    "direction": "reply",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "kind": "restore.io.reply",
+      "stage": "refused",
+      "batch_id": 131073,
+      "verified_files": 0,
+      "verified_logical_bytes": 0,
+      "execution_verified": false,
+      "error": "identity"
     }
   }
 ]

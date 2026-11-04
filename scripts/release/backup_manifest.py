@@ -23,8 +23,8 @@ MAX_FILE_BYTES = 256 * 1024**2
 MAX_ENTRIES = 65536
 # v4 preserves logical versions independently of their deduplicated storage.
 MAX_LOGICAL_BYTES = 12 * 1024**3
-MAX_LOGICAL_ENTRIES = 98304
-MAX_METADATA_BYTES = 20 * 1024**2
+MAX_LOGICAL_ENTRIES = 131072
+MAX_METADATA_BYTES = 32 * 1024**2
 DOMAINS = {
     "postgres",
     "artifacts",

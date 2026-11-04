@@ -518,11 +518,14 @@ Every target's inode, ownership, mode, link count, size and nanosecond timestamp
 must remain unchanged until the final receipt. These observations are local to
 one stopped-node recovery and are never reused after an interrupted attempt.
 Directory entries are flushed after their children before completion is recorded.
-The private v4 inventory accepts up to 98304 logical file/directory entries
-and 20 MiB of metadata so retained software/runtime versions are included in full.
+The private v4 inventory accepts up to 131072 logical file/directory entries
+and 32 MiB of metadata so retained software/runtime versions are included in full.
 The 12 GiB logical, 7 GiB physical and 256 MiB individual-file limits remain;
 capture keeps its 256 MiB memory, 50% CPU and original finite deadline. Version 3
-keeps its 65536-entry bound. All normalized directory nodes must have a declared
+keeps its 65536-entry bound. The metadata depth and structure limits also remain
+32 and 1000000 nodes. Larger inventories require both the updated operator and
+its paired native restore helper; older versions refuse inventories above their
+own limits. All normalized directory nodes must have a declared
 direct parent, which also verifies every ancestor of every file. During restoration,
 only this completely verified inventory can reuse its checked target names;
 untrusted calls still validate paths. These bounds require actual capture and

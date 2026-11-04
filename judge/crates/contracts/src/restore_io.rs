@@ -4,7 +4,7 @@ use crate::SchemaVersion;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-pub const MAX_FILES: usize = 98304;
+pub const MAX_FILES: usize = 131072;
 pub const MAX_LOGICAL_BYTES: u64 = 12 * 1024 * 1024 * 1024;
 pub const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 pub const MAX_BATCH_BYTES: u64 = 64 * 1024 * 1024;

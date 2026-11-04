@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from kf_oj.contracts.restore_io import MAX_FILES
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 backup_manifest = importlib.import_module("scripts.release.backup_manifest")
@@ -320,16 +322,20 @@ def test_every_directory_ancestor_is_required_even_when_file_parent_exists(snaps
         backup_manifest.validate(value)
 
 
-def test_v4_complete_version_inventory_keeps_an_explicit_logical_entry_bound(snapshot):
+def test_v4_complete_version_inventory_keeps_an_explicit_logical_entry_bound(snapshot, tmp_path):
     value = object_format(snapshot)
     count = backup_manifest.MAX_LOGICAL_ENTRIES - len(value["directories"])
     template = {**value["files"][0], "bytes": 1, "sha256": hashlib.sha256(b"x").hexdigest()}
     value["files"] = [{**template, "path": row["path"]} for row in value["files"][:2]] + [
-        {**template, "path": "releases/item-" + str(i)} for i in range(count - 2)
+        {**template, "path": "releases/retained-version-item-" + str(i)} for i in range(count - 2)
     ]
     value.update(logical_bytes=count, payload_bytes=1)
-    backup_manifest.validate(value)
-    assert len(value["files"]) + len(value["directories"]) == 98304
+    path = tmp_path / "manifest.json"
+    path.write_bytes(policy.canonical(value))
+    assert 20 * 1024**2 < path.stat().st_size <= backup_manifest.MAX_METADATA_BYTES
+    backup_manifest.validate(backup_manifest.read_metadata(path))
+    assert len(value["files"]) + len(value["directories"]) == 131072
+    assert backup_manifest.MAX_LOGICAL_ENTRIES == MAX_FILES
     assert backup_manifest.MAX_BYTES == 7 * 1024**3
     assert backup_manifest.MAX_LOGICAL_BYTES == 12 * 1024**3
     old = {**value, "schema_version": 3, "format": backup_manifest.FORMAT, "payload_bytes": count}

@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "batch_id": {
-      "maximum": 98304,
+      "maximum": 131072,
       "minimum": 0,
       "title": "Batch Id",
       "type": "integer"
@@ -48,7 +48,7 @@
       "type": "string"
     },
     "verified_files": {
-      "maximum": 98304,
+      "maximum": 131072,
       "minimum": 0,
       "title": "Verified Files",
       "type": "integer"

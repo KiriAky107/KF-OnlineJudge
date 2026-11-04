@@ -4,7 +4,7 @@
       "additionalProperties": false,
       "properties": {
         "batch_id": {
-          "maximum": 98304,
+          "maximum": 131072,
           "minimum": 1,
           "title": "Batch Id",
           "type": "integer"
@@ -74,7 +74,7 @@
           "type": "integer"
         },
         "expected_files": {
-          "maximum": 98304,
+          "maximum": 131072,
           "minimum": 1,
           "title": "Expected Files",
           "type": "integer"

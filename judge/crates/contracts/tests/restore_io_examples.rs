@@ -14,7 +14,7 @@ fn shared_restore_io_examples() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../tests/fixtures/restore-io/examples.json");
     let cases: Vec<Case> = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    assert_eq!(cases.len(), 37);
+    assert_eq!(cases.len(), 46);
     for case in cases {
         let raw = serde_json::to_vec(&case.value).unwrap();
         let result = match case.direction.as_str() {

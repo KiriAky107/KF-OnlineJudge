@@ -15,7 +15,7 @@ from pydantic import (
 
 from kf_oj.contracts.judging import integer_version
 
-MAX_FILES = 98304
+MAX_FILES = 131072
 MAX_LOGICAL_BYTES = 12 * 1024**3
 MAX_FILE_BYTES = 256 * 1024**2
 MAX_BATCH_BYTES = 64 * 1024**2
