@@ -296,6 +296,7 @@ def render(release: str, batch: str) -> dict[str, bytes]:
             "User=" + user,
             "Group=" + user,
             "Slice=kfonlinejudge.slice",
+            "IOAccounting=yes",
             "UMask=0077",
             "MemoryMax=512M",
             "MemorySwapMax=0",

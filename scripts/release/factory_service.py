@@ -122,6 +122,7 @@ def render(receipt: dict) -> bytes:
         "User=root",
         "Group=root",
         "Slice=kfonlinejudge.slice",
+        "IOAccounting=yes",
         "WorkingDirectory=" + str(payload),
         "UMask=0077",
         "ExecStartPre="

@@ -1334,6 +1334,7 @@ def test_ordinary_units_bind_exact_batch_without_inline_secrets():
         text = contents.decode()
         assert "User=root" not in text
         assert "MemorySwapMax=0" in text and "StartLimitBurst=3" in text
+        assert "IOAccounting=yes\n" in text
         assert receipt["configuration_id"] in text and receipt["release_id"] in text
         assert "Password=" not in text and "postgresql://" not in text and "amqp://" not in text
     assert "PrivateNetwork=yes" in units["kf-problem-import.service"].decode()
@@ -1496,6 +1497,7 @@ def test_factory_composition_keeps_privileged_boundary_and_finite_lifetime():
     assert "PrivatePIDs" not in contents and "ProtectControlGroups" not in contents
     assert "EnvironmentFile" not in contents and "LoadCredential" not in contents
     assert "env -i" in contents and "MemorySwapMax=0" in contents
+    assert "IOAccounting=yes\n" in contents
     assert receipt["configuration_id"] in contents
 
 
@@ -1567,6 +1569,7 @@ def test_dependency_templates_keep_socket_auth_network_and_actual_limit_scope():
         unit = files["kf-" + name + ".service"].decode()
         assert "User=root" not in unit and "MemoryMax=512M" in unit
         assert "MemorySwapMax=0" in unit and "RestartSec=30" in unit
+        assert "IOAccounting=yes\n" in unit
         assert "RequiresMountsFor=" + dependencies.STORAGE[name]["path"] in unit
 
 
@@ -2712,6 +2715,7 @@ def test_proxy_render_is_fixed_to_a_selected_snapshot_without_business_credentia
     text = proxy_service.render(selected).decode()
     assert "User=kf-proxy" in text and "CapabilityBoundingSet=CAP_NET_BIND_SERVICE" in text
     assert "PrivatePIDs=yes" in text and "LogNamespace=kf-onlinejudge" in text
+    assert "IOAccounting=yes\n" in text
     assert "EnvironmentFile=" not in text and "LoadCredential=" not in text
 
 

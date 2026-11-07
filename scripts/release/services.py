@@ -38,6 +38,7 @@ def render(receipt: dict) -> dict[str, bytes]:
             "Type=notify" if name in {"outbox", "problem-import"} else "Type=exec",
             *(["NotifyAccess=main"] if name in {"outbox", "problem-import"} else []),
             "Slice=kfonlinejudge.slice",
+            "IOAccounting=yes",
             "User=" + user,
             "Group=" + user,
             "WorkingDirectory=" + str(payload),

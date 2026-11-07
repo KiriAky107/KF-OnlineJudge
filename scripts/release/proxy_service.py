@@ -94,6 +94,7 @@ def render(selected: dict) -> bytes:
         "[Service]",
         "Type=exec",
         "Slice=kfonlinejudge.slice",
+        "IOAccounting=yes",
         "User=kf-proxy",
         "Group=kf-proxy",
         "UMask=0077",

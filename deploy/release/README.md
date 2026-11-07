@@ -61,6 +61,10 @@ physical memory is reserved for the kernel and minimal OS. Tasks use
 `/sys/fs/cgroup/kfonlinejudge.slice/kf-judge-tasks`, separate from the Root
 supervisor's cgroup. Read back service and task limits on the target node.
 
+All nine application, dependency, proxy and Root factory units keep I/O accounting
+enabled for their lifetime. Collecting a temporary observation helper must not
+disable node or service counters. Missing kernel counters refuse observation.
+
 ## Prepare configuration
 
 Supply two 0600 single-link JSON files to `generate-configuration`:
