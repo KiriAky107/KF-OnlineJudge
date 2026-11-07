@@ -25,8 +25,7 @@ def main() -> None:
         payload = Path(__file__).resolve().parents[3]
         if payload.parent.parent != RELEASES or payload.name != "payload":
             raise DeliveryError("installed outbox observer required")
-        command, env = service_bootstrap.python_command("outbox", payload.parent.name)
-        command[-1] = "kf_oj.workers.outbox_status"
+        command, env = service_bootstrap.python_status_command("outbox", payload.parent.name)
         os.execve(command[0], command, env)
     except (OSError, ValueError, KeyError) as error:
         parser.exit(

@@ -679,6 +679,12 @@ stages using `Type=notify` and `NotifyAccess=main`. Their main processes send th
 fixed `READY=1` notification only after database authority checks complete; the
 import worker also commits its existing bounded readiness heartbeat first.
 This follows the [systemd startup notification contract](https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html).
+The fixed outbox/import status helpers select separate read-only entry modules
+with the same role-specific environment validation. Only the initialized
+long-running workers receive the startup notification socket and announce
+`READY=1`. Status helpers retain their private PID/network views, ordinary
+role credentials and existing resource limits.
+
 The original 120-second unit startup limits, maintenance deadline, connection
 timeouts, restart limits and resource budgets continue to apply. Node health
 still validates every required component before admission opens.

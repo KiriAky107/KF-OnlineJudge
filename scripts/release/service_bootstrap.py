@@ -169,7 +169,7 @@ def validate_runtime(role: str, observed: dict) -> None:
         raise DeliveryError("private import network namespace unavailable")
 
 
-def python_command(role: str, release: str) -> tuple[list[str], dict]:
+def _python_environment(role: str, release: str) -> tuple[str, dict]:
     payload = Path("/opt/kf-onlinejudge/releases") / release / "payload"
     python = payload / "python/bin/python3.13"
     preflight.protected(python)
@@ -189,6 +189,11 @@ def python_command(role: str, release: str) -> tuple[list[str], dict]:
             "LD_LIBRARY_PATH": f"{payload}/lib:{payload}/python/lib",
         }
     )
+    return str(python), environment
+
+
+def python_command(role: str, release: str) -> tuple[list[str], dict]:
+    python, environment = _python_environment(role, release)
     if role in {"outbox", "problem-import"}:
         address = os.environ.get("NOTIFY_SOCKET", "")
         if (
@@ -199,7 +204,18 @@ def python_command(role: str, release: str) -> tuple[list[str], dict]:
         ):
             raise DeliveryError("ordinary worker notification socket required")
         environment["NOTIFY_SOCKET"] = address
-    return [str(python), "-s", "-P", "-m", *PYTHON_MODULES[role]], environment
+    return [python, "-s", "-P", "-m", *PYTHON_MODULES[role]], environment
+
+
+def python_status_command(role: str, release: str) -> tuple[list[str], dict]:
+    modules = {
+        "outbox": "kf_oj.workers.outbox_status",
+        "problem-import": "kf_oj.workers.problem_status",
+    }
+    if role not in modules:
+        raise DeliveryError("unknown ordinary status role")
+    python, environment = _python_environment(role, release)
+    return [python, "-s", "-P", "-m", modules[role]], environment
 
 
 def read_credential(path: Path, expected: str, uid: int) -> bytes:

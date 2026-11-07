@@ -3,7 +3,9 @@
 import asyncio
 import importlib
 import logging
+import os
 import socket
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -94,7 +96,13 @@ def test_outbox_notifies_only_after_database_authority_and_context_close(monkeyp
     settings = SimpleNamespace(amqp_url=SimpleNamespace(get_secret_value=lambda: "unused"))
     if authorized:
         asyncio.run(publisher.run(settings, stop))
-        assert trace == ["connected", "authority", "connection-closed", "ready", "disposed"]
+        assert trace == [
+            "connected",
+            "authority",
+            "connection-closed",
+            "ready",
+            "disposed",
+        ]
     else:
         with pytest.raises(ValueError, match="dedicated platform database role required"):
             asyncio.run(publisher.run(settings, stop))
@@ -160,3 +168,72 @@ def test_import_initial_heartbeat_precedes_notify_and_any_uploaded_work(
     else:
         asyncio.run(problem_import.run())
         assert trace == ["heartbeat-committed", "ready", "closed", "closed", "disposed"]
+
+
+@pytest.mark.parametrize(
+    "helper_name,role,status_module",
+    [
+        ("outbox_health", "outbox", "kf_oj.workers.outbox_status"),
+        ("import_health", "problem-import", "kf_oj.workers.problem_status"),
+    ],
+)
+@pytest.mark.parametrize("notify", [None, "relative-invalid-notification", "/run/systemd/notify"])
+def test_readonly_health_exec_without_startup_notification(
+    monkeypatch, helper_name, role, status_module, notify
+):
+    helper = importlib.import_module("scripts.release." + helper_name)
+    for key in list(os.environ):
+        if key.startswith("KF_OJ_"):
+            monkeypatch.delenv(key)
+    for key in bootstrap.ROLE_ENVIRONMENT[role]:
+        monkeypatch.setenv(key, "trusted-model")
+    if notify is None:
+        monkeypatch.delenv("NOTIFY_SOCKET", raising=False)
+    else:
+        monkeypatch.setenv("NOTIFY_SOCKET", notify)
+    monkeypatch.setenv("UNRELATED_SECRET", "excluded-trusted-model")
+    monkeypatch.setattr(bootstrap.preflight, "protected", lambda *_: None)
+    release = "sd-" + "a" * 12
+    payload = Path("/opt/kf-onlinejudge/releases") / release / "payload"
+    monkeypatch.setattr(
+        helper,
+        "__file__",
+        str(payload / "delivery/scripts/release" / (helper_name + ".py")),
+    )
+    monkeypatch.setattr(sys, "argv", [helper_name, "--inside"])
+    trace = []
+    monkeypatch.setattr(
+        helper.operator_units, "guarded", lambda name: trace.append(("guard", name))
+    )
+    original_read = Path.read_text
+
+    def private_profile(path, *args, **kwargs):
+        if path == Path("/proc/self/status"):
+            return "NSpid:\t123 1\n"
+        if path == Path("/proc/net/dev"):
+            return "header\nheader\n lo: 0\n"
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", private_profile)
+
+    class FixedExecReached(Exception):
+        pass
+
+    def fixed_exec(program, command, environment):
+        assert trace == [("guard", helper_name.replace("_", "-"))]
+        assert program == str(payload / "python/bin/python3.13")
+        assert command == [program, "-s", "-P", "-m", status_module]
+        assert "NOTIFY_SOCKET" not in environment and "UNRELATED_SECRET" not in environment
+        assert {k for k in environment if k.startswith("KF_OJ_")} == bootstrap.ROLE_ENVIRONMENT[
+            role
+        ]
+        raise FixedExecReached
+
+    monkeypatch.setattr(os, "execve", fixed_exec)
+    with pytest.raises(FixedExecReached):
+        helper.main()
+
+
+def test_python_status_command_rejects_service_without_fixed_read_projection():
+    with pytest.raises(bootstrap.DeliveryError, match="unknown ordinary status role"):
+        bootstrap.python_status_command("api", "sd-" + "a" * 12)

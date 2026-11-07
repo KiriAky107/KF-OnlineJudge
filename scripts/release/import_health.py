@@ -29,8 +29,9 @@ def main() -> None:
         payload = Path(__file__).resolve().parents[3]
         if payload.parent.parent != RELEASES or payload.name != "payload":
             raise DeliveryError("installed import observer required")
-        command, env = service_bootstrap.python_command("problem-import", payload.parent.name)
-        command[-1] = "kf_oj.workers.problem_status"
+        command, env = service_bootstrap.python_status_command(
+            "problem-import", payload.parent.name
+        )
         os.execve(command[0], command, env)
     except (OSError, ValueError, KeyError) as error:
         parser.exit(
