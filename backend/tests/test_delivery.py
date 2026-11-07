@@ -1341,6 +1341,13 @@ def test_ordinary_units_bind_exact_batch_without_inline_secrets():
     assert "RestrictAddressFamilies=AF_UNIX\n" in units["kf-problem-import.service"].decode()
     assert "-m scripts.release.service_bootstrap outbox" in units["kf-outbox.service"].decode()
     assert service_bootstrap.PYTHON_MODULES["outbox"] == ["kf_oj.infra.messaging.publisher"]
+    for name in ("outbox", "problem-import"):
+        contents = units["kf-" + name + ".service"].decode()
+        assert "Type=notify\nNotifyAccess=main\n" in contents
+        assert "TimeoutStartSec=120\n" in contents
+    for name in ("api", "coordinator", "worker"):
+        assert "Type=exec\n" in units["kf-" + name + ".service"].decode()
+        assert "NotifyAccess=" not in units["kf-" + name + ".service"].decode()
     assert "LoadCredential=worker.json:" in units["kf-worker.service"].decode()
 
 

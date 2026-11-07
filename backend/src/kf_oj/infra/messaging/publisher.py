@@ -13,6 +13,7 @@ from kf_oj.core.settings import Settings
 from kf_oj.infra.db.session import build_engine, build_session_factory
 from kf_oj.infra.messaging.outbox_queries import OutboxQueries
 from kf_oj.infra.messaging.publisher_diagnostics import emit_failure
+from kf_oj.infra.service_readiness import notify_ready
 
 QUEUE = "kf.judge.evaluations.v1"
 QUEUE_ARGUMENTS = {
@@ -151,6 +152,10 @@ async def run(settings: Settings, stop: asyncio.Event):
             )
             if not allowed:
                 raise ValueError("dedicated platform database role required")
+        if stop.is_set():
+            return
+        _startup_phase = "readiness_notify"
+        notify_ready()
         _startup_phase = "running"
         while not stop.is_set():
             try:

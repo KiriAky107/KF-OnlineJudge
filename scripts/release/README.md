@@ -671,6 +671,18 @@ hostname, configuration and response-validation failures still refuse startup;
 ordinary health queries remain single observations. No service, node or student
 resource limit is increased.
 
+Before starting the Python workers, lifecycle also waits for the API's fixed
+loopback live endpoint within its existing service-confirmation deadline. HTTP
+errors or an unexpected response refuse startup; connection failures can wait
+only until that same deadline. Outbox and import workers start in separate
+stages using `Type=notify` and `NotifyAccess=main`. Their main processes send the
+fixed `READY=1` notification only after database authority checks complete; the
+import worker also commits its existing bounded readiness heartbeat first.
+This follows the [systemd startup notification contract](https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html).
+The original 120-second unit startup limits, maintenance deadline, connection
+timeouts, restart limits and resource budgets continue to apply. Node health
+still validates every required component before admission opens.
+
 
 Database authority queries use the fixed local TCP/Unix endpoints with TLS disabled
 and a five-second connection deadline. SQL remains read-only with a two-second

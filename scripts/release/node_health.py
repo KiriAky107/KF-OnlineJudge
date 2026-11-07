@@ -366,7 +366,9 @@ async def roles(endpoints: dict) -> dict:
     return result
 
 
-def http(url: str, *, token: str | None = None) -> dict:
+def http(url: str, *, token: str | None = None, timeout: float = 5) -> dict:
+    if type(timeout) not in (int, float) or not 0 < timeout <= 5:
+        raise DeliveryError("bounded health HTTP timeout required")
     # Fixed numeric loopback paths only; inherited proxy settings and redirects
     # may not turn an operator query into a request to another service/host.
     if url not in {
@@ -385,7 +387,7 @@ def http(url: str, *, token: str | None = None) -> dict:
     request = urllib.request.Request(
         url, headers={"Authorization": "Bearer " + token} if token else {}
     )
-    with opener.open(request, timeout=5) as response:
+    with opener.open(request, timeout=timeout) as response:
         if response.status != 200:
             raise DeliveryError("health HTTP unavailable")
         result = operator_units.decode(response.read(32769))

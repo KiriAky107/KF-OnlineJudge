@@ -7,7 +7,7 @@ from pathlib import PurePath
 from types import CodeType
 
 PREFIX = "KF_OUTBOX_START_FAILURE "
-PHASES = {"configuration", "database_connect", "database_authority", "running"}
+PHASES = {"configuration", "database_connect", "database_authority", "readiness_notify", "running"}
 ERROR_TYPES = {
     "ValueError",
     "ValidationError",
@@ -37,6 +37,7 @@ ERROR_TYPES = {
     "ReadOnlySQLTransactionError",
 }
 FILES = {
+    "service_readiness.py",
     "publisher.py",
     "session.py",
     "settings.py",

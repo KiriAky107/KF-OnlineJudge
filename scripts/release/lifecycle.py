@@ -9,6 +9,7 @@ import secrets
 import stat
 import subprocess
 import time
+import urllib.error
 from pathlib import Path
 from uuid import UUID
 
@@ -52,12 +53,14 @@ START_ORDER = (
     "proxy",
 )
 # PG and MQ each allow one CPU during full-bundle startup checks. Start Root
-# after them, then pair ordinary checks within the unchanged two-CPU node cap.
+# after them. Wait for Python initialization before dispatching the next worker
+# so their imports and first database handshakes do not compete for that budget.
 START_GROUPS = (
     DEPENDENCIES,
     ("sandbox-factory",),
     ("coordinator", "api"),
-    ("outbox", "problem-import"),
+    ("outbox",),
+    ("problem-import",),
     ("worker",),
     ("proxy",),
 )
@@ -80,7 +83,12 @@ def validate_record(value: dict) -> dict:
         not isinstance(value, dict)
         or not required <= set(value)
         or not set(value) - required
-        <= {"drain_projection", "failure_code", "readiness_rechecks", "readiness_recheck_reason"}
+        <= {
+            "drain_projection",
+            "failure_code",
+            "readiness_rechecks",
+            "readiness_recheck_reason",
+        }
     ):
         raise DeliveryError("unknown maintenance receipt fields")
     if (
@@ -451,6 +459,8 @@ class Maintenance:
             node_health.inspect_unit(name, self.selected)
             if name == "proxy":
                 self._wait_for_proxy(time.monotonic() + 130)
+            elif name == "api":
+                self._wait_for_api(time.monotonic() + 130)
             return
         if operation == "stop" and values["ActiveState"] == "inactive" and values["MainPID"] == "0":
             self.empty_cgroup(name)
@@ -477,6 +487,8 @@ class Maintenance:
                 node_health.inspect_unit(name, self.selected)
                 if name == "proxy":
                     self._wait_for_proxy(deadline)
+                elif name == "api":
+                    self._wait_for_api(deadline)
                 break
             if (
                 operation == "stop"
@@ -490,6 +502,37 @@ class Maintenance:
             time.sleep(0.5)
         self.record["events"][-1]["confirmed"] = True
         self.save(operation + "_confirmed")
+
+    def _wait_for_api(self, deadline: float) -> None:
+        """Confirm the fixed live endpoint within the existing start deadline."""
+        while True:
+            if time.monotonic() >= deadline:
+                raise DeliveryError("bounded API startup unconfirmed")
+            if install.selection(check_configuration=False) != self.selected:
+                raise DeliveryError("selected binding changed during maintenance")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise DeliveryError("bounded API startup unconfirmed")
+            try:
+                ready = node_health.http(
+                    "http://127.0.0.1:8000/api/v1/health/live",
+                    timeout=min(5.0, remaining),
+                )
+            except urllib.error.HTTPError as error:
+                raise DeliveryError("API startup HTTP response differs") from error
+            except OSError as error:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise DeliveryError("bounded API startup unconfirmed") from error
+                time.sleep(min(0.5, remaining))
+                continue
+            if time.monotonic() >= deadline:
+                raise DeliveryError("bounded API startup unconfirmed")
+            if install.selection(check_configuration=False) != self.selected:
+                raise DeliveryError("selected binding changed during maintenance")
+            if ready.get("status") != "ok" or ready.get("service") != "platform":
+                raise DeliveryError("API startup liveness response differs")
+            return
 
     def _wait_for_proxy(self, deadline: float) -> None:
         """Type=exec is process startup; confirm actual HTTPS before admission."""
@@ -542,6 +585,8 @@ class Maintenance:
                 node_health.inspect_unit(name, self.selected)
                 if name == "proxy":
                     self._wait_for_proxy(time.monotonic() + 130)
+                elif name == "api":
+                    self._wait_for_api(time.monotonic() + 130)
             else:
                 inactive.append(name)
         pending = {}
@@ -571,6 +616,8 @@ class Maintenance:
                     node_health.inspect_unit(name, self.selected)
                     if name == "proxy":
                         self._wait_for_proxy(deadline)
+                    elif name == "api":
+                        self._wait_for_api(deadline)
                     event["confirmed"] = True
                     self.save("start_confirmed")
                     del pending[name]

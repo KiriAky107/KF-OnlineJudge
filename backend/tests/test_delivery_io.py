@@ -1531,6 +1531,14 @@ def ordinary_lifecycle_model(monkeypatch):
         }
 
     monkeypatch.setattr(lifecycle.proxy_health, "observe", https_ready)
+
+    def api_ready(url, *, timeout):
+        assert url == "http://127.0.0.1:8000/api/v1/health/live" and 0 < timeout <= 5
+        assert states["api"] == "active"
+        trace.append(("api-live", "api"))
+        return {"status": "ok", "service": "platform"}
+
+    monkeypatch.setattr(lifecycle.node_health, "http", api_ready)
     monkeypatch.setattr(lifecycle.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(
         lifecycle.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
@@ -1772,6 +1780,75 @@ def test_startup_group_failure_keeps_admission_closed(ordinary_lifecycle_model, 
     assert not any(
         kind == "dispatch" and name in lifecycle.services.PROFILES for kind, name in trace
     )
+
+
+def test_api_initialization_precedes_first_python_worker_dispatch(
+    ordinary_lifecycle_model, monkeypatch
+):
+    maintenance, _, trace, clock = ordinary_lifecycle_model
+    probes = []
+
+    def live(_url, *, timeout):
+        probes.append(timeout)
+        if len(probes) == 1:
+            raise ConnectionRefusedError("ordinary startup model")
+        trace.append(("api-ready", "api"))
+        return {"status": "ok", "service": "platform"}
+
+    monkeypatch.setattr(lifecycle.node_health, "http", live)
+    monkeypatch.setattr(lifecycle.availability, "write", lambda *_: None)
+    monkeypatch.setattr(
+        lifecycle.operator_units,
+        "run",
+        lambda *_: {"service_preconditions_met": True, "ready_for_admission": True},
+    )
+    maintenance.start_locked(resume=True)
+    assert clock[0] == 0.5 and len(probes) == 2
+    assert trace.index(("api-ready", "api")) < trace.index(("dispatch", "outbox"))
+    assert ("outbox", "problem-import") not in lifecycle.START_GROUPS
+
+
+def test_api_wait_does_not_restart_its_deadline(ordinary_lifecycle_model, monkeypatch):
+    maintenance, _, trace, clock = ordinary_lifecycle_model
+    probes = []
+
+    def unavailable(_url, *, timeout):
+        probes.append(timeout)
+        clock[0] += timeout
+        raise TimeoutError("ordinary bounded startup model")
+
+    monkeypatch.setattr(lifecycle.node_health, "http", unavailable)
+    with pytest.raises(policy.DeliveryError, match="bounded API startup"):
+        maintenance._wait_for_api(1.25)
+    assert probes == [1.25] and clock[0] == 1.25
+    assert not any(kind == "dispatch" for kind, _ in trace)
+
+
+@pytest.mark.parametrize("failure", ["http", "shape", "binding"])
+def test_api_startup_invalid_response_or_binding_is_not_retried(
+    ordinary_lifecycle_model, monkeypatch, failure
+):
+    maintenance, _, _, _ = ordinary_lifecycle_model
+    calls = []
+
+    def invalid(url, *, timeout):
+        calls.append(timeout)
+        if failure == "http":
+            raise lifecycle.urllib.error.HTTPError(url, 503, "ordinary", {}, None)
+        if failure == "binding":
+            monkeypatch.setattr(lifecycle.install, "selection", lambda **_: {})
+        return {"status": "ok", "service": "other"}
+
+    monkeypatch.setattr(lifecycle.node_health, "http", invalid)
+    with pytest.raises(policy.DeliveryError):
+        maintenance._wait_for_api(10)
+    assert calls == [5]
+
+
+@pytest.mark.parametrize("timeout", [True, 0, -1, 5.1, float("nan"), float("inf"), "5"])
+def test_health_http_requires_finite_positive_bounded_timeout(timeout):
+    with pytest.raises(policy.DeliveryError, match="bounded health HTTP timeout"):
+        lifecycle.node_health.http("http://127.0.0.1:8000/api/v1/health/live", timeout=timeout)
 
 
 @pytest.mark.parametrize("names", [(), ("api",), ("postgres", "postgres")])

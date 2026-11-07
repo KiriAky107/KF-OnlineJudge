@@ -35,7 +35,8 @@ def render(receipt: dict) -> dict[str, bytes]:
             "StartLimitIntervalSec=600",
             "StartLimitBurst=3",
             "[Service]",
-            "Type=exec",
+            "Type=notify" if name in {"outbox", "problem-import"} else "Type=exec",
+            *(["NotifyAccess=main"] if name in {"outbox", "problem-import"} else []),
             "Slice=kfonlinejudge.slice",
             "User=" + user,
             "Group=" + user,
@@ -132,7 +133,12 @@ def generate(
     bundle: Path, expected: str, source: Path, expected_receipt: str, output: Path
 ) -> dict:
     data = manifest.verify(bundle, expected)
-    for name in ("services.py", "service_profiles.py", "service_bootstrap.py", "layout.py"):
+    for name in (
+        "services.py",
+        "service_profiles.py",
+        "service_bootstrap.py",
+        "layout.py",
+    ):
         shipped = bundle / "payload/delivery/scripts/release" / name
         if not shipped.is_file() or digest(shipped) != digest(Path(__file__).parent / name):
             raise DeliveryError("bundle lacks the matching ordinary service launch modules")

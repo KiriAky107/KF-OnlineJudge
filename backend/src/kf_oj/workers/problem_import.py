@@ -11,6 +11,7 @@ from kf_oj.infra.artifacts.repository import ArtifactRepository
 from kf_oj.infra.artifacts.staging import ImportStaging
 from kf_oj.infra.artifacts.store import ArtifactStore
 from kf_oj.infra.db.session import build_engine, build_session_factory
+from kf_oj.infra.service_readiness import notify_ready
 from kf_oj.modules.identity.service import ReservedMaintenance
 from kf_oj.modules.operations.service import MaintenanceAudit
 from kf_oj.modules.problems.import_worker import ImportWorker, verify_worker_limits
@@ -47,6 +48,12 @@ async def run():
             settings.judge_admission,
             settings.import_worker_cgroup,
         )
+        # Commit the existing authority/limits check and worker heartbeat before
+        # the manager may start the next service or inspect admission readiness.
+        await worker.heartbeat()
+        if stop.is_set():
+            return
+        notify_ready()
         while not stop.is_set():
             if not await worker.once():
                 try:

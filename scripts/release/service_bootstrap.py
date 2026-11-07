@@ -189,6 +189,16 @@ def python_command(role: str, release: str) -> tuple[list[str], dict]:
             "LD_LIBRARY_PATH": f"{payload}/lib:{payload}/python/lib",
         }
     )
+    if role in {"outbox", "problem-import"}:
+        address = os.environ.get("NOTIFY_SOCKET", "")
+        if (
+            len(address) < 2
+            or address[0] not in "/@"
+            or len(os.fsencode(address)) > 107
+            or any(ord(character) < 32 or ord(character) == 127 for character in address)
+        ):
+            raise DeliveryError("ordinary worker notification socket required")
+        environment["NOTIFY_SOCKET"] = address
     return [str(python), "-s", "-P", "-m", *PYTHON_MODULES[role]], environment
 
 
