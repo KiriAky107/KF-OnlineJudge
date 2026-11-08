@@ -513,6 +513,30 @@ def test_kernel_io_observation_aggregates_devices_without_returning_device_ident
         )
 
 
+@pytest.mark.parametrize("raw", ["253:0", "253:0 \n", "253:0 \n253:16 \n"])
+def test_kernel_io_observation_accepts_idle_device_rows_without_inventing_activity(raw):
+    actual = node_observation.io_totals(raw)
+    assert actual == {
+        "devices_observed": len(raw.splitlines()),
+        "rbytes": 0,
+        "wbytes": 0,
+        "rios": 0,
+        "wios": 0,
+    }
+    combined = node_observation.io_totals(
+        raw.rstrip("\n") + "\n253:32 rbytes=5 wbytes=7 rios=1 wios=2"
+    )
+    assert combined == dict(
+        actual, devices_observed=actual["devices_observed"] + 1, rbytes=5, wbytes=7, rios=1, wios=2
+    )
+
+
+@pytest.mark.parametrize("raw", ["253:0 rbytes=0", "253:0 other=0", "253:0\n253:0"])
+def test_kernel_io_observation_still_rejects_partial_counters_and_duplicate_idle_devices(raw):
+    with pytest.raises(policy.DeliveryError):
+        node_observation.io_totals(raw)
+
+
 @pytest.mark.parametrize("value", ["-1", "max", "True", str(2**63)])
 def test_kernel_observation_does_not_replace_unavailable_or_invalid_counters_with_zero(value):
     with pytest.raises(policy.DeliveryError):

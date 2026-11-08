@@ -68,6 +68,9 @@ def io_totals(value: str) -> dict:
         if parts[0] in devices or len(parts) > 16:
             raise DeliveryError("duplicate or excessive kernel IO row")
         devices.add(parts[0])
+        if len(parts) == 1:
+            # Linux omits all read/write counters for an idle device.
+            continue
         values = {}
         for member in parts[1:]:
             key, separator, raw = member.partition("=")
