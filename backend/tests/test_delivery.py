@@ -10,6 +10,7 @@ import stat
 import struct
 import subprocess
 import sys
+from configparser import ConfigParser
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -1594,7 +1595,10 @@ def test_dependency_templates_keep_socket_auth_network_and_actual_limit_scope():
         assert "User=root" not in unit and "MemoryMax=512M" in unit
         assert "MemorySwapMax=0" in unit and "RestartSec=30" in unit
         assert "IOAccounting=yes\n" in unit
-        assert "RequiresMountsFor=" + dependencies.STORAGE[name]["path"] in unit
+        sections = ConfigParser(interpolation=None, strict=False)
+        sections.read_string(unit)
+        assert sections.get("Unit", "RequiresMountsFor") == dependencies.STORAGE[name]["path"]
+        assert not sections.has_option("Service", "RequiresMountsFor")
 
 
 @pytest.mark.parametrize(
