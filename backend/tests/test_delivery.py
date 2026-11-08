@@ -2719,6 +2719,135 @@ def test_proxy_render_is_fixed_to_a_selected_snapshot_without_business_credentia
     assert "EnvironmentFile=" not in text and "LoadCredential=" not in text
 
 
+def proxy_snapshot_metadata_fixture(tmp_path, monkeypatch, *, current_source=False):
+    """Ordinary file metadata only; Root authority and live replacement require VM."""
+    source = (
+        Path(proxy_service.__file__).read_bytes()
+        if current_source
+        else (Path(__file__).parent / "fixtures/delivery/legacy_proxy_service.py.txt").read_bytes()
+    )
+    if not current_source:
+        assert len(source) == proxy_install.LEGACY_PROXY_SOURCE_BYTES
+        assert hashlib.sha256(source).hexdigest() == proxy_install.LEGACY_PROXY_SOURCE_SHA256
+    head = (
+        "07b3796f0ba1bb49c1e7aa7ec747ae22a0326eef"
+        if current_source
+        else "3923d8e45acaa91402322b15790371b4c78ef109"
+    )
+    release_id = "sd-" + head[:12]
+    releases, units = tmp_path / "releases", tmp_path / "unit-snapshots"
+    monkeypatch.setattr(proxy_install.install, "RELEASES", releases)
+    monkeypatch.setattr(proxy_service, "UNITS", units)
+    monkeypatch.setattr(proxy_install.preflight, "protected", lambda *a, **k: None)
+    monkeypatch.setattr(configuration, "private", lambda *a, **k: None)
+    relative = "delivery/scripts/release/proxy_service.py"
+    shipped = releases / release_id / "payload" / relative
+    shipped.parent.mkdir(parents=True)
+    shipped.write_bytes(source)
+    shipped.chmod(0o444)
+    catalog = releases / release_id / "manifest.json"
+    catalog.write_bytes(
+        policy.canonical(
+            {
+                "format": policy.FORMAT,
+                "schema_version": 1,
+                "source_sha": head,
+                "release_id": release_id,
+                "files": [
+                    {
+                        "path": relative,
+                        "sha256": hashlib.sha256(source).hexdigest(),
+                        "bytes": len(source),
+                        "mode": "0444",
+                    }
+                ],
+            }
+        )
+    )
+    manifest_sha = policy.digest(catalog)
+    hashes = {
+        name: hashlib.sha256(("ordinary-configuration:" + name).encode()).hexdigest()
+        for name in configuration.CONFIG_FILES
+    }
+    batch = configuration.configuration_id(head, manifest_sha, hashes)
+    receipt = tmp_path / "installed-receipt.json"
+    receipt.write_bytes(
+        policy.canonical(
+            {
+                "schema_version": 1,
+                "source_sha": head,
+                "release_id": release_id,
+                "configuration_id": batch,
+                "manifest_sha256": manifest_sha,
+                "configuration_files": {
+                    str(configuration.installed_path(release_id, batch, name)): value
+                    for name, value in hashes.items()
+                },
+                "operator_attested_measurement": False,
+                "installed": True,
+                "execution_verified": False,
+            }
+        )
+    )
+    monkeypatch.setattr(configuration, "installed_receipt_path", lambda *a: receipt)
+    selected = {
+        "schema_version": 1,
+        "release_id": release_id,
+        "configuration_id": batch,
+        "manifest_sha256": manifest_sha,
+        "receipt_sha256": policy.digest(receipt),
+    }
+    directory = units / proxy_service.batch(selected).name
+    directory.mkdir(parents=True)
+    (directory / "binding.json").write_bytes(policy.canonical(selected))
+    unit = directory / proxy_service.UNIT
+    unit.write_bytes(proxy_service.render(selected).replace(b"IOAccounting=yes\n", b"", 1))
+    unit.chmod(0o644)
+    return directory, selected, unit, shipped, catalog
+
+
+def test_proxy_snapshot_recognizes_exact_catalog_bound_legacy_profile(tmp_path, monkeypatch):
+    directory, selected, unit, _, _ = proxy_snapshot_metadata_fixture(tmp_path, monkeypatch)
+    assert b"IOAccounting=" not in unit.read_bytes()
+    assert proxy_install.known_snapshot(directory) == selected
+    assert b"IOAccounting=yes\n" in proxy_service.render(selected)
+
+
+def test_proxy_snapshot_current_source_requires_io_accounting(tmp_path, monkeypatch):
+    directory, _, _, _, _ = proxy_snapshot_metadata_fixture(
+        tmp_path, monkeypatch, current_source=True
+    )
+    with pytest.raises(policy.DeliveryError, match="proxy unit snapshot changed"):
+        proxy_install.known_snapshot(directory)
+
+
+def test_proxy_snapshot_current_profile_keeps_normal_validation(tmp_path, monkeypatch):
+    directory, selected, unit, _, _ = proxy_snapshot_metadata_fixture(
+        tmp_path, monkeypatch, current_source=True
+    )
+    unit.write_bytes(proxy_service.render(selected))
+    assert proxy_install.known_snapshot(directory) == selected
+
+
+@pytest.mark.parametrize("changed", ["catalog", "source", "unit", "mode"])
+def test_proxy_snapshot_legacy_support_keeps_exact_authority_and_bytes(
+    tmp_path, monkeypatch, changed
+):
+    directory, _, unit, shipped, catalog = proxy_snapshot_metadata_fixture(tmp_path, monkeypatch)
+    if changed == "catalog":
+        catalog.write_bytes(catalog.read_bytes() + b"\n")
+    elif changed == "source":
+        shipped.chmod(0o600)
+        shipped.write_bytes(shipped.read_bytes() + b"\n")
+        shipped.chmod(0o444)
+    elif changed == "unit":
+        unit.write_bytes(unit.read_bytes() + b"Environment=UNRECOGNIZED=1\n")
+    else:
+        unit.chmod(0o600)
+    with pytest.raises(policy.DeliveryError):
+        proxy_install.known_snapshot(directory)
+
+
 @pytest.mark.parametrize("failure", ["deadline", "exit", "output"])
 def test_broker_snapshot_failure_keeps_process_details_private(monkeypatch, failure):
     from types import SimpleNamespace

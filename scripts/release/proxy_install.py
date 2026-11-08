@@ -120,6 +120,68 @@ def storage(*, allow_read_only: bool = False) -> dict:
     }
 
 
+# The shipped v1 recipe predates persistent I/O accounting.  Recognize its
+# retained stopped snapshots only through the original installed source catalog.
+# Never import or execute code from an older release to validate that snapshot.
+LEGACY_PROXY_SOURCE_SHA256 = "262e67de260f33ed97e4901e939a1d1e7276cac10429bbcf7096d1d9c0e0010f"
+LEGACY_PROXY_SOURCE_BYTES = 5183
+
+
+def _known_legacy_proxy_unit(selected: dict, unit: bytes) -> bool:
+    current = proxy_service.render(selected)
+    accounting = b"IOAccounting=yes\n"
+    if current.count(accounting) != 1 or unit != current.replace(accounting, b"", 1):
+        return False
+    receipt_path = configuration.installed_receipt_path(
+        selected["release_id"], selected["configuration_id"]
+    )
+    preflight.protected(receipt_path)
+    configuration.private(receipt_path)
+    receipt = configuration.validate_receipt(read_json(receipt_path, 16384), installed=True)
+    if digest(receipt_path) != selected["receipt_sha256"] or any(
+        receipt[key] != selected[key]
+        for key in ("release_id", "configuration_id", "manifest_sha256")
+    ):
+        raise DeliveryError("legacy proxy receipt changed")
+    release = install.RELEASES / selected["release_id"]
+    catalog_path = release / "manifest.json"
+    preflight.protected(catalog_path)
+    if digest(catalog_path) != selected["manifest_sha256"]:
+        raise DeliveryError("legacy proxy manifest changed")
+    catalog = read_json(catalog_path)
+    if (
+        catalog.get("format") != FORMAT
+        or type(catalog.get("schema_version")) is not int
+        or catalog["schema_version"] != 1
+        or catalog.get("source_sha") != receipt["source_sha"]
+        or catalog.get("release_id") != selected["release_id"]
+        or not isinstance(catalog.get("files"), list)
+        or not all(isinstance(entry, dict) for entry in catalog["files"])
+    ):
+        raise DeliveryError("legacy proxy source binding changed")
+    relative = "delivery/scripts/release/proxy_service.py"
+    entries = [entry for entry in catalog["files"] if entry.get("path") == relative]
+    if len(entries) != 1:
+        return False
+    entry = entries[0]
+    if (
+        entry.get("sha256") != LEGACY_PROXY_SOURCE_SHA256
+        or entry.get("mode") != "0444"
+        or entry.get("bytes") != LEGACY_PROXY_SOURCE_BYTES
+    ):
+        return False
+    source = release / "payload" / relative
+    preflight.protected(source)
+    info = source.stat()
+    return (
+        stat.S_ISREG(info.st_mode)
+        and info.st_nlink == 1
+        and stat.S_IMODE(info.st_mode) == 0o444
+        and info.st_size == LEGACY_PROXY_SOURCE_BYTES
+        and digest(source) == LEGACY_PROXY_SOURCE_SHA256
+    )
+
+
 def known_snapshot(directory: Path) -> dict:
     if directory.parent != proxy_service.UNITS:
         raise DeliveryError("unknown proxy unit snapshot")
@@ -145,9 +207,9 @@ def known_snapshot(directory: Path) -> dict:
     if directory.name != proxy_service.batch(selected).name:
         raise DeliveryError("proxy unit snapshot binding differs")
     preflight.protected(target)
-    if (
-        target.read_bytes() != proxy_service.render(selected)
-        or stat.S_IMODE(target.stat().st_mode) != 0o644
+    unit = target.read_bytes()
+    if stat.S_IMODE(target.stat().st_mode) != 0o644 or (
+        unit != proxy_service.render(selected) and not _known_legacy_proxy_unit(selected, unit)
     ):
         raise DeliveryError("proxy unit snapshot changed")
     return selected

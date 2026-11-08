@@ -178,3 +178,9 @@ immutable problem versions, submitted source, audit and original judging reports
 A confirmed consistent backup cut has a zero data-loss target. Recovery from
 prepared release and backup materials has a 30-minute target, including health
 and four-language verification. Both targets require measured acceptance results.
+
+During a stopped HTTPS upgrade, the installer also recognizes the exact shipped
+legacy proxy unit profile through its protected installed receipt, release
+manifest and registered source fingerprint. It reads the previous source as
+data. Newly rendered proxy units keep persistent I/O accounting; changed or
+unrecognized retained snapshots remain a hard refusal.
