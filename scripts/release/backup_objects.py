@@ -1,6 +1,7 @@
 """Private content storage; every logical source byte is read before deduplication."""
 
 import ctypes
+import errno
 import hashlib
 import os
 import stat
@@ -35,6 +36,22 @@ def read_stream(incoming, before, deadline: float, outgoing=None) -> str:
     ):
         raise DeliveryError("backup source changed during capture")
     return digest.hexdigest()
+
+
+def discard_consumed_cache(stream, size: int) -> None:
+    """Release sequentially consumed pages without changing capture or durability.
+
+    Some filesystems do not implement cache advice. Only that unsupported case
+    is optional; other I/O errors still stop capture. The final syncfs remains
+    responsible for durable data and metadata before manifest publication.
+    """
+    if not hasattr(os, "posix_fadvise") or not hasattr(os, "POSIX_FADV_DONTNEED"):
+        return
+    try:
+        os.posix_fadvise(stream.fileno(), 0, size, os.POSIX_FADV_DONTNEED)
+    except OSError as error:
+        if error.errno not in (errno.EINVAL, errno.ENOSYS, errno.EOPNOTSUPP):
+            raise
 
 
 def store(
@@ -80,6 +97,7 @@ def store(
                 if read_stream(incoming, before, deadline, outgoing) != digest:
                     raise DeliveryError("backup source bytes changed between reads")
                 outgoing.flush()
+                discard_consumed_cache(outgoing, before.st_size)
                 written = os.fstat(outgoing.fileno())
             if identity(pending.lstat()) != identity(written):
                 raise DeliveryError("private backup pending object changed")
@@ -88,6 +106,7 @@ def store(
             pending.unlink()
             seen[digest] = before.st_size
             added = before.st_size
+        discard_consumed_cache(incoming, before.st_size)
         if identity(source.lstat()) != identity(before):
             raise DeliveryError("backup source path changed during capture")
         return digest, added

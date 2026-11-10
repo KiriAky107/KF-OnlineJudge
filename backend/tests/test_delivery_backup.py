@@ -1,5 +1,6 @@
 """Trusted byte fixtures only; no privileged backup, recovery or RTO acceptance."""
 
+import errno
 import hashlib
 import importlib
 import os
@@ -269,6 +270,51 @@ def test_failed_second_source_read_retains_incomplete_private_copy(tmp_path, mon
         backup_objects.store(
             source, source.stat(), objects, seen, time.monotonic() + 10, remaining_bytes=100
         )
+    assert seen == {}
+    assert list(objects.iterdir()) == [objects / ".pending"]
+    assert not (tmp_path / "manifest.json").exists()
+
+
+@pytest.mark.parametrize("unsupported", [errno.EINVAL, errno.ENOSYS, errno.EOPNOTSUPP])
+def test_unsupported_cache_advice_preserves_full_read_and_deduplicated_bytes(
+    tmp_path, monkeypatch, unsupported
+):
+    def advise(*_):
+        raise OSError(unsupported, "fixture filesystem does not support cache advice")
+
+    monkeypatch.setattr(backup_objects.os, "posix_fadvise", advise)
+    source, repeated, objects = tmp_path / "source", tmp_path / "repeated", tmp_path / "objects"
+    data = b"trusted fixture above one read chunk\n" * 40000
+    source.write_bytes(data)
+    repeated.write_bytes(data)
+    objects.mkdir(mode=0o700)
+    seen = {}
+    digest, added = backup_objects.store(
+        source, source.stat(), objects, seen, time.monotonic() + 10, remaining_bytes=len(data)
+    )
+    assert backup_objects.store(
+        repeated, repeated.stat(), objects, seen, time.monotonic() + 10, remaining_bytes=0
+    ) == (digest, 0)
+    assert added == len(data)
+    assert digest == hashlib.sha256(data).hexdigest()
+    assert (objects / digest).read_bytes() == data
+    assert (objects / digest).stat().st_nlink == 1
+
+
+def test_cache_advice_io_error_cannot_publish_a_completed_object(tmp_path, monkeypatch):
+    def advise(*_):
+        raise OSError(errno.EIO, "fixture I/O failure")
+
+    monkeypatch.setattr(backup_objects.os, "posix_fadvise", advise)
+    source, objects = tmp_path / "source", tmp_path / "objects"
+    source.write_bytes(b"trusted fixture")
+    objects.mkdir(mode=0o700)
+    seen = {}
+    with pytest.raises(OSError) as failure:
+        backup_objects.store(
+            source, source.stat(), objects, seen, time.monotonic() + 10, remaining_bytes=100
+        )
+    assert failure.value.errno == errno.EIO
     assert seen == {}
     assert list(objects.iterdir()) == [objects / ".pending"]
     assert not (tmp_path / "manifest.json").exists()

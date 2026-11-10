@@ -297,6 +297,7 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
             if source_root.is_symlink() or not source_root.is_dir():
                 raise DeliveryError("a required backup source domain is absent or linked")
             for directory, names, members in os.walk(source_root, followlinks=False):
+                names.sort()
                 if time.monotonic() >= deadline:
                     raise DeliveryError("private backup capture deadline")
                 source_dir = Path(directory)
