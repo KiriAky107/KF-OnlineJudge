@@ -11,3 +11,13 @@ defineProps<{ title: string; description?: string; eyebrow?: string }>()
     <div class="page-heading-actions"><slot /></div>
   </header>
 </template>
+<style scoped>
+.page-heading {
+  flex-wrap: wrap;
+}
+.page-heading > div {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+</style>
