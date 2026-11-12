@@ -293,6 +293,7 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
         tree.mkdir(mode=0o700)
         dirs, files, total, stored = [], [], 0, 0
         objects = {}
+        candidates = {}
         for domain, source_root in SOURCES.items():
             if source_root.is_symlink() or not source_root.is_dir():
                 raise DeliveryError("a required backup source domain is absent or linked")
@@ -355,6 +356,7 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
                         objects,
                         deadline,
                         remaining_bytes=backup_manifest.MAX_BYTES - stored,
+                        candidates=candidates,
                     )
                     stored += added
                     files.append(entry)
@@ -401,7 +403,7 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
         install.sync_directory(ROOT)
         fingerprint = digest(target / "manifest.json")
         # Release construction-only inventories before the independent byte read.
-        del value, raw, dirs, files, objects
+        del value, raw, dirs, files, objects, candidates
         backup_manifest.verify(target, fingerprint)
         return {
             "backup_id": backup_id,
