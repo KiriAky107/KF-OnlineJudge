@@ -233,7 +233,10 @@ def frozen_copy(
         ):
             raise DeliveryError("existing protected image differs")
         preflight.protected_tree(
-            target, [record["path"] for record in records], directories, path_prefix=path_prefix
+            target,
+            [record["path"] for record in records],
+            directories,
+            path_prefix=path_prefix,
         )
         return
     _copy_new_tree(source, target, records, directories, path_prefix=path_prefix)
@@ -574,6 +577,7 @@ def activate(release_id: str, expected: str, batch: str) -> dict:
             preflight.protected(path, directory=True)
             if next(path.iterdir(), None) is not None:
                 raise DeliveryError("execution leases or task resources remain; activation refused")
+    previous = None
     if ACTIVE.exists() or ACTIVE.is_symlink() or CURRENT.exists() or CURRENT.is_symlink():
         # Retiring a byte-bound old batch is allowed after a kernel change.
         # It is never accepted for execution under that changed environment.
@@ -592,6 +596,13 @@ def activate(release_id: str, expected: str, batch: str) -> dict:
         "configuration_id": batch,
         "receipt_sha256": digest(config_receipt),
     }
+    from . import availability
+
+    # Publish the new closed binding before either code/configuration pointer.
+    # A crash between publications leaves admission closed (or mismatched),
+    # never an old open gate carried into a newly selected hardware identity.
+    # No receipt, owner row or replay ledger is rewritten to claim quiescence.
+    availability.prepare_activation(previous, active)
     incoming = ACTIVE.parent / (".active-" + secrets.token_hex(16))
     exclusive_file(incoming, canonical(active), 0o600)
     temporary = CURRENT.parent / (".current-" + secrets.token_hex(16))
@@ -607,6 +618,8 @@ def activate(release_id: str, expected: str, batch: str) -> dict:
         "selected_source_sha": binding["source_sha"],
         "configuration_id": batch,
         "activated": True,
+        "admission_opened": False,
+        "admission_state": "draining",
         "services_started": False,
         "execution_verified": False,
     }

@@ -25,9 +25,13 @@ def read() -> AvailabilityRecord | None:
     return AvailabilityRecord.model_validate(read_json(GATE, 4096))
 
 
-def write(selected: dict, state: str) -> dict:
+def require_root() -> None:
     if os.getuid() != 0 or os.geteuid() != 0 or os.getgid() != 0:
         raise DeliveryError("root availability operator required")
+
+
+def write(selected: dict, state: str) -> dict:
+    require_root()
     value = AvailabilityRecord(
         schema_version=1,
         release_id=selected["release_id"],
@@ -46,13 +50,59 @@ def write(selected: dict, state: str) -> dict:
         install.require_stopped()
         if before.state != "quiescent" or state != "draining":
             raise DeliveryError("availability binding replacement requires quiescence")
+    return _publish(value, before, selected)
+
+
+def prepare_activation(previous: dict | None, selected: dict) -> dict:
+    """Close admission for a fully checked, stopped configuration selection.
+
+    Activation validates both releases, the new hardware-bound configuration,
+    and empty execution resources before calling here. Stopped dependencies
+    are required too. Pending owner work stays on disk: this publishes only
+    ``draining``, and makes no claim of a completed business drain. Ordinary
+    lifecycle readiness remains the only operation that may reopen admission.
+    """
+    from . import dependency_install
+
+    require_root()
+    value = AvailabilityRecord(
+        schema_version=1,
+        release_id=selected["release_id"],
+        configuration_id=selected["configuration_id"],
+        state="draining",
+    )
+    install.directory(GATE.parent, 0o711)
+    before = read()
+    if before is None:
+        if previous is not None:
+            raise DeliveryError("selected installation has no admission record")
+    elif previous is None or (
+        before.release_id != previous["release_id"]
+        or before.configuration_id != previous["configuration_id"]
+    ):
+        raise DeliveryError("admission is not bound to the previous selection")
+    dependency_install.require_stopped()
+    return _publish(value, before, previous)
+
+
+def _selection_matches(selected: dict | None) -> bool:
+    if selected is not None:
+        return install.selection(check_configuration=False) == selected
+    return not any(path.exists() or path.is_symlink() for path in (install.ACTIVE, install.CURRENT))
+
+
+def _publish(
+    value: AvailabilityRecord, before: AvailabilityRecord | None, selected: dict | None
+) -> dict:
+    if read() != before or not _selection_matches(selected):
+        raise DeliveryError("availability changed before publication")
     temporary = GATE.parent / (".availability-" + secrets.token_hex(8))
     created = None
     try:
         install.exclusive_file(temporary, canonical(value.model_dump(mode="json")), 0o644)
         info = temporary.stat()
         created = (info.st_dev, info.st_ino)
-        if read() != before or install.selection(check_configuration=False) != selected:
+        if read() != before or not _selection_matches(selected):
             raise DeliveryError("availability changed during publication")
         os.replace(temporary, GATE)
         install.sync_directory(GATE.parent)

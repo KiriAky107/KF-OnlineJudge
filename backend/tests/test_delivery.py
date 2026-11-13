@@ -56,7 +56,11 @@ def test_activation_refuses_checked_binding_that_differs_from_explicit_request(m
     monkeypatch.setattr(installer.os, "geteuid", lambda: 0)
     monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
     release, batch, expected = "sd-123456789abc", "cfg-" + "1" * 24, "1" * 64
-    binding = {"release_id": release, "configuration_id": batch, "manifest_sha256": expected}
+    binding = {
+        "release_id": release,
+        "configuration_id": batch,
+        "manifest_sha256": expected,
+    }
     binding[field] = "different"
     monkeypatch.setattr(configuration, "check_installed", lambda _: binding)
     with pytest.raises(policy.DeliveryError, match="configuration not bound"):
@@ -125,6 +129,7 @@ def selection_model(tmp_path, monkeypatch):
     monkeypatch.setattr(installer, "CURRENT", pointer)
     monkeypatch.setattr(installer, "Path", fixture_path)
     monkeypatch.setattr(installer, "require_stopped", lambda: stopped.append(True))
+    monkeypatch.setattr(lifecycle.availability, "prepare_activation", lambda *a: None)
     monkeypatch.setattr(installer, "selection", lambda **k: dict(prior))
     monkeypatch.setattr(configuration, "installed_receipt_path", lambda *a: receipt)
     monkeypatch.setattr(
@@ -170,7 +175,9 @@ def test_activation_requires_compatible_schema_and_runtime_before_pointer_writes
     assert model.stopped and len(model.reads) == 2
 
 
-def test_compatible_selection_keeps_explicit_batch_and_does_not_start_services(selection_model):
+def test_compatible_selection_keeps_explicit_batch_and_does_not_start_services(
+    selection_model,
+):
     model = selection_model
     result = installer.activate(*model.arguments)
     selected = json.loads(model.active.read_bytes())
@@ -180,6 +187,37 @@ def test_compatible_selection_keeps_explicit_batch_and_does_not_start_services(s
     assert not result["execution_verified"]
     assert model.stopped and model.ports == [("127.0.0.1", 8000), ("127.0.0.1", 8100)]
     assert len(model.reads) == 2
+
+
+def test_activation_closes_admission_before_either_pointer_changes(selection_model, monkeypatch):
+    model = selection_model
+    before = model.active.read_bytes()
+    events = []
+
+    def prepare(previous, target):
+        assert previous == model.prior
+        assert target["configuration_id"] == model.arguments[2]
+        assert model.active.read_bytes() == before and not model.pointer.is_symlink()
+        assert len(model.reads) == 2 and model.stopped
+        events.append("target-admission-closed")
+
+    monkeypatch.setattr(lifecycle.availability, "prepare_activation", prepare)
+    result = installer.activate(*model.arguments)
+    assert events == ["target-admission-closed"]
+    assert result["admission_state"] == "draining" and not result["admission_opened"]
+
+
+def test_admission_refusal_cannot_change_selection_pointers(selection_model, monkeypatch):
+    model = selection_model
+    before = model.active.read_bytes()
+
+    def refuse(*_):
+        raise policy.DeliveryError("unconfirmed previous admission")
+
+    monkeypatch.setattr(lifecycle.availability, "prepare_activation", refuse)
+    with pytest.raises(policy.DeliveryError, match="unconfirmed previous admission"):
+        installer.activate(*model.arguments)
+    assert model.active.read_bytes() == before and not model.pointer.is_symlink()
 
 
 def test_first_selection_does_not_require_a_previous_release(selection_model):
@@ -317,7 +355,9 @@ def test_current_receipt_rejects_changed_binding_after_full_validation(monkeypat
     observations = iter([selected, after])
     monkeypatch.setattr(service_install.install, "selection", lambda **options: next(observations))
     monkeypatch.setattr(
-        service_install.configuration, "installed_receipt_path", lambda *args: Path("/fixture")
+        service_install.configuration,
+        "installed_receipt_path",
+        lambda *args: Path("/fixture"),
     )
     monkeypatch.setattr(service_install.configuration, "check_installed", lambda path: installed)
     with pytest.raises(policy.DeliveryError, match="selected configuration changed"):
@@ -381,7 +421,9 @@ def frozen_filesystem_model(tmp_path, monkeypatch):
             return 0
 
     monkeypatch.setattr(
-        installer.restore_io.ctypes, "CDLL", lambda *_a, **_kw: SimpleNamespace(syncfs=Sync())
+        installer.restore_io.ctypes,
+        "CDLL",
+        lambda *_a, **_kw: SimpleNamespace(syncfs=Sync()),
     )
 
 
@@ -506,7 +548,13 @@ def test_kernel_io_observation_aggregates_devices_without_returning_device_ident
         "8:0 rbytes=5 wbytes=7 rios=1 wios=2 dbytes=0 dios=0\n"
         "8:1 rbytes=11 wbytes=13 rios=3 wios=4 dbytes=0 dios=0"
     )
-    assert actual == {"devices_observed": 2, "rbytes": 16, "wbytes": 20, "rios": 4, "wios": 6}
+    assert actual == {
+        "devices_observed": 2,
+        "rbytes": 16,
+        "wbytes": 20,
+        "rios": 4,
+        "wios": 6,
+    }
     assert node_observation.io_totals("")["devices_observed"] == 0
     with pytest.raises(policy.DeliveryError):
         node_observation.io_totals(
@@ -528,23 +576,34 @@ def test_kernel_io_observation_accepts_idle_device_rows_without_inventing_activi
         raw.rstrip("\n") + "\n253:32 rbytes=5 wbytes=7 rios=1 wios=2"
     )
     assert combined == dict(
-        actual, devices_observed=actual["devices_observed"] + 1, rbytes=5, wbytes=7, rios=1, wios=2
+        actual,
+        devices_observed=actual["devices_observed"] + 1,
+        rbytes=5,
+        wbytes=7,
+        rios=1,
+        wios=2,
     )
 
 
 @pytest.mark.parametrize("raw", ["253:0 rbytes=0", "253:0 other=0", "253:0\n253:0"])
-def test_kernel_io_observation_still_rejects_partial_counters_and_duplicate_idle_devices(raw):
+def test_kernel_io_observation_still_rejects_partial_counters_and_duplicate_idle_devices(
+    raw,
+):
     with pytest.raises(policy.DeliveryError):
         node_observation.io_totals(raw)
 
 
 @pytest.mark.parametrize("value", ["-1", "max", "True", str(2**63)])
-def test_kernel_observation_does_not_replace_unavailable_or_invalid_counters_with_zero(value):
+def test_kernel_observation_does_not_replace_unavailable_or_invalid_counters_with_zero(
+    value,
+):
     with pytest.raises(policy.DeliveryError):
         node_observation.number(value)
 
 
-def test_node_observation_requests_kernel_io_accounting_without_relaxing_limits(monkeypatch):
+def test_node_observation_requests_kernel_io_accounting_without_relaxing_limits(
+    monkeypatch,
+):
     from scripts.release import operator_units, service_install
 
     payload = installer.RELEASES / ("sd-" + "a" * 12) / "payload"
@@ -553,7 +612,10 @@ def test_node_observation_requests_kernel_io_accounting_without_relaxing_limits(
     monkeypatch.setattr(
         installer,
         "selection",
-        lambda **_: {"release_id": payload.parent.name, "configuration_id": "cfg-" + "b" * 24},
+        lambda **_: {
+            "release_id": payload.parent.name,
+            "configuration_id": "cfg-" + "b" * 24,
+        },
     )
     monkeypatch.setattr(
         service_install,
@@ -698,7 +760,12 @@ def recovery_receipts_shape():
         },
         "data_receipt_sha256": "f" * 64,
         "bootstrap_sha256": "b" * 64,
-        "cluster_identity": {"device": 1, "inode": 10, "major_version": 18, "uid": 1203},
+        "cluster_identity": {
+            "device": 1,
+            "inode": 10,
+            "major_version": 18,
+            "uid": 1203,
+        },
         "temporary_server_stopped": True,
         "database_credentials_rotated": True,
         "services_started": False,
@@ -766,13 +833,20 @@ def test_startup_cannot_launch_services_when_recovery_admission_is_refused(monke
 
 @pytest.mark.parametrize(
     ("name", "ready_after", "succeeds"),
-    [("sandbox-factory", 131, True), ("sandbox-factory", 1811, False), ("api", 131, False)],
+    [
+        ("sandbox-factory", 131, True),
+        ("sandbox-factory", 1811, False),
+        ("api", 131, False),
+    ],
 )
 def test_startup_waits_for_declared_factory_preparation_without_extending_other_services(
     monkeypatch, name, ready_after, succeeds
 ):
     maintenance = object.__new__(lifecycle.Maintenance)
-    maintenance.selected = {"release_id": "sd-" + "a" * 12, "configuration_id": "cfg-" + "b" * 24}
+    maintenance.selected = {
+        "release_id": "sd-" + "a" * 12,
+        "configuration_id": "cfg-" + "b" * 24,
+    }
     maintenance.record = {"events": [], "root_cleanup_confirmed": True}
     clock = [0.0]
     confirmed = []
@@ -805,12 +879,24 @@ def test_startup_waits_for_declared_factory_preparation_without_extending_other_
 def test_restoration_keeps_old_runtime_configuration_and_operations_inactive():
     directory = Path("/var/lib/kf-onlinejudge/recovery/rr-" + "1" * 32)
     for domain in restore.HISTORICAL:
-        item = {"path": domain + "/old.json", "uid": 0, "gid": 0, "mode": 0o644, "bytes": 20}
+        item = {
+            "path": domain + "/old.json",
+            "uid": 0,
+            "gid": 0,
+            "mode": 0o644,
+            "bytes": 20,
+        }
         path, uid, gid, mode = restore.target(item, directory)
         assert path == directory / "history" / domain / "old.json"
         assert (uid, gid, mode) == (0, 0, 0o600)
     path, uid, gid, mode = restore.target(
-        {"path": "artifacts/object", "uid": 1200, "gid": 1200, "mode": 0o600, "bytes": 20},
+        {
+            "path": "artifacts/object",
+            "uid": 1200,
+            "gid": 1200,
+            "mode": 0o600,
+            "bytes": 20,
+        },
         directory,
     )
     assert path == Path("/var/lib/kf-onlinejudge/artifacts/object")
@@ -930,7 +1016,8 @@ def test_no_silent_contract_fields(tmp_path):
 def test_duplicate_metadata_key_is_rejected():
     with pytest.raises(policy.DeliveryError, match="duplicate"):
         json.loads(
-            '{"schema_version":1,"schema_version":2}', object_pairs_hook=policy.unique_object
+            '{"schema_version":1,"schema_version":2}',
+            object_pairs_hook=policy.unique_object,
         )
 
 
@@ -1070,7 +1157,9 @@ def test_generated_configuration_preserves_wire_policies_and_backend_settings(
     }
 
 
-def test_generated_configuration_retains_accepted_language_budgets(delivery_configuration):
+def test_generated_configuration_retains_accepted_language_budgets(
+    delivery_configuration,
+):
     """The installed policy must preserve the established runtime startup allowance."""
     _, raw, _, _, _, _ = delivery_configuration
     admission = json.loads(raw["admission.json"])
@@ -1766,7 +1855,9 @@ def test_dependency_pointer_does_not_adopt_unknown_units_or_paths(target):
         b"b" * 32 + b" " + b"b" * 31 + b"\n",
     ],
 )
-def test_database_initializer_refuses_empty_multiline_or_noncanonical_password(contents):
+def test_database_initializer_refuses_empty_multiline_or_noncanonical_password(
+    contents,
+):
     with pytest.raises(policy.DeliveryError, match="bootstrap password"):
         dependency_initialize.validate_password(contents)
 
@@ -1786,7 +1877,17 @@ def credential_acl(uid=1203, *, owner=4, user=4, group=0, mask=4, other=0):
 
 @pytest.mark.parametrize(
     "changed",
-    [None, "manifest", "source", "missing", "duplicate", "shipped", "mode", "running", "receipt"],
+    [
+        None,
+        "manifest",
+        "source",
+        "missing",
+        "duplicate",
+        "shipped",
+        "mode",
+        "running",
+        "receipt",
+    ],
 )
 def test_proxy_startup_binds_own_source_without_loading_judging_policy(
     tmp_path, monkeypatch, changed
@@ -1895,7 +1996,10 @@ def test_proxy_startup_refuses_another_protected_selected_binding(monkeypatch):
     monkeypatch.setattr(
         proxy_install,
         "startup_selection",
-        lambda: {"release_id": "sd-123456789abc", "configuration_id": "cfg-" + "e" * 24},
+        lambda: {
+            "release_id": "sd-123456789abc",
+            "configuration_id": "cfg-" + "e" * 24,
+        },
     )
     monkeypatch.setattr(installer, "selection", lambda **kwargs: pytest.fail("full image scan"))
     with pytest.raises(policy.DeliveryError, match="another selected configuration"):
@@ -2052,7 +2156,12 @@ def test_database_initialization_receipt_does_not_prove_migration_or_authenticat
         "schema_version": 1,
         "source_sha": "b" * 40,
         "configuration_id": "cfg-" + "e" * 24,
-        "cluster_identity": {"device": 5, "inode": 900, "major_version": 18, "uid": 1203},
+        "cluster_identity": {
+            "device": 5,
+            "inode": 900,
+            "major_version": 18,
+            "uid": 1203,
+        },
         "bootstrap_sha256": "f" * 64,
         "initialized": True,
         "migrated": False,
@@ -2092,7 +2201,8 @@ def test_initializer_cleanup_accepts_only_owned_stopped_empty_unit(monkeypatch, 
 
 
 @pytest.mark.parametrize(
-    "field,value", [("Description", "foreign"), ("Transient", "no"), ("ControlGroup", "/foreign")]
+    "field,value",
+    [("Description", "foreign"), ("Transient", "no"), ("ControlGroup", "/foreign")],
 )
 def test_initializer_cleanup_never_stops_foreign_unit(monkeypatch, field, value):
     actual = {
@@ -2411,7 +2521,9 @@ def test_maintenance_receipt_cannot_silently_adopt_unknown_history_or_release_pr
         lifecycle.validate_record(value)
 
 
-def test_confirmed_drain_can_continue_to_stop_without_querying_stopped_owners(monkeypatch):
+def test_confirmed_drain_can_continue_to_stop_without_querying_stopped_owners(
+    monkeypatch,
+):
     from types import SimpleNamespace
 
     selected = {"release_id": "kf-" + "b" * 12, "configuration_id": "cfg-" + "c" * 24}
@@ -2532,7 +2644,9 @@ def test_maintenance_does_not_leave_admission_open_when_final_confirmation_fails
     assert gate == ["draining", "open", "draining"]
 
 
-def test_failed_gate_closure_requires_known_api_stop_without_forging_owner_cleanup(monkeypatch):
+def test_failed_gate_closure_requires_known_api_stop_without_forging_owner_cleanup(
+    monkeypatch,
+):
     # Controller flow only; actual cgroup/stop/full-volume evidence is VM-only.
     maintenance = object.__new__(lifecycle.Maintenance)
     maintenance.selected = {}
@@ -2623,7 +2737,9 @@ def test_outer_lifecycle_closes_admission_only_for_dispatched_helper_failure(
     assert gate == (["open", "draining"] if dispatched else ["open"])
 
 
-def test_failed_dispatch_does_not_stop_an_unverified_api_when_gate_write_fails(monkeypatch):
+def test_failed_dispatch_does_not_stop_an_unverified_api_when_gate_write_fails(
+    monkeypatch,
+):
     calls = []
 
     def unavailable(*_):
@@ -2664,7 +2780,8 @@ def proxy_catalog_shape():
 
 
 @pytest.mark.parametrize(
-    "field,value", [("version", "latest"), ("schema_version", True), ("architecture", "arm64")]
+    "field,value",
+    [("version", "latest"), ("schema_version", True), ("architecture", "arm64")],
 )
 def test_proxy_runtime_cannot_silently_select_another_binary_profile(field, value):
     value0 = proxy_catalog_shape()
@@ -2907,7 +3024,11 @@ def test_broker_snapshot_failure_keeps_process_details_private(monkeypatch, fail
         return SimpleNamespace(returncode=1 if failure == "exit" else 0)
 
     monkeypatch.setattr(broker_snapshot.subprocess, "run", failed)
-    suffix = {"deadline": "exceeded deadline", "exit": "failed", "output": "output exceeds bound"}
+    suffix = {
+        "deadline": "exceeded deadline",
+        "exit": "failed",
+        "output": "output exceeds bound",
+    }
     with pytest.raises(policy.DeliveryError) as raised:
         broker_snapshot.command()
     assert str(raised.value) == "broker snapshot query " + suffix[failure]
