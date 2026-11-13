@@ -10,6 +10,7 @@ import resource
 import stat
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import (
@@ -17,6 +18,7 @@ from . import (
     backup_manifest,
     backup_objects,
     configuration,
+    file_copy,
     install,
     lifecycle,
     preflight,
@@ -293,73 +295,89 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
         tree.mkdir(mode=0o700)
         dirs, files, total, stored = [], [], 0, 0
         objects = {}
-        candidates = {}
-        for domain, source_root in SOURCES.items():
-            if source_root.is_symlink() or not source_root.is_dir():
-                raise DeliveryError("a required backup source domain is absent or linked")
-            for directory, names, members in os.walk(source_root, followlinks=False):
-                names.sort()
-                if time.monotonic() >= deadline:
-                    raise DeliveryError("private backup capture deadline")
-                source_dir = Path(directory)
-                relative = backup_manifest.name(
-                    domain
-                    + (
-                        "/" + source_dir.relative_to(source_root).as_posix()
-                        if source_dir != source_root
-                        else ""
-                    )
+        captured = {}
+
+        with ThreadPoolExecutor(max_workers=file_copy.IN_FLIGHT) as executor:
+
+            def store_batch(batch):
+                nonlocal stored
+                results = backup_objects.store_batch(
+                    [(path, before) for path, before, _ in batch],
+                    tree,
+                    objects,
+                    captured,
+                    executor,
+                    deadline,
+                    remaining_bytes=backup_manifest.MAX_BYTES - stored,
                 )
-                info = source_dir.lstat()
-                entry = {
-                    "path": relative,
-                    "uid": info.st_uid,
-                    "gid": info.st_gid,
-                    "mode": stat.S_IMODE(info.st_mode),
-                }
-                backup_manifest._member(entry, set(), directory=True)
-                if not stat.S_ISDIR(info.st_mode):
-                    raise DeliveryError("backup source directory changed type")
-                dirs.append(entry)
-                if len(dirs) + len(files) > backup_manifest.MAX_LOGICAL_ENTRIES:
-                    raise DeliveryError("backup directory inventory exceeds bound")
-                for member in names:
-                    if (source_dir / member).is_symlink():
-                        raise DeliveryError("linked backup directory refused")
-                for member in sorted(members):
-                    p = source_dir / member
-                    before = p.lstat()
-                    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
-                        raise DeliveryError("special or linked backup source refused")
-                    entry = {
-                        "path": backup_manifest.name(relative + "/" + member),
-                        "uid": before.st_uid,
-                        "gid": before.st_gid,
-                        "mode": stat.S_IMODE(before.st_mode),
-                        "bytes": before.st_size,
-                    }
-                    backup_manifest._member(entry, set(), directory=False)
-                    if before.st_size > backup_manifest.MAX_FILE_BYTES:
-                        raise DeliveryError("backup individual file exceeds bound")
-                    total += before.st_size
-                    if (
-                        total > backup_manifest.MAX_LOGICAL_BYTES
-                        or len(dirs) + len(files) >= backup_manifest.MAX_LOGICAL_ENTRIES
-                        or os.statvfs(ROOT).f_frsize * os.statvfs(ROOT).f_bavail
-                        < before.st_size + 64 * 1024**2
-                    ):
-                        raise DeliveryError("private backup capacity exhausted")
-                    entry["sha256"], added = backup_objects.store(
-                        p,
-                        before,
-                        tree,
-                        objects,
-                        deadline,
-                        remaining_bytes=backup_manifest.MAX_BYTES - stored,
-                        candidates=candidates,
-                    )
+                for (_, _, entry), (fingerprint, added) in zip(batch, results, strict=True):
+                    entry["sha256"] = fingerprint
                     stored += added
                     files.append(entry)
+
+            for domain, source_root in SOURCES.items():
+                if source_root.is_symlink() or not source_root.is_dir():
+                    raise DeliveryError("a required backup source domain is absent or linked")
+                for directory, names, members in os.walk(source_root, followlinks=False):
+                    names.sort()
+                    if time.monotonic() >= deadline:
+                        raise DeliveryError("private backup capture deadline")
+                    source_dir = Path(directory)
+                    relative = backup_manifest.name(
+                        domain
+                        + (
+                            "/" + source_dir.relative_to(source_root).as_posix()
+                            if source_dir != source_root
+                            else ""
+                        )
+                    )
+                    info = source_dir.lstat()
+                    entry = {
+                        "path": relative,
+                        "uid": info.st_uid,
+                        "gid": info.st_gid,
+                        "mode": stat.S_IMODE(info.st_mode),
+                    }
+                    backup_manifest._member(entry, set(), directory=True)
+                    if not stat.S_ISDIR(info.st_mode):
+                        raise DeliveryError("backup source directory changed type")
+                    dirs.append(entry)
+                    if len(dirs) + len(files) > backup_manifest.MAX_LOGICAL_ENTRIES:
+                        raise DeliveryError("backup directory inventory exceeds bound")
+                    for member in names:
+                        if (source_dir / member).is_symlink():
+                            raise DeliveryError("linked backup directory refused")
+                    pending = []
+                    for member in sorted(members):
+                        p = source_dir / member
+                        before = p.lstat()
+                        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+                            raise DeliveryError("special or linked backup source refused")
+                        entry = {
+                            "path": backup_manifest.name(relative + "/" + member),
+                            "uid": before.st_uid,
+                            "gid": before.st_gid,
+                            "mode": stat.S_IMODE(before.st_mode),
+                            "bytes": before.st_size,
+                        }
+                        backup_manifest._member(entry, set(), directory=False)
+                        if before.st_size > backup_manifest.MAX_FILE_BYTES:
+                            raise DeliveryError("backup individual file exceeds bound")
+                        total += before.st_size
+                        if (
+                            total > backup_manifest.MAX_LOGICAL_BYTES
+                            or len(dirs) + len(files) + len(pending)
+                            >= backup_manifest.MAX_LOGICAL_ENTRIES
+                            or os.statvfs(ROOT).f_frsize * os.statvfs(ROOT).f_bavail
+                            < before.st_size + 64 * 1024**2
+                        ):
+                            raise DeliveryError("private backup capacity exhausted")
+                        pending.append((p, before, entry))
+                        if len(pending) == file_copy.IN_FLIGHT:
+                            store_batch(pending)
+                            pending.clear()
+                    if pending:
+                        store_batch(pending)
         stopped(selected, cut)
         if install.selection() != selected or read_json(lifecycle.LAST, 32768) != cut:
             raise DeliveryError("selected cut changed during backup")
@@ -403,7 +421,11 @@ def capture(backup_id: str, references_file: Path, references_sha: str) -> dict:
         install.sync_directory(ROOT)
         fingerprint = digest(target / "manifest.json")
         # Release construction-only inventories before the independent byte read.
-        del value, raw, dirs, files, objects, candidates
+        dirs.clear()
+        files.clear()
+        objects.clear()
+        captured.clear()
+        del value, raw
         backup_manifest.verify(target, fingerprint)
         return {
             "backup_id": backup_id,
