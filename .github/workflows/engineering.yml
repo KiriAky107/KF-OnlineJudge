@@ -122,6 +122,7 @@ jobs:
             tests/test_operator_diagnostics.py \
             tests/test_operator_cleanup.py \
             tests/test_start_readiness.py \
+            tests/test_factory_startup.py \
             tests/test_outbox_startup_diagnostics.py \
             tests/test_service_readiness.py \
             tests/test_delivery_role_projection.py \
@@ -142,6 +143,7 @@ jobs:
           cargo test --workspace --lib --locked
           cargo test --package kf-contracts --locked
           cargo test --package kf-sandbox --bin kf-restore-io --locked
+          cargo test --package kf-sandbox --bin kf-sandbox --locked factory_health_error_tests::only_typed_connect_failures_allow_startup_observation -- --exact
 
       - name: Check and build Frontend
         timeout-minutes: 5

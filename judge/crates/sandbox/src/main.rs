@@ -122,7 +122,7 @@ fn main() -> ExitCode {
                     );
                     ExitCode::SUCCESS
                 }
-                Err(_) => spec_error("factory_health_unavailable", None),
+                Err(error) => spec_error(factory_health_error(&error), None),
             }
             #[cfg(not(target_os = "linux"))]
             {
@@ -341,6 +341,17 @@ fn validate_spec(path: PathBuf) -> ExitCode {
     }
 }
 
+// Preserve the cause required by the bounded startup observer. Authentication,
+// malformed replies and RPC deadlines remain terminal factory-health failures.
+fn factory_health_error(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
+            "factory_health_not_listening"
+        }
+        _ => "factory_health_unavailable",
+    }
+}
+
 fn spec_error(code: &str, details: Option<serde_json::Value>) -> ExitCode {
     eprintln!("{}", serde_json::json!({"error": code, "details": details}));
     ExitCode::from(2)
@@ -377,5 +388,42 @@ fn check_runtime(path: PathBuf) -> ExitCode {
             ExitCode::from(2)
         }
         Err(error) => spec_error("invalid_runtime_config", Some(serde_json::json!(error))),
+    }
+}
+
+#[cfg(test)]
+mod factory_health_error_tests {
+    use super::factory_health_error;
+    use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn only_typed_connect_failures_allow_startup_observation() {
+        let fixture = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../tests/fixtures/delivery/factory-health-not-listening.json"
+        ));
+        let error = factory_health_error(&Error::from(ErrorKind::NotFound));
+        let encoded = serde_json::json!({"error":error, "details":None::<serde_json::Value>});
+        assert_eq!(format!("{encoded}\n"), fixture);
+        for kind in [ErrorKind::NotFound, ErrorKind::ConnectionRefused] {
+            assert_eq!(
+                factory_health_error(&Error::from(kind)),
+                "factory_health_not_listening"
+            );
+        }
+        for kind in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::InvalidData,
+            ErrorKind::TimedOut,
+            ErrorKind::UnexpectedEof,
+            ErrorKind::ConnectionReset,
+            ErrorKind::WouldBlock,
+            ErrorKind::Other,
+        ] {
+            assert_eq!(
+                factory_health_error(&Error::from(kind)),
+                "factory_health_unavailable"
+            );
+        }
     }
 }

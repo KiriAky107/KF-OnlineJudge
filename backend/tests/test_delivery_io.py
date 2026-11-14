@@ -1531,6 +1531,11 @@ def ordinary_lifecycle_model(monkeypatch):
         }
 
     monkeypatch.setattr(lifecycle.proxy_health, "observe", https_ready)
+    monkeypatch.setattr(
+        maintenance,
+        "_wait_for_factory",
+        lambda deadline, main_pid: trace.append(("factory-status", "sandbox-factory")),
+    )
 
     def api_ready(url, *, timeout):
         assert url == "http://127.0.0.1:8000/api/v1/health/live" and 0 < timeout <= 5
@@ -1756,6 +1761,9 @@ def test_startup_dependency_barriers_precede_both_real_readiness_calls(
     for dependency in (*lifecycle.DEPENDENCIES, "sandbox-factory"):
         assert trace.index(("inspect", dependency)) < trace.index(("dispatch", "coordinator"))
     assert trace.index(("inspect", "api")) < trace.index(("dispatch", "proxy"))
+    assert trace.index(("factory-status", "sandbox-factory")) < trace.index(
+        ("dispatch", "coordinator")
+    )
 
 
 def test_startup_group_failure_keeps_admission_closed(ordinary_lifecycle_model, monkeypatch):

@@ -568,6 +568,76 @@ class Maintenance:
                 raise DeliveryError("HTTPS startup proof differs")
             return
 
+    @staticmethod
+    def factory_not_listening(error: operator_units.OperatorExecutionError) -> bool:
+        """Only the fixed CLI's typed connect failure permits another observation."""
+        expected = operator_units.failure_record(
+            "factory-health",
+            "exit",
+            subprocess.CompletedProcess(
+                [],
+                2,
+                stdout=b"",
+                stderr=b'{"details":null,"error":"factory_health_not_listening"}\n',
+            ),
+            DeliveryError("operator helper unavailable"),
+        )
+        try:
+            frame = operator_units.DIAGNOSTIC_PREFIX + json.dumps(
+                {"schema_version": 1, "failures": error.failures}
+            )
+        except (TypeError, ValueError):
+            return False
+        return operator_units.diagnostic_chain(frame.encode()) == [expected]
+
+    def _wait_for_factory(self, deadline: float, main_pid: str) -> None:
+        # Type=exec confirms execve, while Root still validates every image and
+        # recovers its journals before binding the authenticated status socket.
+        # Keep the original unit deadline and outer900s maintenance ceiling.
+        # This observes the same process; it never restarts Root or opens admission.
+        if (
+            type(main_pid) is not str
+            or not re.fullmatch(r"[1-9][0-9]{0,9}", main_pid)
+            or int(main_pid) <= 1
+        ):
+            raise DeliveryError("factory startup process identity required")
+        identity = {"ActiveState": "active", "SubState": "running", "MainPID": main_pid}
+        for _ in range(120):
+            if time.monotonic() >= deadline:
+                raise DeliveryError("bounded factory readiness unconfirmed")
+            if install.selection(check_configuration=False) != self.selected:
+                raise DeliveryError("selected binding changed during maintenance")
+            gate = availability.read()
+            if (
+                gate is None
+                or gate.state != "draining"
+                or gate.release_id != self.selected["release_id"]
+                or gate.configuration_id != self.selected["configuration_id"]
+            ):
+                raise DeliveryError("factory readiness requires selected closed admission")
+            values = self.unit("sandbox-factory")
+            if any(values[key] != value for key, value in identity.items()):
+                raise DeliveryError("factory process changed during startup")
+            node_health.inspect_unit("sandbox-factory", self.selected)
+            try:
+                status = operator_units.run("factory-health", self.payload)
+            except operator_units.OperatorExecutionError as error:
+                if not self.factory_not_listening(error):
+                    raise
+            else:
+                current = self.unit("sandbox-factory")
+                if any(current[key] != value for key, value in identity.items()):
+                    raise DeliveryError("factory process changed during startup")
+                if time.monotonic() >= deadline:
+                    raise DeliveryError("bounded factory readiness unconfirmed")
+                node_health.validate_factory(status, digest(self.paths["runtime.json"]))
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise DeliveryError("bounded factory readiness unconfirmed")
+            time.sleep(min(1.0, remaining))
+        raise DeliveryError("bounded factory readiness unconfirmed")
+
     def start_group(self, names: tuple[str, ...]) -> None:
         """Dispatch one fixed dependency stage; confirm each real unit separately."""
         if names not in START_GROUPS:
@@ -618,6 +688,8 @@ class Maintenance:
                         self._wait_for_proxy(deadline)
                     elif name == "api":
                         self._wait_for_api(deadline)
+                    elif name == "sandbox-factory":
+                        self._wait_for_factory(deadline, values["MainPID"])
                     event["confirmed"] = True
                     self.save("start_confirmed")
                     del pending[name]
