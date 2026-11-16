@@ -30,6 +30,11 @@ API 类型更新执行根目录 `make contracts`；前端通过 `pnpm check:api`
 浏览器与 API 使用同一 origin 的 `/api`，明确配置 `KF_OJ_BROWSER_ORIGINS`；
 生产必须使用 HTTPS、安全 cookie 与独立部署的反向代理。
 
+编辑器保留 Monaco 的输入、撤销、查找与快捷键，使用 `shiki` 提供 TextMate 高亮，
+`@shikijs/monaco` 将其接入 Monaco；仅加载 C++（C 共用）、Python、Java、Rust
+和 GitHub 浅/深主题。高亮实例跨编辑器挂载复用；加载失败时保留纯文本输入，
+切换主题、语言不会为高亮重建 model。高亮支持不代表后端判题能力。
+
 编辑器按题目版本和语言保留本地草稿，新增 Java 并保留原 C17/C++/Python/Rust 草稿。
 可提交语言由服务端已发布版本的能力与语言配置决定，支持 C17/C++20、固定 CPython
 3.13.16 的单文件 main.py/标准库，以及固定 OpenJDK 21.0.12.1+1-LTS 的默认包
