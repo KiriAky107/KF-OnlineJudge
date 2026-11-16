@@ -4,8 +4,10 @@ The single-node profile packages the application, four judging runtimes and the
 installation tools for offline use. `contract.v1.json` defines the installation
 interface. Judging v1/v2 reports keep their existing formats.
 
-Full installation and recovery acceptance is in progress. Validate a release on
-an independent test node before using it for production.
+The graduation-project single-node prerelease phase is closed with explicit
+acceptance limits. See [the closeout record](PRERELEASE-CLOSEOUT.md) for the tested
+source, artifact and retained gaps. This is not production acceptance; validate
+the chosen release and target node before production use.
 
 ## Requirements
 
