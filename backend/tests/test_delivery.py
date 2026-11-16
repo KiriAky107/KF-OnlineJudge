@@ -1286,6 +1286,22 @@ def test_proxy_rejects_ambiguous_and_injected_origins(origin):
         proxy.validate_profile(value)
 
 
+@pytest.mark.parametrize(
+    "origin",
+    ["https://OJ.test", "https://oj.test:443", "https://oj..test", "https://-oj.test"],
+)
+def test_node_configuration_rejects_origins_rejected_by_proxy(origin):
+    with pytest.raises(policy.DeliveryError, match="canonical HTTPS DNS origin"):
+        configuration.validate_profile(
+            {
+                "schema_version": 1,
+                "origin": origin,
+                "worker_id": "a28adc33-8fbd-4a33-8b21-7a46431e506c",
+                "measurement_nonce": None,
+            }
+        )
+
+
 def test_proxy_policy_cannot_change_upstream_paths_or_limits():
     value = {
         "schema_version": 1,
@@ -2858,20 +2874,32 @@ def test_proxy_render_is_fixed_to_a_selected_snapshot_without_business_credentia
         "manifest_sha256": "d" * 64,
     }
     text = proxy_service.render(selected).decode()
+    unit, service = text.split("[Service]", 1)
+    assert "RequiresMountsFor=" + str(proxy_service.DATA) in unit
+    assert "RequiresMountsFor=" not in service
     assert "User=kf-proxy" in text and "CapabilityBoundingSet=CAP_NET_BIND_SERVICE" in text
     assert "PrivatePIDs=yes" in text and "LogNamespace=kf-onlinejudge" in text
     assert "IOAccounting=yes\n" in text
     assert "EnvironmentFile=" not in text and "LoadCredential=" not in text
 
 
-def proxy_snapshot_metadata_fixture(tmp_path, monkeypatch, *, current_source=False):
+def proxy_snapshot_metadata_fixture(
+    tmp_path, monkeypatch, *, current_source=False, pre_mount_fix=False
+):
     """Ordinary file metadata only; Root authority and live replacement require VM."""
     source = (
         Path(proxy_service.__file__).read_bytes()
         if current_source
         else (Path(__file__).parent / "fixtures/delivery/legacy_proxy_service.py.txt").read_bytes()
     )
-    if not current_source:
+    if pre_mount_fix:
+        assert not current_source
+        source = (
+            Path(__file__).parent / "fixtures/delivery/pre_mount_fix_proxy_service.py.txt"
+        ).read_bytes()
+        assert len(source) == proxy_install.PRE_MOUNT_FIX_PROXY_SOURCE_BYTES
+        assert hashlib.sha256(source).hexdigest() == proxy_install.PRE_MOUNT_FIX_PROXY_SOURCE_SHA256
+    if not current_source and not pre_mount_fix:
         assert len(source) == proxy_install.LEGACY_PROXY_SOURCE_BYTES
         assert hashlib.sha256(source).hexdigest() == proxy_install.LEGACY_PROXY_SOURCE_SHA256
     head = (
@@ -2946,7 +2974,13 @@ def proxy_snapshot_metadata_fixture(tmp_path, monkeypatch, *, current_source=Fal
     directory.mkdir(parents=True)
     (directory / "binding.json").write_bytes(policy.canonical(selected))
     unit = directory / proxy_service.UNIT
-    unit.write_bytes(proxy_service.render(selected).replace(b"IOAccounting=yes\n", b"", 1))
+    rendered = proxy_service.render(selected)
+    mount = ("RequiresMountsFor=" + str(proxy_service.DATA) + "\n").encode()
+    writable = ("ReadWritePaths=" + str(proxy_service.DATA) + "\n").encode()
+    rendered = rendered.replace(mount, b"", 1).replace(writable, writable + mount, 1)
+    if not pre_mount_fix:
+        rendered = rendered.replace(b"IOAccounting=yes\n", b"", 1)
+    unit.write_bytes(rendered)
     unit.chmod(0o644)
     return directory, selected, unit, shipped, catalog
 
@@ -2956,6 +2990,15 @@ def test_proxy_snapshot_recognizes_exact_catalog_bound_legacy_profile(tmp_path, 
     assert b"IOAccounting=" not in unit.read_bytes()
     assert proxy_install.known_snapshot(directory) == selected
     assert b"IOAccounting=yes\n" in proxy_service.render(selected)
+
+
+def test_proxy_snapshot_recognizes_exact_pre_mount_fix_source(tmp_path, monkeypatch):
+    directory, selected, unit, _, _ = proxy_snapshot_metadata_fixture(
+        tmp_path, monkeypatch, pre_mount_fix=True
+    )
+    assert b"IOAccounting=yes\n" in unit.read_bytes()
+    assert "RequiresMountsFor=" in unit.read_text().split("[Service]", 1)[1]
+    assert proxy_install.known_snapshot(directory) == selected
 
 
 def test_proxy_snapshot_current_source_requires_io_accounting(tmp_path, monkeypatch):
@@ -2974,11 +3017,14 @@ def test_proxy_snapshot_current_profile_keeps_normal_validation(tmp_path, monkey
     assert proxy_install.known_snapshot(directory) == selected
 
 
+@pytest.mark.parametrize("pre_mount_fix", [False, True])
 @pytest.mark.parametrize("changed", ["catalog", "source", "unit", "mode"])
 def test_proxy_snapshot_legacy_support_keeps_exact_authority_and_bytes(
-    tmp_path, monkeypatch, changed
+    tmp_path, monkeypatch, changed, pre_mount_fix
 ):
-    directory, _, unit, shipped, catalog = proxy_snapshot_metadata_fixture(tmp_path, monkeypatch)
+    directory, _, unit, shipped, catalog = proxy_snapshot_metadata_fixture(
+        tmp_path, monkeypatch, pre_mount_fix=pre_mount_fix
+    )
     if changed == "catalog":
         catalog.write_bytes(catalog.read_bytes() + b"\n")
     elif changed == "source":

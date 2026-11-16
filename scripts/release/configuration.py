@@ -71,10 +71,14 @@ def validate_profile(value: dict) -> dict:
         or parts.fragment
         or parts.username
         or parts.password
-        or not re.fullmatch(r"[a-z0-9][a-z0-9.-]*[a-z0-9]", parts.hostname)
+        or origin != "https://" + parts.hostname
+        or not all(
+            re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+            for label in parts.hostname.split(".")
+        )
         or parts.port not in (None, 443)
     ):
-        raise DeliveryError("explicit HTTPS origin required")
+        raise DeliveryError("canonical HTTPS DNS origin required (lowercase, no explicit port)")
     try:
         worker = uuid.UUID(value["worker_id"])
     except (ValueError, TypeError, AttributeError) as error:

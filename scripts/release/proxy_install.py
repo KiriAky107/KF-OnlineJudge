@@ -125,12 +125,30 @@ def storage(*, allow_read_only: bool = False) -> dict:
 # Never import or execute code from an older release to validate that snapshot.
 LEGACY_PROXY_SOURCE_SHA256 = "262e67de260f33ed97e4901e939a1d1e7276cac10429bbcf7096d1d9c0e0010f"
 LEGACY_PROXY_SOURCE_BYTES = 5183
+PRE_MOUNT_FIX_PROXY_SOURCE_SHA256 = (
+    "b3041c4f34236178c9816e9bb351112ab88cb1d1e3489df4f9feff0ddca47598"
+)
+PRE_MOUNT_FIX_PROXY_SOURCE_BYTES = 5211
 
 
 def _known_legacy_proxy_unit(selected: dict, unit: bytes) -> bool:
     current = proxy_service.render(selected)
     accounting = b"IOAccounting=yes\n"
-    if current.count(accounting) != 1 or unit != current.replace(accounting, b"", 1):
+    mount = ("RequiresMountsFor=" + str(proxy_service.DATA) + "\n").encode()
+    writable = ("ReadWritePaths=" + str(proxy_service.DATA) + "\n").encode()
+    if current.count(accounting) != 1 or current.count(mount) != 1 or current.count(writable) != 1:
+        return False
+    # Both catalog-bound predecessors placed this ignored directive in Service.
+    # Recognize exact stopped snapshots; never reuse their rendering for new units.
+    predecessor = current.replace(mount, b"", 1).replace(writable, writable + mount, 1)
+    if unit == predecessor:
+        source_sha, source_bytes = (
+            PRE_MOUNT_FIX_PROXY_SOURCE_SHA256,
+            PRE_MOUNT_FIX_PROXY_SOURCE_BYTES,
+        )
+    elif unit == predecessor.replace(accounting, b"", 1):
+        source_sha, source_bytes = LEGACY_PROXY_SOURCE_SHA256, LEGACY_PROXY_SOURCE_BYTES
+    else:
         return False
     receipt_path = configuration.installed_receipt_path(
         selected["release_id"], selected["configuration_id"]
@@ -165,9 +183,9 @@ def _known_legacy_proxy_unit(selected: dict, unit: bytes) -> bool:
         return False
     entry = entries[0]
     if (
-        entry.get("sha256") != LEGACY_PROXY_SOURCE_SHA256
+        entry.get("sha256") != source_sha
         or entry.get("mode") != "0444"
-        or entry.get("bytes") != LEGACY_PROXY_SOURCE_BYTES
+        or entry.get("bytes") != source_bytes
     ):
         return False
     source = release / "payload" / relative
@@ -177,8 +195,8 @@ def _known_legacy_proxy_unit(selected: dict, unit: bytes) -> bool:
         stat.S_ISREG(info.st_mode)
         and info.st_nlink == 1
         and stat.S_IMODE(info.st_mode) == 0o444
-        and info.st_size == LEGACY_PROXY_SOURCE_BYTES
-        and digest(source) == LEGACY_PROXY_SOURCE_SHA256
+        and info.st_size == source_bytes
+        and digest(source) == source_sha
     )
 
 
