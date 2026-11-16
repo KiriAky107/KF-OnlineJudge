@@ -86,6 +86,9 @@ pub struct Config {
     pub coordinator_url: String,
     pub platform_url: String,
     pub amqp_url: String,
+    /// Optional PEM CA bundle for the control plane and broker.
+    #[serde(default)]
+    pub tls_ca_file: Option<PathBuf>,
     pub socket: PathBuf,
     pub staging: PathBuf,
     pub admission: NodeAdmission,
@@ -113,26 +116,10 @@ impl Config {
             return Err(error());
         }
         let c: Self = serde_json::from_slice(&fs::read(path)?).map_err(|_| error())?;
-        for (raw, scheme) in [
-            (&c.coordinator_url, "http"),
-            (&c.platform_url, "http"),
-            (&c.amqp_url, "amqp"),
-        ] {
-            let u = reqwest::Url::parse(raw).map_err(|_| error())?;
-            if u.scheme() != scheme
-                || !u.host_str().is_some_and(|s| {
-                    s.trim_matches(['[', ']'])
-                        .parse::<std::net::IpAddr>()
-                        .is_ok_and(|i| i.is_loopback())
-                })
-                || u.query().is_some()
-                || u.fragment().is_some()
-                || (scheme == "http"
-                    && (!u.username().is_empty() || u.password().is_some() || u.path() != "/"))
-            {
-                return Err(error());
-            }
-        }
+        endpoint(&c.coordinator_url, false)?;
+        endpoint(&c.platform_url, false)?;
+        endpoint(&c.amqp_url, true)?;
+        c.ca_pem()?;
         if !c.socket.is_absolute()
             || !c.staging.is_absolute()
             || c.admission.max_concurrent_jobs() != 1
@@ -146,16 +133,50 @@ impl Config {
         Ok(c)
     }
 }
-fn amqp_uri(raw: &str) -> io::Result<lapin::uri::AMQPUri> {
+/// Cleartext remains local-only; remote endpoints require normal TLS verification.
+fn endpoint(raw: &str, broker: bool) -> io::Result<reqwest::Url> {
     let url = reqwest::Url::parse(raw).map_err(|_| error())?;
     let host = url.host_str().ok_or_else(error)?.trim_matches(['[', ']']);
-    if url.scheme() != "amqp"
-        || !host
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|ip| ip.is_loopback())
+    let local = host
+        .parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| ip.is_loopback());
+    let (plain, secure) = if broker {
+        ("amqp", "amqps")
+    } else {
+        ("http", "https")
+    };
+    if !(url.scheme() == secure || (url.scheme() == plain && local))
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || (!broker
+            && (!url.username().is_empty() || url.password().is_some() || url.path() != "/"))
     {
         return Err(error());
     }
+    Ok(url)
+}
+impl Config {
+    fn ca_pem(&self) -> io::Result<Option<String>> {
+        self.tls_ca_file
+            .as_ref()
+            .map(|path| {
+                if !path.is_absolute() {
+                    return Err(error());
+                }
+                let pem = fs::read_to_string(path)?;
+                let certs =
+                    reqwest::Certificate::from_pem_bundle(pem.as_bytes()).map_err(|_| error())?;
+                if certs.is_empty() {
+                    return Err(error());
+                }
+                Ok(pem)
+            })
+            .transpose()
+    }
+}
+fn amqp_uri(raw: &str) -> io::Result<lapin::uri::AMQPUri> {
+    let url = endpoint(raw, true)?;
+    let host = url.host_str().ok_or_else(error)?.trim_matches(['[', ']']);
     let mut uri: lapin::uri::AMQPUri = raw.parse().map_err(|_| error())?;
     // Locked URI parser uses domain() and otherwise substitutes localhost for IPs.
     uri.authority.host = host.into();
@@ -175,14 +196,21 @@ struct Remote {
 impl Remote {
     fn new(c: &Config) -> io::Result<Self> {
         let timeout = c.control_timeout()?;
+        let ca = c.ca_pem()?;
         let build = |timeout| {
-            Client::builder()
+            let mut builder = Client::builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(Duration::from_secs(1))
-                .timeout(timeout)
-                .build()
-                .map_err(|_| error())
+                .timeout(timeout);
+            if let Some(pem) = &ca {
+                for cert in
+                    reqwest::Certificate::from_pem_bundle(pem.as_bytes()).map_err(|_| error())?
+                {
+                    builder = builder.add_root_certificate(cert);
+                }
+            }
+            builder.build().map_err(|_| error())
         };
         let client = build(timeout)?;
         // Operator control-plane allowance never extends artifact fetches or execution budgets.
@@ -579,7 +607,14 @@ async fn consume(c: &Config, r: &Remote, stop: &AtomicBool) -> io::Result<()> {
     }
     let connection = bounded(
         "amqp_connect",
-        Connection::connect_uri(amqp_uri(&c.amqp_url)?, ConnectionProperties::default()),
+        Connection::connect_uri_with_config(
+            amqp_uri(&c.amqp_url)?,
+            ConnectionProperties::default(),
+            lapin::tcp::OwnedTLSConfig {
+                cert_chain: c.ca_pem()?,
+                ..Default::default()
+            },
+        ),
     )
     .await?;
     let channel = bounded("amqp_channel", connection.create_channel()).await?;
@@ -706,6 +741,33 @@ mod tests {
                 "../../../../tests/fixtures/contracts/judge-admission.valid.json"
             )).unwrap()
         })
+    }
+    #[test]
+    fn remote_endpoints_require_tls_and_keep_numeric_broker_hosts() {
+        for url in [
+            "https://judge.example/",
+            "https://192.0.2.1:8443/",
+            "http://127.0.0.1:8100/",
+        ] {
+            assert!(endpoint(url, false).is_ok());
+        }
+        for url in [
+            "http://judge.example/",
+            "http://192.0.2.1/",
+            "https://user:secret@judge.example/",
+            "https://judge.example/prefix",
+        ] {
+            assert!(endpoint(url, false).is_err());
+        }
+        for (raw, host) in [
+            ("amqps://fixture:temporary@192.0.2.1/", "192.0.2.1"),
+            (
+                "amqps://fixture:temporary@broker.example/",
+                "broker.example",
+            ),
+        ] {
+            assert_eq!(amqp_uri(raw).unwrap().authority.host, host);
+        }
     }
     #[test]
     fn trusted_control_allowance_defaults_and_refuses_unbounded_values() {
