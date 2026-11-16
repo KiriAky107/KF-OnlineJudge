@@ -8,6 +8,7 @@ import type { components } from '../api/generated/schema'
 import PageHeading from '../components/PageHeading.vue'
 import PanelCard from '../components/PanelCard.vue'
 import JudgementStatus from '../components/JudgementStatus.vue'
+import { displayTime } from '../lib/presentation'
 const page = ref<components['schemas']['SubmissionPage'] | null>(null)
 const current = ref<string | undefined>()
 const previous = ref<(string | undefined)[]>([])
@@ -80,11 +81,11 @@ onBeforeUnmount(() => {
     ><p v-if="error" role="alert">{{ error }} <RouterLink to="/login">重新登录</RouterLink></p>
     <p v-if="notice" role="status">{{ notice }}</p>
     <el-table :data="page?.items ?? []" empty-text="当前页没有提交">
-      <el-table-column label="提交" min-width="230"
+      <el-table-column label="提交" width="110"
         ><template #default="{ row }"
-          ><RouterLink :to="'/submissions/' + row.submission_id" class="text-link">{{
-            row.submission_id
-          }}</RouterLink></template
+          ><RouterLink :to="'/submissions/' + row.submission_id" class="text-link"
+            >查看详情</RouterLink
+          ></template
         ></el-table-column
       >
       <el-table-column prop="language" label="语言" width="100" /><el-table-column
@@ -95,7 +96,11 @@ onBeforeUnmount(() => {
             :state="row.state"
             :verdict="row.verdict"
             :language="row.language" /></template></el-table-column
-      ><el-table-column prop="created_at" label="提交时间" min-width="180" />
+      ><el-table-column label="提交时间" min-width="180"
+        ><template #default="{ row }"
+          ><time :datetime="row.created_at">{{ displayTime(row.created_at) }}</time></template
+        ></el-table-column
+      >
     </el-table>
     <div class="pagination-row">
       <el-button @click="load(current)">刷新列表</el-button

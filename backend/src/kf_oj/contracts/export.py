@@ -10,6 +10,7 @@ from kf_oj.contracts.admin_problems import (
     ProblemImportCapabilities,
     ProblemImportDetail,
 )
+from kf_oj.contracts.availability import AvailabilityRecord
 from kf_oj.contracts.judge import JudgeTaskNotification
 from kf_oj.contracts.judging import WIRE_MODELS
 from kf_oj.contracts.judging_v2 import WIRE_MODELS as WIRE_MODELS_V2
@@ -19,6 +20,7 @@ from kf_oj.contracts.problem_maintenance import (
     MaintenanceReceipt,
     PublishCandidate,
 )
+from kf_oj.contracts.restore_io import RestoreIOReply, RestoreIORequest
 from kf_oj.contracts.submission_performance import SubmissionPerformance
 from kf_oj.core.settings import Settings
 
@@ -55,6 +57,9 @@ def main() -> None:
     )
     outputs[root / "contracts/schemas/submission-performance.v1.schema.json"] = performance
     for name, model in {
+        "delivery-availability": AvailabilityRecord,
+        "restore-io-request": RestoreIORequest,
+        "restore-io-reply": RestoreIOReply,
         "problem-publish": PublishCandidate,
         "problem-availability": ChangeProblemAvailability,
         "problem-maintenance": MaintenanceReceipt,

@@ -2,5 +2,6 @@
 pub mod api;
 pub mod config;
 pub mod database;
+pub mod operations;
 pub mod performance;
 pub mod repository;

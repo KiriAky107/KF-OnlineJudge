@@ -6,7 +6,9 @@ from fastapi.exceptions import RequestValidationError
 from starlette.responses import JSONResponse
 
 from kf_oj import __version__
+from kf_oj.api.availability import AvailabilityMiddleware
 from kf_oj.api.body_limits import BodyLimitMiddleware
+from kf_oj.api.dependency_errors import install_handlers
 from kf_oj.api.v1.admin_imports import router as import_router
 from kf_oj.api.v1.admin_problems import router as maintenance_router
 from kf_oj.api.v1.identity import router as identity_router
@@ -38,7 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        configure_logging(settings.log_level)
+        configure_logging(settings.log_level, production=settings.environment == "production")
         logger = logging.getLogger("kf_oj.api")
         logger.info("Platform API started")
         engine = None
@@ -132,6 +134,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.add_middleware(BodyLimitMiddleware)
+    app.add_middleware(AvailabilityMiddleware, settings=settings)
 
     @app.middleware("http")
     async def private_responses(request, call_next):
@@ -145,6 +148,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_, __):
         return JSONResponse({"detail": "invalid request"}, status_code=422)
+
+    install_handlers(app)
 
     app.include_router(router, prefix="/api/v1")
     app.include_router(identity_router, prefix="/api/v1")

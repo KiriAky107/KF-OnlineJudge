@@ -4,11 +4,11 @@
     "max_concurrent_jobs": 1,
     "prefetch": 1,
     "max_retries": 2,
-    "max_job_wall_time_us": 60000000,
+    "max_job_wall_time_us": 180000000,
     "max_package_bytes": 67108864,
     "compile_ceiling": {
-      "cpu_time_us": 10000000,
-      "wall_time_us": 30000000,
+      "cpu_time_us": 30000000,
+      "wall_time_us": 60000000,
       "memory_bytes": 536870912,
       "stack_bytes": 16777216,
       "processes": 32,
@@ -19,9 +19,9 @@
       "workdir_bytes": 268435456
     },
     "run_ceiling": {
-      "cpu_time_us": 1000000,
-      "wall_time_us": 3000000,
-      "memory_bytes": 67108864,
+      "cpu_time_us": 5000000,
+      "wall_time_us": 10000000,
+      "memory_bytes": 134217728,
       "stack_bytes": 8388608,
       "processes": 8,
       "open_files": 64,
@@ -40,7 +40,7 @@
     "max_concurrent_jobs": 1,
     "prefetch": 1,
     "max_retries": 2,
-    "max_job_wall_time_us": 60000000,
+    "max_job_wall_time_us": 180000000,
     "max_package_bytes": 67108864,
     "schema_version": 2,
     "capabilities": [
@@ -54,8 +54,8 @@
           "runtime_version": "gnu-cxx-v1"
         },
         "compile_ceiling": {
-          "cpu_time_us": 10000000,
-          "wall_time_us": 30000000,
+          "cpu_time_us": 30000000,
+          "wall_time_us": 60000000,
           "memory_bytes": 536870912,
           "stack_bytes": 16777216,
           "processes": 32,
@@ -66,9 +66,9 @@
           "workdir_bytes": 268435456
         },
         "run_ceiling": {
-          "cpu_time_us": 1000000,
-          "wall_time_us": 3000000,
-          "memory_bytes": 67108864,
+          "cpu_time_us": 5000000,
+          "wall_time_us": 10000000,
+          "memory_bytes": 134217728,
           "stack_bytes": 8388608,
           "processes": 8,
           "open_files": 64,
@@ -88,8 +88,8 @@
           "runtime_version": "gnu-cxx-v1"
         },
         "compile_ceiling": {
-          "cpu_time_us": 10000000,
-          "wall_time_us": 30000000,
+          "cpu_time_us": 30000000,
+          "wall_time_us": 60000000,
           "memory_bytes": 536870912,
           "stack_bytes": 16777216,
           "processes": 32,
@@ -100,9 +100,9 @@
           "workdir_bytes": 268435456
         },
         "run_ceiling": {
-          "cpu_time_us": 1000000,
-          "wall_time_us": 3000000,
-          "memory_bytes": 67108864,
+          "cpu_time_us": 5000000,
+          "wall_time_us": 10000000,
+          "memory_bytes": 134217728,
           "stack_bytes": 8388608,
           "processes": 8,
           "open_files": 64,
@@ -122,8 +122,8 @@
           "runtime_version": "3.13.16"
         },
         "compile_ceiling": {
-          "cpu_time_us": 1000000,
-          "wall_time_us": 3000000,
+          "cpu_time_us": 30000000,
+          "wall_time_us": 60000000,
           "memory_bytes": 67108864,
           "stack_bytes": 8388608,
           "processes": 8,
@@ -134,9 +134,9 @@
           "workdir_bytes": 67108864
         },
         "run_ceiling": {
-          "cpu_time_us": 1000000,
-          "wall_time_us": 3000000,
-          "memory_bytes": 67108864,
+          "cpu_time_us": 5000000,
+          "wall_time_us": 10000000,
+          "memory_bytes": 134217728,
           "stack_bytes": 8388608,
           "processes": 8,
           "open_files": 64,
@@ -156,8 +156,8 @@
           "runtime_version": "21.0.12.1+1-LTS"
         },
         "compile_ceiling": {
-          "cpu_time_us": 10000000,
-          "wall_time_us": 30000000,
+          "cpu_time_us": 60000000,
+          "wall_time_us": 120000000,
           "memory_bytes": 536870912,
           "stack_bytes": 16777216,
           "processes": 32,
@@ -168,8 +168,8 @@
           "workdir_bytes": 268435456
         },
         "run_ceiling": {
-          "cpu_time_us": 1000000,
-          "wall_time_us": 3000000,
+          "cpu_time_us": 5000000,
+          "wall_time_us": 10000000,
           "memory_bytes": 402653184,
           "stack_bytes": 8388608,
           "processes": 32,

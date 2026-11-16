@@ -4,6 +4,7 @@ import { adminRouter } from './router'
 import AdminApp from './AdminApp.vue'
 import '../styles/base.css'
 import '../styles/blueprint.css'
+import './admin.css'
 
 const app = createApp(AdminApp)
 registerUi(app)

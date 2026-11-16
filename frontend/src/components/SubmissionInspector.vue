@@ -11,6 +11,7 @@ import PanelCard from './PanelCard.vue'
 import JudgementStatus from './JudgementStatus.vue'
 import SubmissionPerformance from './SubmissionPerformance.vue'
 import { preparationName } from '../composables/judgingLanguage'
+import { displayTime } from '../lib/presentation'
 const props = defineProps<{ submissionId: string; embedded?: boolean }>()
 const route = useRoute()
 const id = computed(() => props.submissionId)
@@ -134,7 +135,7 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <PageHeading :title="'提交 ' + id" description="个人提交的持久化评测状态"
+  <PageHeading title="提交详情" description="个人提交的持久化评测状态"
     ><JudgementStatus
       v-if="submission"
       :state="submission.state"
@@ -182,7 +183,9 @@ onBeforeUnmount(() => {
       </div>
       <div class="summary-card">
         <p>提交时间</p>
-        <small class="submission-created-at">{{ submission.created_at }}</small>
+        <time class="submission-created-at" :datetime="submission.created_at">{{
+          displayTime(submission.created_at)
+        }}</time>
         <RouterLink
           class="submission-version-link"
           :to="'/problems/' + submission.problem_version_id"

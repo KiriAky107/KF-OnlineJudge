@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayRuntimeVersion } from '../lib/presentation'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -342,7 +343,8 @@ onBeforeUnmount(() => {
             class="notice-strip"
             data-testid="language-capability"
           >
-            {{ languageLabels[language] }} · {{ capability.configuration.runtime_version }} ·
+            {{ languageLabels[language] }} ·
+            {{ displayRuntimeVersion(capability.configuration.runtime_version) }} ·
             {{ preparationName(capability.wire) }}后逐点运行。
             <template v-if="capability.wire === 'java21'">
               默认包 Main.java，入口为 public static void main(String[])。

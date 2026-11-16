@@ -26,10 +26,11 @@ async function login() {
 }
 </script>
 <template>
-  <section class="admin-real-panel">
+  <section class="admin-real-panel admin-login-panel">
+    <p class="eyebrow">ADMINISTRATION</p>
     <h1>管理员登录</h1>
     <p>使用已有账号与同源安全会话。维护权限由服务端授予。</p>
-    <form @submit.prevent="login">
+    <form class="admin-login-form" @submit.prevent="login">
       <label
         >用户名<input v-model="username" autocomplete="username" required maxlength="24"
       /></label>
@@ -41,7 +42,7 @@ async function login() {
           required
           maxlength="256"
       /></label>
-      <button :disabled="busy">{{ busy ? '正在登录…' : '登录' }}</button>
+      <button class="admin-primary" :disabled="busy">{{ busy ? '正在登录…' : '登录' }}</button>
     </form>
     <p v-if="error" role="alert">{{ error }}</p>
   </section>

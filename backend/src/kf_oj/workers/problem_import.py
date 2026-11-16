@@ -1,6 +1,7 @@
 """Ordinary import service composition. Provision its dedicated DB role and cgroup separately."""
 
 import asyncio
+import signal
 import sys
 
 from sqlalchemy.exc import DBAPIError
@@ -10,12 +11,17 @@ from kf_oj.infra.artifacts.repository import ArtifactRepository
 from kf_oj.infra.artifacts.staging import ImportStaging
 from kf_oj.infra.artifacts.store import ArtifactStore
 from kf_oj.infra.db.session import build_engine, build_session_factory
+from kf_oj.infra.service_readiness import notify_ready
 from kf_oj.modules.identity.service import ReservedMaintenance
 from kf_oj.modules.operations.service import MaintenanceAudit
 from kf_oj.modules.problems.import_worker import ImportWorker, verify_worker_limits
 
 
 async def run():
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for event in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(event, stop.set)
     settings = Settings()
     if (
         settings.import_staging_root is None
@@ -42,9 +48,18 @@ async def run():
             settings.judge_admission,
             settings.import_worker_cgroup,
         )
-        while True:
+        # Commit the existing authority/limits check and worker heartbeat before
+        # the manager may start the next service or inspect admission readiness.
+        await worker.heartbeat()
+        if stop.is_set():
+            return
+        notify_ready()
+        while not stop.is_set():
             if not await worker.once():
-                await asyncio.sleep(1)
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=1)
+                except TimeoutError:
+                    pass
     finally:
         staging.close()
         store.close()

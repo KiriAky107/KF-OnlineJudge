@@ -54,7 +54,7 @@ onUnmounted(() => {
           ><span class="brand-name">管理控制台<small>ADMIN CONSOLE</small></span></a
         >
         <span class="admin-app-label">题目维护 · 服务端权限验证</span>
-        <button v-if="session.user.value" class="admin-return" @click="logout">
+        <button v-if="session.user.value" class="admin-signout" @click="logout">
           退出 {{ session.user.value.username }}
         </button>
         <a href="/" class="admin-return">返回前台 <UiIcon name="arrow" /></a>
@@ -74,7 +74,7 @@ onUnmounted(() => {
         >
       </nav>
       <main class="admin-app-main">
-        <p v-if="identityError" role="alert">{{ identityError }}</p>
+        <p v-if="identityError" class="admin-feedback" role="alert">{{ identityError }}</p>
         <RouterView v-slot="{ Component, route: currentRoute }"
           ><component :is="Component" :key="currentRoute.path"
         /></RouterView>

@@ -31,6 +31,8 @@ from kf_oj.modules.identity.public import MaintenanceDenied, ProblemMaintenanceP
 from kf_oj.modules.operations.public import MaintenanceAuditPort
 from kf_oj.modules.problems.import_models import ImportPool, ProblemCandidate
 from kf_oj.modules.problems.import_models import ProblemImportOperation as Operation
+from kf_oj.modules.problems.import_policy import ImportUnavailable as ImportUnavailable
+from kf_oj.modules.problems.import_policy import policy_digest as policy_digest
 
 ACTIVE = ("uploading", "uploaded", "validating", "ready")
 
@@ -47,10 +49,6 @@ class ImportMissing(ValueError):
     pass
 
 
-class ImportUnavailable(ValueError):
-    pass
-
-
 def summary(operation) -> ProblemImportSummary:
     return ProblemImportSummary(
         operation_id=operation.id,
@@ -64,10 +62,6 @@ def summary(operation) -> ProblemImportSummary:
         candidate_id=operation.candidate_id,
         published_version_id=operation.published_version_id,
     )
-
-
-def policy_digest(policy):
-    return hashlib.sha256(policy.model_dump_json().encode()).hexdigest()
 
 
 class ProblemImports:

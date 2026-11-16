@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     judge_admission: NodeAdmission | None = None
     coordinator_url: str | None = None
     coordinator_token: SecretStr | None = None
+    delivery_release_id: str | None = Field(default=None, pattern=r"^sd-[0-9a-f]{12}$")
+    delivery_configuration_id: str | None = Field(default=None, pattern=r"^cfg-[0-9a-f]{24}$")
 
     @model_validator(mode="after")
     def secure_origins(self):

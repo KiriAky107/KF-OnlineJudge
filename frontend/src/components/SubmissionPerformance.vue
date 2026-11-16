@@ -180,6 +180,7 @@ onBeforeUnmount(() => {
   gap: 12px;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
 }
 .performance-heading h2 {
   display: flex;
@@ -189,6 +190,7 @@ onBeforeUnmount(() => {
 .performance-metrics {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
 }
 .performance-metrics button {
   padding: 10px 14px;

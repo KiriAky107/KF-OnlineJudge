@@ -1,6 +1,7 @@
 //! Root service -> fresh single-threaded helper. Only a run identifier crosses
 //! the allocation protocol. The accepted kernel-authenticated connection is the
 //! capability, so the client never selects a helper path, executable or config.
+use crate::factory_cycles::MAX_IDS;
 use crate::{
     artifacts::ArtifactRoot, execution, launcher::protocol::WireMessage, rpc, spec::ExecutionSpec,
 };
@@ -9,10 +10,10 @@ use rustix::{
     fs::{Mode, OFlags},
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use std::{
-    collections::HashSet,
     fs::File,
-    io::{self, Read, Write},
+    io::{self, Write},
     os::unix::{
         fs::{FileTypeExt, MetadataExt, PermissionsExt},
         net::{UnixListener, UnixStream},
@@ -21,7 +22,6 @@ use std::{
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
-const MAX_IDS: usize = 4096;
 fn denied() -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, "helper factory refused")
 }
@@ -31,6 +31,17 @@ struct Acquire {
     run_id: String,
     #[serde(default, skip_serializing_if = "is_false")]
     check_stopped: bool,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "health_version"
+    )]
+    health_version: Option<u8>,
+}
+fn health_version<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u8>, D::Error> {
+    u8::deserialize(deserializer).map(Some)
 }
 fn is_false(v: &bool) -> bool {
     !v
@@ -38,16 +49,29 @@ fn is_false(v: &bool) -> bool {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 enum Allocation {
-    Ready { run_id: String, helper_pid: u32 },
+    Ready {
+        run_id: String,
+        helper_pid: u32,
+    },
     Refused {},
     Busy {},
-    Stopped { cleanup_complete: bool },
+    Stopped {
+        cleanup_complete: bool,
+    },
+    Health {
+        status: crate::factory_health::FactoryHealth,
+    },
 }
 impl crate::launcher::protocol::sealed::Sealed for Acquire {}
 impl crate::launcher::protocol::sealed::Sealed for Allocation {}
 impl WireMessage for Acquire {
     fn valid(&self) -> bool {
         crate::spec::identifier(&self.run_id, "run_id").is_ok()
+            && match self.health_version {
+                None => true,
+                Some(1) => self.run_id == "health-check" && !self.check_stopped,
+                Some(_) => false,
+            }
     }
 }
 impl WireMessage for Allocation {
@@ -57,6 +81,7 @@ impl WireMessage for Allocation {
                 *helper_pid > 1 && crate::spec::identifier(run_id, "run_id").is_ok()
             }
             Self::Refused {} | Self::Busy {} | Self::Stopped { .. } => true,
+            Self::Health { status } => status.valid(),
         }
     }
 }
@@ -87,9 +112,27 @@ impl FactoryClient {
         channel.send(&Acquire {
             run_id: "stop-check".into(),
             check_stopped: true,
+            health_version: None,
         })?;
         match channel.receive::<Allocation>()? {
             Allocation::Stopped { cleanup_complete } => Ok(cleanup_complete),
+            _ => Err(denied()),
+        }
+    }
+    /// Root-authenticated status; does not recover, allocate or execute a task.
+    pub fn health(&self) -> io::Result<crate::factory_health::FactoryHealth> {
+        if rustix::process::geteuid().as_raw() < 1000 || rustix::process::getegid().as_raw() < 1000
+        {
+            return Err(denied());
+        }
+        let mut channel = rpc::channel(UnixStream::connect(&self.socket)?, 0, 0)?;
+        channel.send(&Acquire {
+            run_id: "health-check".into(),
+            check_stopped: false,
+            health_version: Some(1),
+        })?;
+        match channel.receive::<Allocation>()? {
+            Allocation::Health { status } => Ok(status),
             _ => Err(denied()),
         }
     }
@@ -178,6 +221,7 @@ impl FactoryClient {
                 channel.send(&Acquire {
                     run_id: spec.run_id.clone(),
                     check_stopped: false,
+                    health_version: None,
                 })?;
                 let pid = match channel.receive::<Allocation>()? {
                     Allocation::Ready { run_id, helper_pid } if run_id == spec.run_id => helper_pid,
@@ -220,7 +264,7 @@ struct Active {
     child: Child,
     _guardian: UnixStream,
 }
-fn private_file(path: &Path) -> io::Result<File> {
+pub(crate) fn private_file(path: &Path) -> io::Result<File> {
     let fd = match rustix::fs::open(
         path,
         OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
@@ -277,7 +321,7 @@ fn idle_recovery(config: &crate::runtime::ValidatedRuntimeConfig) -> io::Result<
         std::thread::sleep(Duration::from_millis(10));
     }
 }
-fn drained(config: &crate::runtime::ValidatedRuntimeConfig) -> io::Result<bool> {
+pub(crate) fn drained(config: &crate::runtime::ValidatedRuntimeConfig) -> io::Result<bool> {
     let p = config.config();
     for root in [
         PathBuf::from(&p.tasks_root),
@@ -305,10 +349,7 @@ fn drained(config: &crate::runtime::ValidatedRuntimeConfig) -> io::Result<bool> 
 /// Fixed executable/config come solely from the trusted service invocation.
 /// Runtime is finite even when the service manager is misconfigured; cgroup
 /// reservations are read back by authorize, and tasks retain their own gates.
-pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
-    if !(1..=86400).contains(&lifetime_seconds) {
-        return Err(denied());
-    }
+pub(crate) fn clean_environment() -> io::Result<()> {
     // Root management receives no ambient business/credential environment.
     if std::env::vars_os().any(|(k, v)| {
         !matches!(
@@ -320,8 +361,33 @@ pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
     }) {
         return Err(denied());
     }
+    Ok(())
+}
+
+pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
+    serve_with_limit(config_path, lifetime_seconds, MAX_IDS)
+}
+
+/// Limits are selected by the trusted operator, never by a Worker request.
+pub fn serve_with_limit(
+    config_path: &Path,
+    lifetime_seconds: u64,
+    max_requests: usize,
+) -> io::Result<()> {
+    if !(1..=86400).contains(&lifetime_seconds) || !(1..=MAX_IDS).contains(&max_requests) {
+        return Err(denied());
+    }
+    clean_environment()?;
     let config = execution::load_config(config_path)?;
+    let configuration_sha256 = format!(
+        "{:x}",
+        Sha256::digest(execution::read_bounded_file(
+            config_path,
+            crate::runtime::MAX_CONFIG_BYTES
+        )?)
+    );
     execution::authorize_registry(&config)?;
+    let stop_signals = crate::factory_signals::StopSignals::install()?;
     let policy = config.config();
     if policy.aggregate.supervisor_processes < 4 + 8 * policy.max_concurrent_runs {
         return Err(denied());
@@ -374,21 +440,15 @@ pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
         std::fs::remove_file(&socket)?;
     }
     let mut ledger = private_file(&root.join("requests"))?;
-    if ledger.metadata()?.len() > (MAX_IDS * 65) as u64 {
-        return Err(denied());
-    }
-    let mut old = String::new();
-    (&mut ledger)
-        .take((MAX_IDS * 65 + 1) as u64)
-        .read_to_string(&mut old)?;
-    let mut ids = HashSet::new();
-    for id in old.lines() {
-        if crate::spec::identifier(id, "run_id").is_err() || !ids.insert(id.to_owned()) {
+    let current =
+        crate::factory_cycles::parse_ids(&crate::factory_cycles::read_ledger(&mut ledger)?)?;
+    let mut used = current.len();
+    let mut ids = crate::factory_cycles::historical_ids(&root)?;
+    for id in current {
+        if !ids.insert(id) {
+            // Incomplete explicit rotation is preserved for operator recovery.
             return Err(denied());
         }
-    }
-    if ids.len() > MAX_IDS || (!old.is_empty() && !old.ends_with('\n')) {
-        return Err(denied());
     }
     let listener = UnixListener::bind(&socket)?;
     let m = std::fs::symlink_metadata(&socket)?;
@@ -410,8 +470,10 @@ pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
     let _delegated = crate::cgroup::DelegatedCgroup::open(&config).map_err(|_| denied())?;
     let mut active: Vec<Active> = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(lifetime_seconds);
+    let mut health_checks = 0_usize;
+    let mut last_health = None;
     let result = (|| {
-        while Instant::now() < deadline {
+        while Instant::now() < deadline && !stop_signals.requested() {
             let mut i = 0;
             while i < active.len() {
                 if let Some(status) = active[i].child.try_wait()? {
@@ -444,6 +506,47 @@ pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
             let Ok(request) = channel.receive::<Acquire>() else {
                 continue;
             };
+            if request.health_version == Some(1) {
+                if health_checks >= MAX_IDS
+                    || last_health
+                        .is_some_and(|last: Instant| last.elapsed() < Duration::from_secs(1))
+                {
+                    let _ = channel.send(&Allocation::Busy {});
+                    continue;
+                }
+                health_checks += 1;
+                last_health = Some(Instant::now());
+                // The fixed root supervisor context and delegation must still
+                // be authorized. Namespace/root/seccomp/exec acknowledgements
+                // remain mandatory for every actual execution, not inferred.
+                let current =
+                    execution::read_bounded_file(config_path, crate::runtime::MAX_CONFIG_BYTES)?;
+                if format!("{:x}", Sha256::digest(current)) != configuration_sha256
+                    || execution::authorize(&config).is_err()
+                    || crate::cgroup::DelegatedCgroup::inspect(&config).is_err()
+                {
+                    let _ = channel.send(&Allocation::Refused {});
+                    continue;
+                }
+                let cleanup_complete = active.is_empty() && drained(&config)?;
+                channel.send(&Allocation::Health {
+                    status: crate::factory_health::FactoryHealth {
+                        schema_version: 1,
+                        configuration_sha256: configuration_sha256.clone(),
+                        supervisor_authorized: true,
+                        execution_gate: "required_per_execution".into(),
+                        isolation_verified: false,
+                        max_concurrent_runs: policy.max_concurrent_runs,
+                        active_helpers: active.len() as u32,
+                        cleanup_complete,
+                        remaining_requests: (max_requests - used) as u32,
+                        remaining_lifetime_seconds: deadline
+                            .saturating_duration_since(Instant::now())
+                            .as_secs(),
+                    },
+                })?;
+                continue;
+            }
             if request.check_stopped {
                 if !active.is_empty() {
                     let _ = channel.send(&Allocation::Stopped {
@@ -463,7 +566,7 @@ pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
                 continue;
             }
             // Replay/ledger exhaustion is terminal even while all slots are busy.
-            if ids.len() >= MAX_IDS || ids.contains(&request.run_id) {
+            if used >= max_requests || ids.contains(&request.run_id) {
                 let _ = channel.send(&Allocation::Refused {});
                 continue;
             }
@@ -474,6 +577,7 @@ pub fn serve(config_path: &Path, lifetime_seconds: u64) -> io::Result<()> {
             // Persist before allocating; IDs remain consumed across restarts.
             writeln!(ledger, "{}", request.run_id)?;
             ledger.sync_all()?;
+            used += 1;
             ids.insert(request.run_id.clone());
             let (guardian, child_guardian) = UnixStream::pair()?;
             let child = Command::new(&binary)
@@ -566,6 +670,31 @@ mod tests {
         }
         assert!(
             serde_json::from_str::<Acquire>(r#"{"run_id":"a-1"}"#)
+                .unwrap()
+                .valid()
+        );
+    }
+    #[test]
+    fn health_is_explicitly_versioned_and_old_allocation_bytes_are_unchanged() {
+        let allocation = Acquire {
+            run_id: "a-1".into(),
+            check_stopped: false,
+            health_version: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&allocation).unwrap(),
+            r#"{"run_id":"a-1"}"#
+        );
+        for data in [
+            r#"{"run_id":"health-check","health_version":2}"#,
+            r#"{"run_id":"work-id","health_version":1}"#,
+            r#"{"run_id":"health-check","health_version":1,"check_stopped":true}"#,
+        ] {
+            let request = serde_json::from_str::<Acquire>(data).unwrap();
+            assert!(!request.valid());
+        }
+        assert!(
+            serde_json::from_str::<Acquire>(r#"{"run_id":"health-check","health_version":1}"#)
                 .unwrap()
                 .valid()
         );

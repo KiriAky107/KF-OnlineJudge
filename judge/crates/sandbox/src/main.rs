@@ -16,6 +16,11 @@ struct Cli {
 enum Command {
     /// Observe the current Linux environment without changing it.
     Probe,
+    /// Ordinary authenticated, read-only factory status; never certifies isolation.
+    FactoryHealth {
+        #[arg(long)]
+        socket: PathBuf,
+    },
     #[cfg(all(target_os = "linux", feature = "vm-acceptance"))]
     #[command(hide = true)]
     VmCase { case: String },
@@ -53,6 +58,20 @@ enum Command {
         config: PathBuf,
         #[arg(long, default_value_t = 3600)]
         lifetime_seconds: u64,
+        #[arg(long, default_value_t = 4096)]
+        max_requests: usize,
+    },
+    /// Explicit root maintenance: retain historical IDs after proven drain.
+    RotateFactoryCycle {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        cycle_id: String,
+    },
+    /// Root fixed-node preparation; never grants an execution permit.
+    PrepareFactory {
+        #[arg(long)]
+        config: PathBuf,
     },
     #[cfg(target_os = "linux")]
     #[command(hide = true)]
@@ -93,6 +112,24 @@ enum Command {
 
 fn main() -> ExitCode {
     match Cli::parse().command {
+        Command::FactoryHealth { socket } => {
+            #[cfg(target_os = "linux")]
+            match kf_sandbox::factory::FactoryClient::new(socket).health() {
+                Ok(status) => {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&status).expect("bounded health")
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(error) => spec_error(factory_health_error(&error), None),
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = socket;
+                spec_error("unsupported_platform", None)
+            }
+        }
         Command::Probe => match serde_json::to_string_pretty(&kf_sandbox::probe::observe()) {
             Ok(report) => {
                 println!("{report}");
@@ -160,10 +197,13 @@ fn main() -> ExitCode {
         Command::Factory {
             config,
             lifetime_seconds,
+            max_requests,
         } => {
             #[cfg(target_os = "linux")]
             {
-                if kf_sandbox::factory::serve(&config, lifetime_seconds).is_ok() {
+                if kf_sandbox::factory::serve_with_limit(&config, lifetime_seconds, max_requests)
+                    .is_ok()
+                {
                     ExitCode::SUCCESS
                 } else {
                     spec_error("factory_refused", None)
@@ -171,7 +211,37 @@ fn main() -> ExitCode {
             }
             #[cfg(not(target_os = "linux"))]
             {
-                let _ = (config, lifetime_seconds);
+                let _ = (config, lifetime_seconds, max_requests);
+                spec_error("unsupported_platform", None)
+            }
+        }
+        Command::RotateFactoryCycle { config, cycle_id } => {
+            #[cfg(target_os = "linux")]
+            match kf_sandbox::factory_cycles::rotate(&config, &cycle_id) {
+                Ok(report) => {
+                    println!("{report}");
+                    ExitCode::SUCCESS
+                }
+                Err(_) => spec_error("factory_cycle_refused", None),
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (config, cycle_id);
+                spec_error("unsupported_platform", None)
+            }
+        }
+        Command::PrepareFactory { config } => {
+            #[cfg(target_os = "linux")]
+            match kf_sandbox::factory_preparation::prepare(&config) {
+                Ok(report) => {
+                    println!("{report}");
+                    ExitCode::SUCCESS
+                }
+                Err(_) => spec_error("factory_preparation_refused", None),
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = config;
                 spec_error("unsupported_platform", None)
             }
         }
@@ -271,6 +341,17 @@ fn validate_spec(path: PathBuf) -> ExitCode {
     }
 }
 
+// Preserve the cause required by the bounded startup observer. Authentication,
+// malformed replies and RPC deadlines remain terminal factory-health failures.
+fn factory_health_error(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
+            "factory_health_not_listening"
+        }
+        _ => "factory_health_unavailable",
+    }
+}
+
 fn spec_error(code: &str, details: Option<serde_json::Value>) -> ExitCode {
     eprintln!("{}", serde_json::json!({"error": code, "details": details}));
     ExitCode::from(2)
@@ -307,5 +388,42 @@ fn check_runtime(path: PathBuf) -> ExitCode {
             ExitCode::from(2)
         }
         Err(error) => spec_error("invalid_runtime_config", Some(serde_json::json!(error))),
+    }
+}
+
+#[cfg(test)]
+mod factory_health_error_tests {
+    use super::factory_health_error;
+    use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn only_typed_connect_failures_allow_startup_observation() {
+        let fixture = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../tests/fixtures/delivery/factory-health-not-listening.json"
+        ));
+        let error = factory_health_error(&Error::from(ErrorKind::NotFound));
+        let encoded = serde_json::json!({"error":error, "details":None::<serde_json::Value>});
+        assert_eq!(format!("{encoded}\n"), fixture);
+        for kind in [ErrorKind::NotFound, ErrorKind::ConnectionRefused] {
+            assert_eq!(
+                factory_health_error(&Error::from(kind)),
+                "factory_health_not_listening"
+            );
+        }
+        for kind in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::InvalidData,
+            ErrorKind::TimedOut,
+            ErrorKind::UnexpectedEof,
+            ErrorKind::ConnectionReset,
+            ErrorKind::WouldBlock,
+            ErrorKind::Other,
+        ] {
+            assert_eq!(
+                factory_health_error(&Error::from(kind)),
+                "factory_health_unavailable"
+            );
+        }
     }
 }

@@ -1,0 +1,3299 @@
+"""Pure delivery-contract tests; these do not claim installation or VM safety."""
+
+import hashlib
+import importlib
+import json
+import os
+import re
+import secrets
+import stat
+import struct
+import subprocess
+import sys
+from configparser import ConfigParser
+from contextlib import nullcontext
+from pathlib import Path
+from types import SimpleNamespace
+from uuid import UUID
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+policy = importlib.import_module("scripts.release.policy")
+manifest = importlib.import_module("scripts.release.manifest")
+builder = importlib.import_module("scripts.release.build")
+configuration = importlib.import_module("scripts.release.configuration")
+architecture = importlib.import_module("scripts.check_architecture")
+proxy = importlib.import_module("scripts.release.proxy")
+services = importlib.import_module("scripts.release.services")
+service_bootstrap = importlib.import_module("scripts.release.service_bootstrap")
+service_install = importlib.import_module("scripts.release.service_install")
+factory_service = importlib.import_module("scripts.release.factory_service")
+dependencies = importlib.import_module("scripts.release.dependencies")
+dependency_install = importlib.import_module("scripts.release.dependency_install")
+dependency_initialize = importlib.import_module("scripts.release.dependency_initialize")
+credentials = importlib.import_module("scripts.release.credentials")
+node_health = importlib.import_module("scripts.release.node_health")
+broker_health = importlib.import_module("scripts.release.broker_health")
+lifecycle = importlib.import_module("scripts.release.lifecycle")
+journal = importlib.import_module("scripts.release.journal")
+proxy_runtime = importlib.import_module("scripts.release.proxy_runtime")
+proxy_service = importlib.import_module("scripts.release.proxy_service")
+proxy_guard = importlib.import_module("scripts.release.proxy_guard")
+proxy_install = importlib.import_module("scripts.release.proxy_install")
+backup = importlib.import_module("scripts.release.backup")
+restore = importlib.import_module("scripts.release.restore")
+restore_policy = importlib.import_module("scripts.release.restore_policy")
+recovery_identity = importlib.import_module("scripts.release.recovery_identity")
+recovery_database = importlib.import_module("scripts.release.recovery_database")
+node_observation = importlib.import_module("scripts.release.node_observation")
+installer = importlib.import_module("scripts.release.install")
+
+
+@pytest.mark.parametrize("field", ["release_id", "configuration_id", "manifest_sha256"])
+def test_activation_refuses_checked_binding_that_differs_from_explicit_request(monkeypatch, field):
+    monkeypatch.setattr(installer.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    release, batch, expected = "sd-123456789abc", "cfg-" + "1" * 24, "1" * 64
+    binding = {
+        "release_id": release,
+        "configuration_id": batch,
+        "manifest_sha256": expected,
+    }
+    binding[field] = "different"
+    monkeypatch.setattr(configuration, "check_installed", lambda _: binding)
+    with pytest.raises(policy.DeliveryError, match="configuration not bound"):
+        installer.activate(release, expected, batch)
+
+
+@pytest.fixture
+def selection_model(tmp_path, monkeypatch):
+    # Owned ordinary fixture files only. Root, configuration proofs, stopped
+    # services and ports are modeled; actual switching still requires the VM.
+    import socket
+
+    release, batch, expected = "sd-123456789abc", "cfg-" + "1" * 24, "1" * 64
+    prior = {
+        "release_id": "sd-abcdefabcdef",
+        "configuration_id": "cfg-" + "2" * 24,
+        "manifest_sha256": "2" * 64,
+        "receipt_sha256": "3" * 64,
+    }
+    current = {
+        "platform": policy.PLATFORM,
+        "toolchains": dict(policy.TOOLCHAINS),
+        "images": {"gnu": {"image_digest": "4" * 64}},
+        "locks": {"backend/uv.lock": "5" * 64},
+        "files": [
+            {
+                "path": "backend/migrations/versions/001.py",
+                "bytes": 12,
+                "sha256": "6" * 64,
+                "mode": "0444",
+            }
+        ],
+    }
+    target = json.loads(json.dumps(current))
+    active, pointer = tmp_path / "active.json", tmp_path / "current"
+    active.write_bytes(b"ordinary prior selection model\n")
+    receipt = tmp_path / "receipt.json"
+    receipt.write_bytes(b"ordinary target receipt model\n")
+    reads, stopped, ports = [], [], []
+
+    def verify(root, fingerprint):
+        reads.append((root, fingerprint))
+        return target if root.name == release else current
+
+    class Socket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def bind(self, address):
+            ports.append(address)
+
+    original_path = Path
+
+    def fixture_path(value):
+        if str(value).startswith("/var/lib/kf-judge/"):
+            return tmp_path / "unused" / original_path(value).name
+        return original_path(value)
+
+    monkeypatch.setattr(installer.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(installer.preflight, "protected", lambda *a, **k: None)
+    monkeypatch.setattr(installer, "RELEASES", tmp_path / "releases")
+    monkeypatch.setattr(installer, "ACTIVE", active)
+    monkeypatch.setattr(installer, "CURRENT", pointer)
+    monkeypatch.setattr(installer, "Path", fixture_path)
+    monkeypatch.setattr(installer, "require_stopped", lambda: stopped.append(True))
+    monkeypatch.setattr(lifecycle.availability, "prepare_activation", lambda *a: None)
+    monkeypatch.setattr(installer, "selection", lambda **k: dict(prior))
+    monkeypatch.setattr(configuration, "installed_receipt_path", lambda *a: receipt)
+    monkeypatch.setattr(
+        configuration,
+        "check_installed",
+        lambda p: {
+            "release_id": release,
+            "manifest_sha256": expected,
+            "configuration_id": batch,
+            "source_sha": "123456789abc" + "d" * 28,
+        },
+    )
+    monkeypatch.setattr(manifest, "verify", verify)
+    monkeypatch.setattr(socket, "socket", lambda *a, **k: Socket())
+    return SimpleNamespace(
+        current=current,
+        target=target,
+        active=active,
+        pointer=pointer,
+        arguments=(release, expected, batch),
+        reads=reads,
+        stopped=stopped,
+        ports=ports,
+        prior=prior,
+    )
+
+
+@pytest.mark.parametrize("changed", ["migration", "empty_migrations", "images", "locks"])
+def test_activation_requires_compatible_schema_and_runtime_before_pointer_writes(
+    selection_model, changed
+):
+    model = selection_model
+    if changed == "migration":
+        model.target["files"][0]["sha256"] = "7" * 64
+    elif changed == "empty_migrations":
+        model.target["files"] = []
+    else:
+        model.target[changed] = {}
+    before = model.active.read_bytes()
+    with pytest.raises(policy.DeliveryError, match="selection requires identical"):
+        installer.activate(*model.arguments)
+    assert model.active.read_bytes() == before and not model.pointer.is_symlink()
+    assert model.stopped and len(model.reads) == 2
+
+
+def test_compatible_selection_keeps_explicit_batch_and_does_not_start_services(
+    selection_model,
+):
+    model = selection_model
+    result = installer.activate(*model.arguments)
+    selected = json.loads(model.active.read_bytes())
+    assert selected["release_id"] == model.arguments[0]
+    assert selected["configuration_id"] == model.arguments[2]
+    assert result["activated"] and not result["services_started"]
+    assert not result["execution_verified"]
+    assert model.stopped and model.ports == [("127.0.0.1", 8000), ("127.0.0.1", 8100)]
+    assert len(model.reads) == 2
+
+
+def test_activation_closes_admission_before_either_pointer_changes(selection_model, monkeypatch):
+    model = selection_model
+    before = model.active.read_bytes()
+    events = []
+
+    def prepare(previous, target):
+        assert previous == model.prior
+        assert target["configuration_id"] == model.arguments[2]
+        assert model.active.read_bytes() == before and not model.pointer.is_symlink()
+        assert len(model.reads) == 2 and model.stopped
+        events.append("target-admission-closed")
+
+    monkeypatch.setattr(lifecycle.availability, "prepare_activation", prepare)
+    result = installer.activate(*model.arguments)
+    assert events == ["target-admission-closed"]
+    assert result["admission_state"] == "draining" and not result["admission_opened"]
+
+
+def test_admission_refusal_cannot_change_selection_pointers(selection_model, monkeypatch):
+    model = selection_model
+    before = model.active.read_bytes()
+
+    def refuse(*_):
+        raise policy.DeliveryError("unconfirmed previous admission")
+
+    monkeypatch.setattr(lifecycle.availability, "prepare_activation", refuse)
+    with pytest.raises(policy.DeliveryError, match="unconfirmed previous admission"):
+        installer.activate(*model.arguments)
+    assert model.active.read_bytes() == before and not model.pointer.is_symlink()
+
+
+def test_first_selection_does_not_require_a_previous_release(selection_model):
+    model = selection_model
+    model.active.unlink()
+    result = installer.activate(*model.arguments)
+    assert result["activated"] and not result["services_started"]
+    assert model.reads == []
+
+
+def test_selection_drift_refuses_before_pointer_writes(selection_model, monkeypatch):
+    model = selection_model
+    calls = 0
+
+    def selection(**options):
+        nonlocal calls
+        calls += 1
+        assert options["check_configuration"] is False
+        return {**model.prior, "receipt_sha256": str(min(calls, 9)) * 64}
+
+    monkeypatch.setattr(installer, "selection", selection)
+    before = model.active.read_bytes()
+    with pytest.raises(policy.DeliveryError, match="binding changed before activation"):
+        installer.activate(*model.arguments)
+    assert model.active.read_bytes() == before and not model.pointer.is_symlink()
+
+
+@pytest.mark.parametrize("mode,owner", [(stat.S_IFREG, 0), (stat.S_IFSOCK, 1000)])
+def test_system_bus_preflight_refuses_unprotected_endpoint(monkeypatch, mode, owner):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    monkeypatch.setattr(Path, "lstat", lambda _: SimpleNamespace(st_mode=mode, st_uid=owner))
+    with pytest.raises(policy.DeliveryError, match="socket absent/unprotected"):
+        installer.preflight.system_bus()
+
+
+@pytest.mark.parametrize(
+    "response", [(0, 's "262"\n'), (0, 's "262-1-arch"\n'), (1, ""), (0, 's "other"\n')]
+)
+def test_system_bus_preflight_requires_bounded_manager_response(monkeypatch, response):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    monkeypatch.setattr(Path, "lstat", lambda _: SimpleNamespace(st_mode=stat.S_IFSOCK, st_uid=0))
+
+    def run(args, **options):
+        assert options["timeout"] == 5 and "--timeout=3" in args
+        assert options["env"] == {"PATH": "/usr/bin", "LC_ALL": "C"}
+        return SimpleNamespace(returncode=response[0], stdout=response[1], stderr="private detail")
+
+    monkeypatch.setattr(installer.preflight.subprocess, "run", run)
+    if response[0] == 0 and response[1].startswith('s "262'):
+        assert installer.preflight.system_bus()["manager_reachable"]
+    else:
+        with pytest.raises(policy.DeliveryError, match="manager unavailable/incompatible") as error:
+            installer.preflight.system_bus()
+        assert "private detail" not in str(error.value)
+
+
+def test_system_bus_timeout_is_an_explicit_preflight_refusal(monkeypatch):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    monkeypatch.setattr(Path, "lstat", lambda _: SimpleNamespace(st_mode=stat.S_IFSOCK, st_uid=0))
+
+    def run(args, **options):
+        raise subprocess.TimeoutExpired(args, options["timeout"])
+
+    monkeypatch.setattr(installer.preflight.subprocess, "run", run)
+    with pytest.raises(policy.DeliveryError, match="system message bus unavailable"):
+        installer.preflight.system_bus()
+
+
+@pytest.mark.parametrize("mode", [0o700, 0o755, 0o555])
+def test_new_layout_directory_has_explicit_mode_under_private_umask(tmp_path, monkeypatch, mode):
+    # Ordinary owned temporary files verify the umask regression. Root ownership
+    # and protected ancestor checks still require independent VM acceptance.
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    path = tmp_path / "created"
+    previous = os.umask(0o077)
+    try:
+        installer.directory(path, mode)
+    finally:
+        os.umask(previous)
+    assert stat.S_IMODE(path.stat().st_mode) == mode
+
+
+def test_layout_directory_does_not_repair_existing_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    path = tmp_path / "existing"
+    path.mkdir(mode=0o700)
+    before = path.stat()
+    with pytest.raises(policy.DeliveryError, match="existing directory mode differs"):
+        installer.directory(path, 0o755)
+    assert path.stat().st_ino == before.st_ino
+    assert stat.S_IMODE(path.stat().st_mode) == 0o700
+
+
+@pytest.mark.parametrize("mode", [0o444, 0o600, 0o644])
+def test_new_exclusive_file_has_requested_mode_under_private_umask(tmp_path, monkeypatch, mode):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    path = tmp_path / "created"
+    previous = os.umask(0o077)
+    try:
+        installer.exclusive_file(path, b"ordinary fixture", mode)
+    finally:
+        os.umask(previous)
+    assert path.read_bytes() == b"ordinary fixture"
+    assert stat.S_IMODE(path.stat().st_mode) == mode
+
+
+def test_exclusive_file_does_not_repair_existing_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    path = tmp_path / "existing"
+    path.write_bytes(b"ordinary fixture")
+    path.chmod(0o600)
+    inode = path.stat().st_ino
+    with pytest.raises(policy.DeliveryError, match="refused overwrite"):
+        installer.exclusive_file(path, b"ordinary fixture", 0o644)
+    assert path.stat().st_ino == inode
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize(
+    "changed", ["release_id", "configuration_id", "manifest_sha256", "selection"]
+)
+def test_current_receipt_rejects_changed_binding_after_full_validation(monkeypatch, changed):
+    selected = {
+        "release_id": "sd-aaaaaaaaaaaa",
+        "configuration_id": "cfg-" + "a" * 24,
+        "manifest_sha256": "a" * 64,
+        "receipt_sha256": "b" * 64,
+    }
+    installed = dict(selected)
+    after = dict(selected)
+    if changed == "selection":
+        after["receipt_sha256"] = "c" * 64
+    else:
+        installed[changed] = "different verified binding"
+    observations = iter([selected, after])
+    monkeypatch.setattr(service_install.install, "selection", lambda **options: next(observations))
+    monkeypatch.setattr(
+        service_install.configuration,
+        "installed_receipt_path",
+        lambda *args: Path("/fixture"),
+    )
+    monkeypatch.setattr(service_install.configuration, "check_installed", lambda path: installed)
+    with pytest.raises(policy.DeliveryError, match="selected configuration changed"):
+        service_install.current_receipt()
+
+
+def test_new_copy_hashes_copied_bytes_and_reads_destination_before_acceptance(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.write_bytes(b"ordinary release fixture\n" * 65536)
+    expected = policy.digest(source)
+    reads = []
+    original = installer.digest
+
+    def readback(path):
+        reads.append(path)
+        return original(path)
+
+    monkeypatch.setattr(installer, "digest", readback)
+    installer.copy_verified(source, target, expected, 0o444)
+    assert reads == [target]
+    assert target.read_bytes() == source.read_bytes()
+    assert stat.S_IMODE(target.stat().st_mode) == 0o444
+    inode = target.stat().st_ino
+    installer.copy_verified(source, target, expected, 0o444)
+    assert target.stat().st_ino == inode
+    assert reads == [target, source, target]
+
+
+def test_changed_copy_retains_incomplete_file_and_never_overwrites_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.write_bytes(b"original")
+    expected = policy.digest(source)
+    source.write_bytes(b"changed")
+    with pytest.raises(policy.DeliveryError, match="source changed"):
+        installer.copy_verified(source, target, expected, 0o444)
+    inode = target.stat().st_ino
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    source.write_bytes(b"original")
+    with pytest.raises(policy.DeliveryError, match="refused overwrite"):
+        installer.copy_verified(source, target, expected, 0o444)
+    assert target.stat().st_ino == inode
+    assert target.read_bytes() == b"changed"
+
+
+@pytest.fixture
+def frozen_filesystem_model(tmp_path, monkeypatch):
+    """Only fsync tiny owned fixtures; real filesystem flush remains VM-only."""
+
+    class Sync:
+        def __call__(self, descriptor):
+            assert stat.S_ISDIR(os.fstat(descriptor).st_mode)
+            for path in tmp_path.rglob("*"):
+                if path.is_file():
+                    assert path.stat().st_uid == os.getuid() and path.stat().st_size < 4096
+                    with path.open("rb") as stream:
+                        os.fsync(stream.fileno())
+            return 0
+
+    monkeypatch.setattr(
+        installer.restore_io.ctypes,
+        "CDLL",
+        lambda *_a, **_kw: SimpleNamespace(syncfs=Sync()),
+    )
+
+
+def test_frozen_copy_reuses_verified_records_and_checks_full_destination(
+    tmp_path, monkeypatch, frozen_filesystem_model
+):
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.mkdir()
+    (source / "backend").mkdir()
+    payload = source / "backend/ordinary.txt"
+    payload.write_bytes(b"frozen input")
+    payload.chmod(0o444)
+    (source / "backend").chmod(0o555)
+    records = manifest.inventory(source)
+    scanned = []
+    original = manifest.inventory
+
+    def inventory(path, **kwargs):
+        scanned.append(path)
+        return original(path, **kwargs)
+
+    monkeypatch.setattr(manifest, "inventory", inventory)
+    installer.frozen_copy(source, target, verified_records=records)
+    assert scanned == [target]
+    assert original(target) == records
+    installer.frozen_copy(source, target, verified_records=records)
+    assert scanned == [target, target]
+
+
+def test_frozen_copy_rejects_destination_io_mismatch_before_acceptance(
+    tmp_path, monkeypatch, frozen_filesystem_model
+):
+    # Simulated I/O mismatch in an ordinary owned fixture; Root protection and
+    # actual disk/error isolation are still separate VM acceptance.
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.mkdir()
+    (source / "backend").mkdir()
+    payload = source / "backend/ordinary.txt"
+    payload.write_bytes(b"frozen input")
+    payload.chmod(0o444)
+    (source / "backend").chmod(0o555)
+    records = manifest.inventory(source)
+    original = installer._copy_verified
+
+    def simulate_io_mismatch(source, target, expected, mode, **options):
+        assert options["readback"] is False
+        original(source, target, expected, mode, **options)
+        target.chmod(0o600)
+        target.write_bytes(b"different bytes")
+        target.chmod(mode)
+
+    monkeypatch.setattr(installer, "_copy_verified", simulate_io_mismatch)
+    with pytest.raises(policy.DeliveryError, match="installed image readback differs"):
+        installer.frozen_copy(source, target, verified_records=records)
+
+
+def test_frozen_copy_rejects_changed_source_against_trusted_records(
+    tmp_path, monkeypatch, frozen_filesystem_model
+):
+    # Ordinary fixture bytes exercise the deferred batch validation. Actual
+    # Root protection and installation are separately verified in the VM.
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.mkdir()
+    (source / "backend").mkdir()
+    payload = source / "backend/ordinary.txt"
+    payload.write_bytes(b"frozen input")
+    payload.chmod(0o444)
+    (source / "backend").chmod(0o555)
+    records = manifest.inventory(source)
+    payload.chmod(0o600)
+    payload.write_bytes(b"changed data")
+    payload.chmod(0o444)
+    with pytest.raises(policy.DeliveryError, match="installed image readback differs"):
+        installer.frozen_copy(source, target, verified_records=records)
+    assert (target / "backend/ordinary.txt").read_bytes() == b"changed data"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o555
+    with pytest.raises(policy.DeliveryError, match="existing protected image differs"):
+        installer.frozen_copy(source, target, verified_records=records)
+
+
+def test_frozen_copy_rejects_sync_failure_even_when_destination_bytes_match(tmp_path, monkeypatch):
+    class FailedSync:
+        def __call__(self, _descriptor):
+            return -1
+
+    monkeypatch.setattr(installer.preflight, "protected", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        installer.restore_io.ctypes,
+        "CDLL",
+        lambda *_a, **_kw: SimpleNamespace(syncfs=FailedSync()),
+    )
+    source, target = tmp_path / "source", tmp_path / "target"
+    source.mkdir()
+    (source / "backend").mkdir()
+    payload = source / "backend/ordinary.txt"
+    payload.write_bytes(b"known ordinary bytes")
+    payload.chmod(0o444)
+    (source / "backend").chmod(0o555)
+    records = manifest.inventory(source)
+    with pytest.raises(policy.DeliveryError, match="filesystem synchronization failed"):
+        installer.frozen_copy(source, target, verified_records=records)
+    assert (target / "backend/ordinary.txt").read_bytes() == payload.read_bytes()
+
+
+def test_kernel_observation_keeps_cumulative_counters_and_rejects_duplicate_rows():
+    raw = (
+        "usage_usec 17\nuser_usec 11\nsystem_usec 6\nnr_periods 9\nnr_throttled 2\nthrottled_usec 3"
+    )
+    observed = node_observation.counters(raw, node_observation.CPU_FIELDS)
+    assert observed["usage_usec"] == 17 and observed["nr_throttled"] == 2
+    with pytest.raises(policy.DeliveryError):
+        node_observation.counters(raw + "\nusage_usec 18", node_observation.CPU_FIELDS)
+    with pytest.raises(policy.DeliveryError):
+        node_observation.counters("usage_usec 17", node_observation.CPU_FIELDS)
+
+
+def test_kernel_io_observation_aggregates_devices_without_returning_device_identities():
+    actual = node_observation.io_totals(
+        "8:0 rbytes=5 wbytes=7 rios=1 wios=2 dbytes=0 dios=0\n"
+        "8:1 rbytes=11 wbytes=13 rios=3 wios=4 dbytes=0 dios=0"
+    )
+    assert actual == {
+        "devices_observed": 2,
+        "rbytes": 16,
+        "wbytes": 20,
+        "rios": 4,
+        "wios": 6,
+    }
+    assert node_observation.io_totals("")["devices_observed"] == 0
+    with pytest.raises(policy.DeliveryError):
+        node_observation.io_totals(
+            "8:0 rbytes=5 wbytes=7 rios=1 wios=2\n8:0 rbytes=0 wbytes=0 rios=0 wios=0"
+        )
+
+
+@pytest.mark.parametrize("raw", ["253:0", "253:0 \n", "253:0 \n253:16 \n"])
+def test_kernel_io_observation_accepts_idle_device_rows_without_inventing_activity(raw):
+    actual = node_observation.io_totals(raw)
+    assert actual == {
+        "devices_observed": len(raw.splitlines()),
+        "rbytes": 0,
+        "wbytes": 0,
+        "rios": 0,
+        "wios": 0,
+    }
+    combined = node_observation.io_totals(
+        raw.rstrip("\n") + "\n253:32 rbytes=5 wbytes=7 rios=1 wios=2"
+    )
+    assert combined == dict(
+        actual,
+        devices_observed=actual["devices_observed"] + 1,
+        rbytes=5,
+        wbytes=7,
+        rios=1,
+        wios=2,
+    )
+
+
+@pytest.mark.parametrize("raw", ["253:0 rbytes=0", "253:0 other=0", "253:0\n253:0"])
+def test_kernel_io_observation_still_rejects_partial_counters_and_duplicate_idle_devices(
+    raw,
+):
+    with pytest.raises(policy.DeliveryError):
+        node_observation.io_totals(raw)
+
+
+@pytest.mark.parametrize("value", ["-1", "max", "True", str(2**63)])
+def test_kernel_observation_does_not_replace_unavailable_or_invalid_counters_with_zero(
+    value,
+):
+    with pytest.raises(policy.DeliveryError):
+        node_observation.number(value)
+
+
+def test_node_observation_requests_kernel_io_accounting_without_relaxing_limits(
+    monkeypatch,
+):
+    from scripts.release import operator_units, service_install
+
+    payload = installer.RELEASES / ("sd-" + "a" * 12) / "payload"
+    monkeypatch.setattr(operator_units.os, "getuid", lambda: 0)
+    monkeypatch.setattr(operator_units.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(
+        installer,
+        "selection",
+        lambda **_: {
+            "release_id": payload.parent.name,
+            "configuration_id": "cfg-" + "b" * 24,
+        },
+    )
+    monkeypatch.setattr(
+        service_install,
+        "systemctl",
+        lambda *args: "LoadState=not-found\nActiveState=inactive\nMainPID=0\nControlGroup=\n",
+    )
+    calls = []
+
+    def dispatch(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, b'{"complete":true}', b"")
+
+    monkeypatch.setattr(operator_units.subprocess, "run", dispatch)
+    assert operator_units.run("node-observation", payload) == {"complete": True}
+    assert len(calls) == 1
+    command = calls[0]
+    assert "--property=IOAccounting=yes" in command
+    for setting in (
+        "MemoryMax=128M",
+        "MemorySwapMax=0",
+        "TasksMax=16",
+        "CPUQuota=25%",
+        "RuntimeMaxSec=360",
+        "NoNewPrivileges=yes",
+        "CapabilityBoundingSet=",
+        "ProtectControlGroups=yes",
+    ):
+        assert "--property=" + setting in command
+
+
+def test_postgres_recovery_retains_narrow_existing_role_authorities():
+    assert recovery_identity.properties("kf_platform") == (
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+        8,
+        True,
+        None,
+        None,
+    )
+    assert recovery_identity.memberships("kf_migrator") == [
+        ("kf_oj_identity_authority_owner", False, True, True)
+    ]
+    assert recovery_identity.memberships("kf_coordinator") == [
+        ("kf_oj_coordinator", False, True, False)
+    ]
+    assert recovery_identity.memberships("postgres") == []
+
+
+def postgres_recovery_settings_shape():
+    values = recovery_identity.recovery_settings()
+    rows = [{"name": key, "setting": value, "unit": None} for key, value in values.items()]
+    normalized = {
+        "archive_command": ("(disabled)", None),
+        "shared_buffers": ("8192", "8kB"),
+        "work_mem": ("1024", "kB"),
+        "maintenance_work_mem": ("32768", "kB"),
+        "statement_timeout": ("5000", "ms"),
+        "lock_timeout": ("1000", "ms"),
+        "idle_in_transaction_session_timeout": ("5000", "ms"),
+        "authentication_timeout": ("5", "s"),
+        "temp_file_limit": ("16384", "kB"),
+        "log_parameter_max_length": ("0", "B"),
+        "log_parameter_max_length_on_error": ("0", "B"),
+        "log_min_duration_statement": ("-1", "ms"),
+        "log_min_duration_sample": ("-1", "ms"),
+    }
+    for row in rows:
+        if row["name"] in normalized:
+            row["setting"], row["unit"] = normalized[row["name"]]
+    return rows
+
+
+def test_postgres_recovery_readback_compares_effective_units_instead_of_cli_strings():
+    rows = postgres_recovery_settings_shape()
+    recovered = recovery_identity.check_settings(rows)
+    assert recovered["listen_addresses"]["setting"] == ""
+    assert recovered["unix_socket_permissions"]["setting"] == "0700"
+    assert recovered["archive_command"]["setting"] == "(disabled)"
+    for row in rows:
+        if row["name"] == "shared_buffers":
+            row["setting"] = "16384"
+    with pytest.raises(policy.DeliveryError):
+        recovery_identity.check_settings(rows)
+
+
+@pytest.mark.parametrize(
+    ("name", "setting"),
+    [
+        ("archive_mode", "on"),
+        ("archive_library", "unapproved_library"),
+        ("archive_command", "/bin/true"),
+        ("archive_command", ""),
+    ],
+)
+def test_postgres_recovery_disabled_display_requires_disabled_archiving(name, setting):
+    rows = postgres_recovery_settings_shape()
+    for row in rows:
+        if row["name"] == name:
+            row["setting"] = setting
+    with pytest.raises(policy.DeliveryError):
+        recovery_identity.check_settings(rows)
+
+
+def recovery_receipts_shape():
+    # Pure closed-contract example; no PG connection, Root or Linux acceptance.
+    prepared = {
+        "schema_version": 1,
+        "recovery_id": "rr-" + "1" * 32,
+        "backup_id": "bk-" + "2" * 32,
+        "private_backup_sha256": "b" * 64,
+        "source_sha": "c" * 40,
+        "configuration_id": "cfg-" + "d" * 24,
+        "boot_id": "e" * 8 + "-" + "e" * 4 + "-" + "e" * 4 + "-" + "e" * 4 + "-" + "e" * 12,
+        "data_restored": False,
+        "database_credentials_rotated": False,
+        "services_started": False,
+        "execution_verified": False,
+    }
+    data = {
+        **prepared,
+        "data_restored": True,
+        "restored_payload_bytes": 1024,
+        "restored_files": 10,
+        "restored_directories": 12,
+        "historical_configuration_active": False,
+        "factory_replay_history_retained": True,
+    }
+    identity = {
+        **{
+            key: prepared[key]
+            for key in (
+                "schema_version",
+                "recovery_id",
+                "source_sha",
+                "configuration_id",
+                "boot_id",
+            )
+        },
+        "data_receipt_sha256": "f" * 64,
+        "bootstrap_sha256": "b" * 64,
+        "cluster_identity": {
+            "device": 1,
+            "inode": 10,
+            "major_version": 18,
+            "uid": 1203,
+        },
+        "temporary_server_stopped": True,
+        "database_credentials_rotated": True,
+        "services_started": False,
+        "schema_migrated": False,
+        "execution_state_changed": False,
+        "execution_verified": False,
+        "ordinary_identity_readback": {
+            "dependency": "postgres",
+            "actual_cgroup_limits": {
+                "memory.max": "536870912",
+                "memory.swap.max": "0",
+                "pids.max": "64",
+                "cpu.max": "100000 100000",
+            },
+            "data_filesystem_bytes": 2 * 1024**3,
+            "execution_verified": False,
+            "rotated_roles": sorted(["postgres", *configuration.PROFILES.values()]),
+            "role_authority_sha256": "c" * 64,
+            "authenticated": True,
+            "schema_migrated": False,
+            "execution_state_changed": False,
+            "effective_settings": recovery_identity.check_settings(
+                postgres_recovery_settings_shape()
+            ),
+            "temporary_server_stopped": True,
+            "services_started": False,
+        },
+    }
+    return prepared, data, identity
+
+
+@pytest.mark.parametrize("failure", ["unrotated", "running", "wrong_data", "wrong_config", "extra"])
+def test_recovery_completion_refuses_partial_or_unbound_steps(failure):
+    prepared, data, identity = recovery_receipts_shape()
+    recovery_database.validate_complete(prepared, data, identity, prepared["recovery_id"], "f" * 64)
+    if failure == "unrotated":
+        identity["database_credentials_rotated"] = False
+    elif failure == "running":
+        identity["temporary_server_stopped"] = False
+    elif failure == "wrong_data":
+        identity["data_receipt_sha256"] = "b" * 64
+    elif failure == "wrong_config":
+        identity["configuration_id"] = "cfg-" + "f" * 24
+    else:
+        identity["skip_verification"] = True
+    with pytest.raises(policy.DeliveryError):
+        recovery_database.validate_complete(
+            prepared, data, identity, prepared["recovery_id"], "f" * 64
+        )
+
+
+def test_startup_cannot_launch_services_when_recovery_admission_is_refused(monkeypatch):
+    maintenance = object.__new__(lifecycle.Maintenance)
+    calls = []
+    monkeypatch.setattr(maintenance, "start_locked", lambda **_: calls.append("start"))
+
+    def refuse():
+        raise policy.DeliveryError("partial recovery")
+
+    monkeypatch.setattr(recovery_database, "admission_guard", refuse)
+    with pytest.raises(policy.DeliveryError):
+        maintenance.start(resume=True)
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("name", "ready_after", "succeeds"),
+    [
+        ("sandbox-factory", 131, True),
+        ("sandbox-factory", 1811, False),
+        ("api", 131, False),
+    ],
+)
+def test_startup_waits_for_declared_factory_preparation_without_extending_other_services(
+    monkeypatch, name, ready_after, succeeds
+):
+    maintenance = object.__new__(lifecycle.Maintenance)
+    maintenance.selected = {
+        "release_id": "sd-" + "a" * 12,
+        "configuration_id": "cfg-" + "b" * 24,
+    }
+    maintenance.record = {"events": [], "root_cleanup_confirmed": True}
+    clock = [0.0]
+    confirmed = []
+    monkeypatch.setattr(lifecycle.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(lifecycle.time, "sleep", lambda _: clock.__setitem__(0, clock[0] + 1))
+    monkeypatch.setattr(lifecycle.install, "selection", lambda **_: maintenance.selected)
+    monkeypatch.setattr(lifecycle.service_install, "systemctl", lambda *args: "")
+    monkeypatch.setattr(maintenance, "save", lambda phase: None)
+    monkeypatch.setattr(
+        maintenance,
+        "unit",
+        lambda _: {
+            "ActiveState": "active" if clock[0] >= ready_after else "activating",
+            "SubState": "running" if clock[0] >= ready_after else "start-pre",
+            "MainPID": "123" if clock[0] >= ready_after else "0",
+        },
+    )
+    monkeypatch.setattr(lifecycle.node_health, "inspect_unit", lambda *args: confirmed.append(args))
+    if succeeds:
+        maintenance.change(name, "start")
+        assert maintenance.record["events"][-1]["confirmed"] is True
+        assert confirmed == [(name, maintenance.selected)]
+    else:
+        with pytest.raises(policy.DeliveryError, match="bounded lifecycle operation unconfirmed"):
+            maintenance.change(name, "start")
+        assert maintenance.record["events"][-1]["confirmed"] is False
+        assert confirmed == []
+
+
+def test_restoration_keeps_old_runtime_configuration_and_operations_inactive():
+    directory = Path("/var/lib/kf-onlinejudge/recovery/rr-" + "1" * 32)
+    for domain in restore.HISTORICAL:
+        item = {
+            "path": domain + "/old.json",
+            "uid": 0,
+            "gid": 0,
+            "mode": 0o644,
+            "bytes": 20,
+        }
+        path, uid, gid, mode = restore.target(item, directory)
+        assert path == directory / "history" / domain / "old.json"
+        assert (uid, gid, mode) == (0, 0, 0o600)
+    path, uid, gid, mode = restore.target(
+        {
+            "path": "artifacts/object",
+            "uid": 1200,
+            "gid": 1200,
+            "mode": 0o600,
+            "bytes": 20,
+        },
+        directory,
+    )
+    assert path == Path("/var/lib/kf-onlinejudge/artifacts/object")
+    assert (uid, gid, mode) == (1200, 1200, 0o600)
+
+
+def test_recovery_requires_new_worker_tokens_epoch_and_every_operational_password():
+    from copy import deepcopy
+
+    def context(offset):
+        return {
+            "operator_attested": True,
+            "worker_id": str(UUID(int=offset + 1)),
+            "measurement_nonce": format(offset + 10, "064x"),
+            "measurement_epoch": format(offset + 20, "064x"),
+            "worker_token": format(offset + 30, "064x"),
+            "platform_token": format(offset + 40, "064x"),
+            "endpoints": {
+                "database": {
+                    "api": "postgresql://kf_platform:"
+                    + str(offset) * 32
+                    + "@127.0.0.1:5432/kf_onlinejudge"
+                },
+                "amqp": {
+                    "worker": "amqp://kf_worker:" + str(offset + 1) * 32 + "@127.0.0.1:5672/kf"
+                },
+            },
+        }
+
+    previous, current = context(1), context(5)
+    restore_policy.fresh_identities(previous, current)
+    for key in (
+        "worker_id",
+        "measurement_nonce",
+        "measurement_epoch",
+        "worker_token",
+        "platform_token",
+    ):
+        with pytest.raises(policy.DeliveryError):
+            restore_policy.fresh_identities(previous, {**current, key: previous[key]})
+    changed = deepcopy(current)
+    changed["endpoints"]["database"]["api"] = previous["endpoints"]["amqp"]["worker"]
+    with pytest.raises(policy.DeliveryError):
+        restore_policy.fresh_identities(previous, changed)
+
+
+def test_backup_retention_preserves_a_newer_unexpired_recovery_copy():
+    expired = {
+        "backup_id": "bk-" + "1" * 32,
+        "created_unix_seconds": 100,
+        "expires_unix_seconds": 100 + 7 * 86400,
+    }
+    retained = {
+        "backup_id": "bk-" + "2" * 32,
+        "created_unix_seconds": 200,
+        "expires_unix_seconds": 200 + 7 * 86400,
+    }
+    now = expired["expires_unix_seconds"]
+    backup.retention_eligible(expired, retained, now)
+    for unavailable in (
+        expired,
+        {**retained, "expires_unix_seconds": now},
+        {**retained, "created_unix_seconds": now + 1},
+    ):
+        with pytest.raises(policy.DeliveryError):
+            backup.retention_eligible(expired, unavailable, now)
+    with pytest.raises(policy.DeliveryError):
+        backup.retention_eligible(expired, retained, now - 1)
+
+
+def test_delivery_authorities_and_layout():
+    contract = policy.contract(ROOT / "deploy/release/contract.v1.json")
+    assert contract["services"]["worker"] == "none"
+    assert contract["services"]["sandbox-factory"] == "none"
+    assert contract["layout"]["task_cgroup"] != contract["layout"]["judge_state"]
+    assert contract["capacity"]["execution_slots"] == 1
+    assert contract["recovery"]["consistent_cut_rpo_seconds"] == 0
+
+
+@pytest.mark.parametrize("value", [True, 0, 50001, "1"])
+def test_integer_resource_limits_cannot_be_coerced(value):
+    with pytest.raises(policy.DeliveryError):
+        policy.integer(value, 1, 50000, "entry count")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "docs/a.md",
+        "backend/.env",
+        "backend/../secrets",
+        "/bin/tool",
+        "images/.ssh/id",
+        "site/entry.pyc",
+    ],
+)
+def test_private_and_noncanonical_paths_are_not_payload(name):
+    with pytest.raises(policy.DeliveryError):
+        policy.relative_name(name)
+
+
+def test_expected_hash_is_external_and_not_placeholder():
+    for value in ("0" * 64, "a" * 64, "bad"):
+        with pytest.raises(policy.DeliveryError):
+            policy.sha256(value)
+
+
+def test_no_silent_contract_fields(tmp_path):
+    value = json.loads((ROOT / "deploy/release/contract.v1.json").read_text())
+    value["ignore_isolation"] = True
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(value))
+    with pytest.raises(policy.DeliveryError, match="contract fields"):
+        policy.contract(path)
+
+
+def test_duplicate_metadata_key_is_rejected():
+    with pytest.raises(policy.DeliveryError, match="duplicate"):
+        json.loads(
+            '{"schema_version":1,"schema_version":2}',
+            object_pairs_hook=policy.unique_object,
+        )
+
+
+def test_inventory_of_trusted_read_only_files(tmp_path):
+    directory = tmp_path / "backend"
+    directory.mkdir()
+    file = directory / "version.txt"
+    file.write_bytes(b"accepted-source\n")
+    file.chmod(0o444)
+    directory.chmod(0o555)
+    entries = manifest.inventory(tmp_path)
+    assert entries[0]["path"] == "backend/version.txt"
+    assert entries[0]["bytes"] == 16
+    assert manifest.directories(tmp_path) == ["backend"]
+
+
+def test_delivery_cannot_import_database_state(tmp_path, monkeypatch):
+    (tmp_path / "bad.py").write_text("from kf_oj.modules.submissions.models import Evaluation\n")
+    monkeypatch.setattr(architecture, "RELEASE", tmp_path)
+    assert len(architecture.release_violations()) == 1
+
+
+def test_delivery_may_use_public_wire_contracts(tmp_path, monkeypatch):
+    (tmp_path / "public.py").write_text("from kf_oj.contracts.judging_v2 import NodeAdmission\n")
+    monkeypatch.setattr(architecture, "RELEASE", tmp_path)
+    assert architecture.release_violations() == []
+
+
+def test_signed_guest_library_alias_uses_guest_root(tmp_path):
+    root = tmp_path / "runtime"
+    library = root / "services/usr/lib/library.so.1"
+    library.parent.mkdir(parents=True)
+    library.write_bytes(b"public-library-data")
+    alias = library.parent / "library.so"
+    alias.symlink_to("/usr/lib/library.so.1")
+    records = {
+        "services/usr/lib/library.so": {"link": "/usr/lib/library.so.1"},
+        "services/usr/lib/library.so.1": {
+            "bytes": library.stat().st_size,
+            "sha256": policy.digest(library),
+        },
+    }
+    target = tmp_path / "payload/lib/library.so"
+    builder.curated(root, records, "services/usr/lib/library.so", target)
+    assert target.read_bytes() == library.read_bytes()
+    assert not target.is_symlink()
+
+
+@pytest.fixture
+def delivery_configuration(tmp_path, monkeypatch):
+    """Synthetic operator files only; no services, DB or user program are run."""
+    import hashlib
+
+    images = {}
+    for name, toolchain, kind, version in (
+        ("gnu", "gnu-cxx-v1", "linux_gnu_cxx_x86_64_v1", "16.2.1+r23+gd564253eb6c8"),
+        ("python313", "cpython313-v1", "linux_cpython313_x86_64_v1", "3.13.16"),
+        ("java21", "openjdk21-v1", "linux_openjdk21_x86_64_v1", "21.0.12.1+1-LTS"),
+    ):
+        images[name] = {
+            "toolchain_id": toolchain,
+            "image_kind": kind,
+            "image_revision": 1,
+            "runtime_version": version,
+            "image_digest": hashlib.sha256(name.encode()).hexdigest(),
+        }
+    data = {
+        "images": images,
+        "release_id": "sd-123456789abc",
+        "source_sha": "123456789abc" + "d" * 28,
+    }
+    node = {
+        "schema_version": 1,
+        "origin": "https://oj.test",
+        "worker_id": "a28adc33-8fbd-4a33-8b21-7a46431e506c",
+        "measurement_nonce": secrets.token_hex(32),
+    }
+    urls = {}
+    for name, role in configuration.PROFILES.items():
+        password = secrets.token_urlsafe(32)
+        authority = "" if name == "import" else "127.0.0.1:5432"
+        urls[name] = f"postgresql://{role}:{password}@{authority}/kf_onlinejudge"
+        if name == "import":
+            urls[name] += "?host=/run/postgresql"
+    endpoints = {
+        "schema_version": 1,
+        "database": urls,
+        "amqp": {
+            name: f"amqp://kf_{name}:{secrets.token_urlsafe(32)}@127.0.0.1:5672/kf"
+            for name in ("worker", "outbox")
+        },
+    }
+    configuration.validate_profile(node)
+    configuration.validate_connections(endpoints)
+    observed = {
+        "kernel": "6.18-fixture",
+        "architecture": "x86_64",
+        "online_cpus": 2,
+        "processor": {"model name": "fixture"},
+    }
+    monkeypatch.setattr(configuration, "measured_hardware", lambda: dict(observed))
+    raw = configuration.compose(ROOT, data, node, endpoints, attest=True)
+    paths = {}
+    for name, content in raw.items():
+        path = tmp_path / name
+        path.write_bytes(content)
+        path.chmod(0o600)
+        paths[name] = path
+    return paths, raw, data, node, endpoints, observed
+
+
+def test_generated_configuration_preserves_wire_policies_and_backend_settings(
+    delivery_configuration, monkeypatch
+):
+    from kf_oj.core.settings import Settings
+
+    paths, raw, data, _, _, _ = delivery_configuration
+    configuration.validate_contents(paths, ROOT, data, attest=True)
+    env = configuration.environment_read(raw["api.env"])
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    settings = Settings(_env_file=None)
+    assert settings.database_url.get_secret_value().startswith("postgresql+asyncpg:")
+    admission = json.loads(raw["admission.json"])
+    coordinator, worker, root = [
+        json.loads(raw[name]) for name in ("coordinator.json", "worker.json", "runtime.json")
+    ]
+    assert settings.judge_admission.model_dump(mode="json") == admission
+    assert coordinator["admission"] == worker["admission"] == admission
+    assert "database_url" not in worker and "database_url" not in root
+    assert root["identities"]["count"] == 1
+    assert root["image_root"] not in [image["image_root"] for image in root["runtime_images"]]
+    assert admission["legacy"]["toolchain"] == {
+        "toolchain_id": "gnu-cxx-v1",
+        "image_kind": "linux_gnu_cxx_x86_64_v1",
+        "image_revision": 1,
+    }
+
+
+def test_generated_configuration_retains_accepted_language_budgets(
+    delivery_configuration,
+):
+    """The installed policy must preserve the established runtime startup allowance."""
+    _, raw, _, _, _, _ = delivery_configuration
+    admission = json.loads(raw["admission.json"])
+    root = json.loads(raw["runtime.json"])
+    policies = [admission["legacy"], admission["multi_runtime"]]
+    assert all(p["max_concurrent_jobs"] == p["prefetch"] == 1 for p in policies)
+    assert all(p["max_job_wall_time_us"] == 180_000_000 for p in policies)
+    for cap in admission["multi_runtime"]["capabilities"]:
+        java = cap["language"] == "java21"
+        assert cap["compile_ceiling"]["cpu_time_us"] >= (60_000_000 if java else 30_000_000)
+        assert cap["compile_ceiling"]["wall_time_us"] >= (120_000_000 if java else 60_000_000)
+        assert cap["run_ceiling"]["cpu_time_us"] >= 5_000_000
+        assert cap["run_ceiling"]["wall_time_us"] >= 10_000_000
+        assert cap["run_ceiling"]["memory_bytes"] >= (384 if java else 128) * 1024**2
+        image = next(i for i in root["runtime_images"] if i["runtime_identity"] == cap["toolchain"])
+        for stage in (cap["compile_ceiling"], cap["run_ceiling"]):
+            assert all(value <= image["per_task_ceiling"][key] for key, value in stage.items())
+            assert all(value <= root["per_task_ceiling"][key] for key, value in stage.items())
+
+
+def test_epoch_rebinds_when_kernel_changes(delivery_configuration):
+    paths, raw, data, node, endpoints, observed = delivery_configuration
+    before = json.loads(raw["measurement.json"])["epoch"]
+    observed["kernel"] = "6.19-fixture"
+    with pytest.raises(policy.DeliveryError, match="measurement policy mismatch"):
+        configuration.validate_contents(paths, ROOT, data, attest=True)
+    after = configuration.compose(ROOT, data, node, endpoints, attest=True)
+    assert json.loads(after["measurement.json"])["epoch"] != before
+
+
+def test_epoch_rebinds_when_language_budget_changes(delivery_configuration, monkeypatch):
+    paths, raw, data, node, endpoints, _ = delivery_configuration
+    before = json.loads(raw["measurement.json"])["epoch"]
+    admission, root = configuration.admission_runtime(ROOT, data)
+    java = next(c for c in admission["multi_runtime"]["capabilities"] if c["language"] == "java21")
+    java["compile_ceiling"]["cpu_time_us"] -= 1
+    monkeypatch.setattr(configuration, "admission_runtime", lambda *_: (admission, root))
+    with pytest.raises(policy.DeliveryError, match="measurement policy mismatch"):
+        configuration.validate_contents(paths, ROOT, data, attest=True)
+    after = configuration.compose(ROOT, data, node, endpoints, attest=True)
+    assert json.loads(after["measurement.json"])["epoch"] != before
+
+
+def test_unattested_configuration_has_no_comparable_epoch(delivery_configuration):
+    _, _, data, node, endpoints, _ = delivery_configuration
+    raw = configuration.compose(ROOT, data, node, endpoints, attest=False)
+    assert json.loads(raw["coordinator.json"])["workers"][0]["measurement_epoch"] is None
+
+
+def test_configuration_receipt_is_bound_before_path_use():
+    source = "123456789abc" + "d" * 28
+    hashes = {name: "b" * 64 for name in configuration.CONFIG_FILES}
+    receipt = {
+        "schema_version": 1,
+        "source_sha": source,
+        "release_id": "sd-123456789abc",
+        "configuration_id": configuration.configuration_id(source, "f" * 64, hashes),
+        "manifest_sha256": "f" * 64,
+        "configuration_files": hashes,
+        "operator_attested_measurement": False,
+        "installed": False,
+        "execution_verified": False,
+    }
+    configuration.validate_receipt(receipt, installed=False)
+    receipt["installed"] = 0
+    with pytest.raises(policy.DeliveryError, match="configuration binding"):
+        configuration.validate_receipt(receipt, installed=False)
+
+
+def test_same_source_can_have_distinct_immutable_configuration_batches():
+    source, manifest_sha = "123456789abc" + "d" * 28, "f" * 64
+    hashes = {name: "b" * 64 for name in configuration.CONFIG_FILES}
+    before = configuration.configuration_id(source, manifest_sha, hashes)
+    changed = {**hashes, "measurement.json": "c" * 64}
+    after = configuration.configuration_id(source, manifest_sha, changed)
+    assert before != after
+    assert configuration.installed_path("sd-123456789abc", before, "runtime.json") != (
+        configuration.installed_path("sd-123456789abc", after, "runtime.json")
+    )
+
+
+def test_configuration_batch_hash_covers_all_members():
+    source, manifest_sha = "123456789abc" + "d" * 28, "f" * 64
+    hashes = {name: "b" * 64 for name in configuration.CONFIG_FILES}
+    receipt = {
+        "schema_version": 1,
+        "source_sha": source,
+        "release_id": "sd-123456789abc",
+        "configuration_id": configuration.configuration_id(source, manifest_sha, hashes),
+        "manifest_sha256": manifest_sha,
+        "configuration_files": {**hashes, "worker.json": "c" * 64},
+        "operator_attested_measurement": False,
+        "installed": False,
+        "execution_verified": False,
+    }
+    with pytest.raises(policy.DeliveryError, match="batch identity mismatch"):
+        configuration.validate_receipt(receipt, installed=False)
+    receipt["configuration_id"] = "cfg-../../private"
+    with pytest.raises(policy.DeliveryError, match="configuration binding"):
+        configuration.validate_receipt(receipt, installed=False)
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://oj.test",
+        "https://oj.test:443",
+        "https://oj.test/",
+        "https://oj.test;include",
+        "https://user@oj.test",
+        "https://oj..test",
+        "https://-oj.test",
+        "https://OJ.test",
+    ],
+)
+def test_proxy_rejects_ambiguous_and_injected_origins(origin):
+    value = {
+        "schema_version": 1,
+        "origin": origin,
+        "certificate_sha256": "b" * 64,
+        "key_sha256": "c" * 64,
+    }
+    with pytest.raises(policy.DeliveryError):
+        proxy.validate_profile(value)
+
+
+@pytest.mark.parametrize(
+    "origin",
+    ["https://OJ.test", "https://oj.test:443", "https://oj..test", "https://-oj.test"],
+)
+def test_node_configuration_rejects_origins_rejected_by_proxy(origin):
+    with pytest.raises(policy.DeliveryError, match="canonical HTTPS DNS origin"):
+        configuration.validate_profile(
+            {
+                "schema_version": 1,
+                "origin": origin,
+                "worker_id": "a28adc33-8fbd-4a33-8b21-7a46431e506c",
+                "measurement_nonce": None,
+            }
+        )
+
+
+def test_proxy_policy_cannot_change_upstream_paths_or_limits():
+    value = {
+        "schema_version": 1,
+        "origin": "https://oj.test",
+        "certificate_sha256": "b" * 64,
+        "key_sha256": "c" * 64,
+        "upstream": "http://127.0.0.1:8100",
+    }
+    with pytest.raises(policy.DeliveryError, match="proxy profile fields"):
+        proxy.validate_profile(value)
+    value.pop("upstream")
+    value["certificate_sha256"] = "a" * 64
+    with pytest.raises(policy.DeliveryError):
+        proxy.validate_profile(value)
+
+
+def test_proxy_is_separate_from_private_execution_control():
+    value = {
+        "schema_version": 1,
+        "origin": "https://oj.test",
+        "certificate_sha256": "b" * 64,
+        "key_sha256": "c" * 64,
+    }
+    contents = proxy.render("sd-123456789abc", value).decode()
+    assert "127.0.0.1:8100" not in contents and "control.sock" not in contents
+    assert "location ~ ^/(api|internal)(/|$) { return 404; }" in contents
+    assert "ssl_reject_handshake on" in contents
+    assert "proxy_request_buffering off" in contents
+    assert "$request_uri" not in contents and "$http_cookie" not in contents
+    assert value["key_sha256"] not in contents
+    # systemd journal stdout is a socket, not a reopenable log file. Keep access
+    # records on the local namespace socket and restrict their fields to counters.
+    destination, format_name = re.findall(r"^\s+access_log (\S+) (\w+);$", contents, re.M)[0]
+    assert destination.startswith("syslog:server=unix:/")
+    tag = next(part[4:] for part in destination.split(",") if part.startswith("tag="))
+    assert re.fullmatch(r"[A-Za-z0-9_]+", tag)
+    assert format_name == "bounded" and "/dev/stdout" not in contents
+    log_fields = re.findall(r"^\s+log_format bounded '([^']+)';$", contents, re.M)[0]
+    assert log_fields.split() == [
+        "$request_method",
+        "$status",
+        "$body_bytes_sent",
+        "$request_time",
+    ]
+
+
+def test_proxy_cache_locations_preserve_their_own_security_headers():
+    contents = proxy.render(
+        "sd-123456789abc",
+        {
+            "schema_version": 1,
+            "origin": "https://oj.test",
+            "certificate_sha256": "b" * 64,
+            "key_sha256": "c" * 64,
+        },
+    ).decode()
+    # Nginx's default inheritance stops at a location containing add_header.
+    # Inspect each cache-owning location independently, including both SPAs,
+    # assets and all three API boundaries; a server-only header cannot pass.
+    blocks = re.findall(r"^        location ([^\n]+) \{\n(.*?)^        \}", contents, re.M | re.S)
+    cached = [(location, body) for location, body in blocks if "add_header Cache-Control" in body]
+    assert len(cached) == 6
+    assert {
+        location for location, _ in cached if location.startswith("/admin/") or location == "/"
+    } == {
+        "/admin/",
+        "/",
+    }
+    for location, body in cached:
+        assert body.count("add_header X-Content-Type-Options nosniff always;") == 1, location
+        assert body.count("add_header X-Frame-Options DENY always;") == 1, location
+    inherited = contents.split("        location = /api/v1/health/live", 1)[0]
+    assert "add_header X-Content-Type-Options nosniff always;" in inherited
+    assert "add_header X-Frame-Options DENY always;" in inherited
+    assert "add_header_inherit" not in contents  # No dependency on Nginx 1.29.3.
+
+
+def test_all_enabled_nginx_temporary_paths_use_only_the_bounded_proxy_volume():
+    contents = proxy.render(
+        "sd-123456789abc",
+        {
+            "schema_version": 1,
+            "origin": "https://oj.test",
+            "certificate_sha256": "b" * 64,
+            "key_sha256": "c" * 64,
+        },
+    ).decode()
+    paths = dict(re.findall(r"^\s+(\w+_temp_path) (\S+) 1 2;$", contents, re.M))
+    assert set(paths) == {
+        "client_body_temp_path",
+        "proxy_temp_path",
+        "fastcgi_temp_path",
+        "uwsgi_temp_path",
+        "scgi_temp_path",
+    }
+    assert {Path(value).parent for value in paths.values()} == {proxy_service.DATA}
+    assert "proxy_buffering off" in contents and "proxy_request_buffering off" in contents
+
+
+@pytest.mark.parametrize("bad", ["wrong-mode", "link", "regular-file"])
+def test_proxy_temp_directory_conflicts_are_not_overwritten(monkeypatch, tmp_path, bad):
+    monkeypatch.setattr(proxy_service, "DATA", tmp_path)
+    monkeypatch.setattr(proxy_service, "UID", os.getuid())
+    path = tmp_path / "body"
+    if bad == "wrong-mode":
+        path.mkdir(mode=0o755)
+        path.chmod(0o755)
+    elif bad == "link":
+        path.symlink_to(tmp_path, target_is_directory=True)
+    else:
+        path.write_text("known conflict")
+    before = path.lstat()
+    with pytest.raises(policy.DeliveryError, match="unknown proxy temporary directory"):
+        proxy_install.temporary_directories()
+    after = path.lstat()
+    assert (before.st_ino, before.st_mode, before.st_uid) == (
+        after.st_ino,
+        after.st_mode,
+        after.st_uid,
+    )
+
+
+def test_proxy_temp_directory_creation_is_bounded_and_repeatable(monkeypatch, tmp_path):
+    monkeypatch.setattr(proxy_service, "DATA", tmp_path)
+    monkeypatch.setattr(proxy_service, "UID", os.getuid())
+    monkeypatch.setattr(proxy_install.os, "chown", lambda *args: None)
+    proxy_install.temporary_directories()
+    before = {p.name: (p.stat().st_ino, stat.S_IMODE(p.stat().st_mode)) for p in tmp_path.iterdir()}
+    assert set(before) == {"body", "proxy", "fastcgi", "uwsgi", "scgi"}
+    assert all(mode == 0o700 for _, mode in before.values())
+    proxy_install.temporary_directories()
+    assert before == {
+        p.name: (p.stat().st_ino, stat.S_IMODE(p.stat().st_mode)) for p in tmp_path.iterdir()
+    }
+
+
+def test_ordinary_units_bind_exact_batch_without_inline_secrets():
+    source, checksum = "123456789abc" + "d" * 28, "f" * 64
+    hashes = {name: "b" * 64 for name in configuration.CONFIG_FILES}
+    receipt = {
+        "schema_version": 1,
+        "source_sha": source,
+        "release_id": "sd-123456789abc",
+        "configuration_id": configuration.configuration_id(source, checksum, hashes),
+        "manifest_sha256": checksum,
+        "configuration_files": hashes,
+        "operator_attested_measurement": False,
+        "installed": False,
+        "execution_verified": False,
+    }
+    units = services.render(receipt)
+    assert set(units) == {
+        "kf-api.service",
+        "kf-outbox.service",
+        "kf-coordinator.service",
+        "kf-worker.service",
+        "kf-problem-import.service",
+    }
+    for contents in units.values():
+        text = contents.decode()
+        assert "User=root" not in text
+        assert "MemorySwapMax=0" in text and "StartLimitBurst=3" in text
+        assert "IOAccounting=yes\n" in text
+        assert receipt["configuration_id"] in text and receipt["release_id"] in text
+        assert "Password=" not in text and "postgresql://" not in text and "amqp://" not in text
+    assert "PrivateNetwork=yes" in units["kf-problem-import.service"].decode()
+    assert "PrivatePIDs=yes" in units["kf-problem-import.service"].decode()
+    assert "RestrictAddressFamilies=AF_UNIX\n" in units["kf-problem-import.service"].decode()
+    assert "-m scripts.release.service_bootstrap outbox" in units["kf-outbox.service"].decode()
+    assert service_bootstrap.PYTHON_MODULES["outbox"] == ["kf_oj.infra.messaging.publisher"]
+    for name in ("outbox", "problem-import"):
+        contents = units["kf-" + name + ".service"].decode()
+        assert "Type=notify\nNotifyAccess=main\n" in contents
+        assert "TimeoutStartSec=120\n" in contents
+    for name in ("api", "coordinator", "worker"):
+        assert "Type=exec\n" in units["kf-" + name + ".service"].decode()
+        assert "NotifyAccess=" not in units["kf-" + name + ".service"].decode()
+    assert "LoadCredential=worker.json:" in units["kf-worker.service"].decode()
+
+
+def test_systemd_credential_bytes_are_checked_before_private_copy(tmp_path):
+    import hashlib
+    import os
+
+    path = tmp_path / "configuration.json"
+    content = b'{"synthetic_configuration":true}\n'
+    path.write_bytes(content)
+    path.chmod(0o400)
+    expected = hashlib.sha256(content).hexdigest()
+    assert service_bootstrap.read_credential(path, expected, os.getuid()) == content
+    with pytest.raises(policy.DeliveryError, match="fingerprint mismatch"):
+        service_bootstrap.read_credential(path, "b" * 64, os.getuid())
+    path.chmod(0o600)
+    path.write_bytes(b"x" * 32769)
+    with pytest.raises(policy.DeliveryError, match="bounded systemd credential"):
+        service_bootstrap.read_credential(path, expected, os.getuid())
+
+
+def test_import_configuration_has_the_same_required_admission(delivery_configuration):
+    _, _, data, node, endpoints, _ = delivery_configuration
+    raw = configuration.compose(ROOT, data, node, endpoints, attest=False)
+    api = configuration.environment_read(raw["api.env"])
+    importer = configuration.environment_read(raw["import.env"])
+    assert importer["KF_OJ_JUDGE_ADMISSION"] == api["KF_OJ_JUDGE_ADMISSION"]
+    assert set(importer) == service_bootstrap.ROLE_ENVIRONMENT["problem-import"]
+
+
+def ordinary_observation(role):
+    user, memory, pids, _, _, _ = services.PROFILES[role]
+    uid = str(service_bootstrap.preflight.ACCOUNTS[user])
+    return {
+        "cgroup": "/sys/fs/cgroup/kfonlinejudge.slice/kf-" + role + ".service",
+        "uids": [uid] * 4,
+        "gids": [uid] * 4,
+        "groups": [uid],
+        "no_new_privileges": "1",
+        "capabilities": ["0000000000000000"] * 5,
+        "pid": 1,
+        "service_limits": {
+            "memory.max": str(memory * 1024**2),
+            "memory.swap.max": "0",
+            "pids.max": str(pids),
+            "cpu.max": "100000 100000",
+        },
+        "node_limits": {
+            "memory.max": str(3840 * 1024**2),
+            "memory.swap.max": "0",
+            "pids.max": "384",
+            "cpu.max": "200000 100000",
+        },
+        "process_limits": {
+            "core": [0, 0],
+            "file": [64 * 1024**2] * 2,
+            "files": [64 if role == "problem-import" else 256] * 2,
+            "stack": [16 * 1024**2] * 2,
+        },
+        "interfaces": ["lo"] if role == "problem-import" else None,
+    }
+
+
+@pytest.mark.parametrize("role", services.PROFILES)
+def test_ordinary_guard_parser_requires_effective_bounds(role):
+    observed = ordinary_observation(role)
+    service_bootstrap.validate_runtime(role, observed)
+    observed["node_limits"]["memory.max"] = "max"
+    with pytest.raises(policy.DeliveryError, match="effective ordinary/node"):
+        service_bootstrap.validate_runtime(role, observed)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("pid", 43),
+        ("no_new_privileges", "0"),
+        ("groups", ["1200", "0"]),
+        ("capabilities", ["0000000000000001"] * 5),
+        ("interfaces", ["lo", "eth0"]),
+    ],
+)
+def test_import_guard_refuses_missing_pid_privilege_or_network_boundary(field, value):
+    observed = ordinary_observation("problem-import")
+    observed[field] = value
+    with pytest.raises(policy.DeliveryError):
+        service_bootstrap.validate_runtime("problem-import", observed)
+
+
+def test_unit_snapshot_binding_and_inventory_cannot_add_a_privileged_unit():
+    value = {
+        "schema_version": 1,
+        "source_sha": "123456789abc" + "d" * 28,
+        "configuration_id": "cfg-" + "e" * 24,
+        "configuration_receipt_sha256": "f" * 64,
+        "files": {name: "b" * 64 for name in service_install.NAMES},
+        "installed": False,
+        "services_started": False,
+        "execution_verified": False,
+    }
+    service_install.validate_receipt(value)
+    expected = "/etc/kf-onlinejudge/units/sd-123456789abc.cfg-" + "e" * 24
+    assert str(service_install.batch_directory(value)) == expected
+    assert (
+        str(service_install.previous_batch(expected + "/kf-api.service", "kf-api.service"))
+        == expected
+    )
+    value["files"]["kf-sandbox-factory.service"] = "b" * 64
+    with pytest.raises(policy.DeliveryError, match="unit inventory"):
+        service_install.validate_receipt(value)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "/etc/systemd/system/unknown.service",
+        "/tmp/sd-123456789abc.cfg-" + "e" * 24 + "/kf-api.service",
+        "/etc/kf-onlinejudge/units/sd-123456789abc.cfg-" + "e" * 24 + "/../kf-api.service",
+        "/etc//kf-onlinejudge/units/sd-123456789abc.cfg-" + "e" * 24 + "/kf-api.service",
+    ],
+)
+def test_unit_snapshot_does_not_adopt_foreign_or_ambiguous_targets(target):
+    with pytest.raises(policy.DeliveryError, match="unknown system unit target"):
+        service_install.previous_batch(target, "kf-api.service")
+
+
+def test_factory_composition_keeps_privileged_boundary_and_finite_lifetime():
+    source, checksum = "123456789abc" + "d" * 28, "f" * 64
+    hashes = {name: "b" * 64 for name in configuration.CONFIG_FILES}
+    receipt = {
+        "schema_version": 1,
+        "source_sha": source,
+        "release_id": "sd-123456789abc",
+        "configuration_id": configuration.configuration_id(source, checksum, hashes),
+        "manifest_sha256": checksum,
+        "configuration_files": hashes,
+        "operator_attested_measurement": False,
+        "installed": False,
+        "execution_verified": False,
+    }
+    contents = factory_service.render(receipt).decode()
+    assert " prepare-factory --config " in contents
+    assert " --lifetime-seconds 3600 --max-requests 4096" in contents
+    assert "KillMode=mixed" in contents and "Restart=no" in contents
+    assert "NoNewPrivileges" not in contents and "SystemCallFilter" not in contents
+    assert "PrivatePIDs" not in contents and "ProtectControlGroups" not in contents
+    assert "EnvironmentFile" not in contents and "LoadCredential" not in contents
+    assert "env -i" in contents and "MemorySwapMax=0" in contents
+    assert "IOAccounting=yes\n" in contents
+    assert receipt["configuration_id"] in contents
+
+
+def test_factory_install_receipt_cannot_claim_execution_or_move_outside_root_batch():
+    receipt = {
+        "schema_version": 1,
+        "source_sha": "123456789abc" + "d" * 28,
+        "configuration_id": "cfg-" + "e" * 24,
+        "configuration_receipt_sha256": "f" * 64,
+        "unit_sha256": "b" * 64,
+        "installed": False,
+        "services_started": False,
+        "execution_verified": False,
+    }
+    factory_service.validate_receipt(receipt)
+    assert str(factory_service.batch_directory(receipt)) == (
+        "/etc/kf-judge/units/sd-123456789abc.cfg-" + "e" * 24
+    )
+    receipt["execution_verified"] = True
+    with pytest.raises(policy.DeliveryError, match="factory unit binding"):
+        factory_service.validate_receipt(receipt)
+    receipt["execution_verified"] = False
+    receipt["configuration_id"] = "../foreign"
+    with pytest.raises(policy.DeliveryError, match="factory unit binding"):
+        factory_service.validate_receipt(receipt)
+
+
+def test_dependency_definitions_are_bound_to_two_non_admin_users_and_existing_queue(
+    delivery_configuration,
+):
+    import base64
+    import hashlib
+    from urllib.parse import urlsplit
+
+    from kf_oj.infra.messaging.publisher import QUEUE_ARGUMENTS
+
+    _, _, _, _, endpoints, _ = delivery_configuration
+    definition = dependencies.broker_definitions(endpoints)
+    assert {u["name"] for u in definition["users"]} == {"kf_outbox", "kf_worker"}
+    assert all(not u["tags"] for u in definition["users"])
+    for user in definition["users"]:
+        role = user["name"].removeprefix("kf_")
+        packed = base64.b64decode(user["password_hash"])
+        password = urlsplit(endpoints["amqp"][role]).password
+        assert (
+            len(packed) == 36
+            and packed[4:] == hashlib.sha256(packed[:4] + password.encode()).digest()
+        )
+        assert "password" not in user
+    assert definition["queues"][0]["arguments"] == QUEUE_ARGUMENTS
+    permissions = {p["user"]: p for p in definition["permissions"]}
+    assert permissions["kf_outbox"]["read"] == "^$"
+    assert permissions["kf_worker"]["write"] == "^$"
+    assert definition["vhosts"] == [{"name": "kf", "metadata": {"default_queue_type": "classic"}}]
+
+
+def test_dependency_templates_keep_socket_auth_network_and_actual_limit_scope():
+    files = dependencies.render("sd-123456789abc", "cfg-" + "e" * 24)
+    hba = files["pg_hba.conf"].decode()
+    assert "trust" not in hba and "scram-sha-256" in hba
+    broker = files["rabbitmq.conf"].decode()
+    assert "definitions.import_backend = local_filesystem" in broker
+    assert "listeners.tcp.1 = 127.0.0.1:5672" in broker
+    assert "default_pass" not in broker and "guest" not in broker
+    assert "default_limits.vhosts.1.max_connections = 4" in broker
+    assert "default_limits.vhosts.1.max_queues = 1" in broker
+    assert files["enabled_plugins"] == b"[].\n"
+    for name in ("postgres", "rabbitmq"):
+        unit = files["kf-" + name + ".service"].decode()
+        assert "User=root" not in unit and "MemoryMax=512M" in unit
+        assert "MemorySwapMax=0" in unit and "RestartSec=30" in unit
+        assert "IOAccounting=yes\n" in unit
+        sections = ConfigParser(interpolation=None, strict=False)
+        sections.read_string(unit)
+        assert sections.get("Unit", "RequiresMountsFor") == dependencies.STORAGE[name]["path"]
+        assert not sections.has_option("Service", "RequiresMountsFor")
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("root", "/shared"),
+        ("filesystem", "tmpfs"),
+        ("shared_elsewhere", True),
+        ("mountpoint", "/var/lib"),
+        ("capacity_bytes", 16 * 1024**3),
+        ("capacity_bytes", 128 * 1024**2),
+        ("capacity_bytes", True),
+        ("options", ["rw"]),
+    ],
+)
+@pytest.mark.parametrize("name,read_only", [("postgres", False), ("rabbitmq", True)])
+def test_dependency_storage_refuses_soft_unbounded_or_shared_capacity(
+    field, value, name, read_only
+):
+    observed = {
+        "root": "/",
+        "mountpoint": dependencies.STORAGE[name]["path"],
+        "filesystem": "ext4",
+        "options": ["ro" if read_only else "rw", "nosuid", "nodev", "noexec"],
+        "shared_elsewhere": False,
+        "capacity_bytes": dependencies.STORAGE[name]["filesystem_bytes"],
+    }
+    dependencies.validate_storage(name, observed, read_only=read_only)
+    observed[field] = value
+    with pytest.raises(policy.DeliveryError, match="hard dependency storage"):
+        dependencies.validate_storage(name, observed, read_only=read_only)
+
+
+def test_recovery_broker_read_only_view_is_not_normal_service_writability_proof():
+    observed = {
+        "root": "/",
+        "mountpoint": dependencies.STORAGE["rabbitmq"]["path"],
+        "filesystem": "ext4",
+        "options": ["ro", "nosuid", "nodev", "noexec"],
+        "shared_elsewhere": False,
+        "capacity_bytes": dependencies.STORAGE["rabbitmq"]["filesystem_bytes"],
+    }
+    dependencies.validate_storage("rabbitmq", observed, read_only=True)
+    with pytest.raises(policy.DeliveryError, match="hard dependency storage"):
+        dependencies.validate_storage("rabbitmq", observed)
+    observed["options"][0] = "rw"
+    dependencies.validate_storage("rabbitmq", observed)
+    with pytest.raises(policy.DeliveryError, match="hard dependency storage"):
+        dependencies.validate_storage("rabbitmq", observed, read_only=True)
+    observed["options"].append("ro")
+    with pytest.raises(policy.DeliveryError, match="hard dependency storage"):
+        dependencies.validate_storage("rabbitmq", observed, read_only=True)
+
+
+@pytest.mark.parametrize("name,read_only", [("postgres", True), ("rabbitmq", 1)])
+def test_recovery_storage_read_only_exception_is_only_for_explicit_broker_observation(
+    name, read_only
+):
+    with pytest.raises(policy.DeliveryError, match="observation purpose"):
+        dependencies.validate_storage(name, {}, read_only=read_only)
+
+
+def test_recovery_copy_independently_reads_back_a_flushed_trusted_file(tmp_path):
+    import time
+
+    contents = b"trusted engineering file readback\n"
+    source, target = tmp_path / "source", tmp_path / "destination"
+    source.write_bytes(contents)
+    item = {"bytes": len(contents), "sha256": hashlib.sha256(contents).hexdigest()}
+    uid, gid = os.getuid(), os.getgid()
+    witness = restore.write_file(source, target, item, uid, gid, 0o600, time.monotonic() + 30)
+    assert target.read_bytes() == contents
+    restore.unchanged_file(target, witness, uid, gid, 0o600)
+    assert restore.readback(target, item, uid, gid, 0o600, time.monotonic() + 30) == witness
+
+
+@pytest.mark.parametrize("component", range(9))
+def test_recovery_completion_refuses_a_different_file_identity_witness(tmp_path, component):
+    # Policy regression with a deliberately different expected witness, not a
+    # privileged filesystem mutation or independent-VM safety acceptance.
+    path = tmp_path / "trusted"
+    path.write_bytes(b"ordinary engineering metadata check\n")
+    path.chmod(0o600)
+    witness = list(restore.file_witness(path.lstat()))
+    witness[component] += 1
+    with pytest.raises(policy.DeliveryError, match="changed before completion"):
+        restore.unchanged_file(path, tuple(witness), os.getuid(), os.getgid(), 0o600)
+
+
+@pytest.mark.parametrize("mutation", ["admin", "password", "privilege", "queue", "limit"])
+def test_dependency_install_refuses_broker_hash_or_authority_tampering(
+    delivery_configuration,
+    mutation,
+):
+    _, _, _, _, endpoints, _ = delivery_configuration
+    value = dependencies.broker_definitions(endpoints)
+    dependency_install.validate_definitions(value, endpoints)
+    if mutation == "admin":
+        value["users"][0]["tags"] = ["administrator"]
+    elif mutation == "password":
+        value["users"][0]["password_hash"] = dependencies.salted_password("foreign-secret")
+    elif mutation == "privilege":
+        value["permissions"][1]["write"] = ".*"
+    elif mutation == "queue":
+        value["queues"][0]["arguments"]["x-overflow"] = "drop-head"
+    else:
+        value["users"][1]["limits"]["max-connections"] = 1000
+    with pytest.raises(policy.DeliveryError, match="broker"):
+        dependency_install.validate_definitions(value, endpoints)
+
+
+def test_dependency_receipt_excludes_foreign_files_and_health_claims():
+    receipt = {
+        "schema_version": 1,
+        "source_sha": "123456789abc" + "d" * 28,
+        "configuration_id": "cfg-" + "e" * 24,
+        "configuration_receipt_sha256": "f" * 64,
+        "files": {name: "b" * 64 for name in dependency_install.FILES},
+        "required_storage_mounts": dependencies.STORAGE,
+        "installed": False,
+        "storage_limits_verified": False,
+        "services_started": False,
+        "execution_verified": False,
+    }
+    dependency_install.validate_receipt(receipt)
+    directory = "/etc/kf-dependencies/sd-123456789abc.cfg-" + "e" * 24
+    assert str(dependency_install.batch_directory(receipt)) == directory
+    assert (
+        str(
+            dependency_install.previous_batch(
+                directory + "/kf-postgres.service", "kf-postgres.service"
+            )
+        )
+        == directory
+    )
+    receipt["execution_verified"] = True
+    with pytest.raises(policy.DeliveryError, match="binding"):
+        dependency_install.validate_receipt(receipt)
+    receipt["execution_verified"] = False
+    receipt["files"]["server.key"] = "b" * 64
+    with pytest.raises(policy.DeliveryError, match="inventory"):
+        dependency_install.validate_receipt(receipt)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "/etc/kf-onlinejudge/units/sd-123456789abc.cfg-" + "e" * 24 + "/kf-postgres.service",
+        "/etc/kf-dependencies/sd-123456789abc.cfg-" + "e" * 24 + "/../kf-postgres.service",
+        "/etc//kf-dependencies/sd-123456789abc.cfg-" + "e" * 24 + "/kf-postgres.service",
+    ],
+)
+def test_dependency_pointer_does_not_adopt_unknown_units_or_paths(target):
+    with pytest.raises(policy.DeliveryError, match="unknown dependency unit"):
+        dependency_install.previous_batch(target, "kf-postgres.service")
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        b"",
+        b"123\n",
+        b"b" * 64,
+        b"b" * 64 + b"\nextra\n",
+        b"b" * 32 + b" " + b"b" * 31 + b"\n",
+    ],
+)
+def test_database_initializer_refuses_empty_multiline_or_noncanonical_password(
+    contents,
+):
+    with pytest.raises(policy.DeliveryError, match="bootstrap password"):
+        dependency_initialize.validate_password(contents)
+
+
+def credential_acl(uid=1203, *, owner=4, user=4, group=0, mask=4, other=0):
+    return struct.pack("<I", 2) + b"".join(
+        struct.pack("<HHI", *row)
+        for row in [
+            (1, owner, 0xFFFFFFFF),
+            (2, user, uid),
+            (4, group, 0xFFFFFFFF),
+            (16, mask, 0xFFFFFFFF),
+            (32, other, 0xFFFFFFFF),
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        None,
+        "manifest",
+        "source",
+        "missing",
+        "duplicate",
+        "shipped",
+        "mode",
+        "running",
+        "receipt",
+    ],
+)
+def test_proxy_startup_binds_own_source_without_loading_judging_policy(
+    tmp_path, monkeypatch, changed
+):
+    source = "123456789abc" + "d" * 28
+    release = "sd-" + source[:12]
+    payload = tmp_path / release / "payload"
+    modules = payload / "delivery/scripts/release"
+    modules.mkdir(parents=True)
+    entries = []
+    for name in proxy_install.STARTUP_MODULES:
+        shipped = modules / name
+        shipped.write_bytes((ROOT / "scripts/release" / name).read_bytes())
+        shipped.chmod(0o444)
+        entries.append(
+            {
+                "path": "delivery/scripts/release/" + name,
+                "mode": "0444",
+                "bytes": shipped.stat().st_size,
+                "sha256": policy.digest(shipped),
+            }
+        )
+    if changed == "missing":
+        entries.pop()
+    elif changed == "duplicate":
+        entries.append(entries[0])
+    elif changed == "mode":
+        entries[0]["mode"] = "0644"
+    manifest_path = payload.parent / "manifest.json"
+    manifest_path.write_bytes(
+        policy.canonical(
+            {
+                "format": policy.FORMAT,
+                "schema_version": 1,
+                "release_id": release,
+                "source_sha": "e" * 40 if changed == "source" else source,
+                "files": entries,
+            }
+        )
+    )
+    checksum = policy.digest(manifest_path)
+    hashes = {name: "f" * 64 for name in configuration.CONFIG_FILES}
+    batch = configuration.configuration_id(source, checksum, hashes)
+    receipt_path = tmp_path / "configuration.json"
+    receipt_path.write_bytes(
+        policy.canonical(
+            {
+                "schema_version": 1,
+                "source_sha": source,
+                "release_id": release,
+                "configuration_id": batch,
+                "manifest_sha256": checksum,
+                "configuration_files": {
+                    str(configuration.installed_path(release, batch, name)): value
+                    for name, value in hashes.items()
+                },
+                "operator_attested_measurement": False,
+                "installed": True,
+                "execution_verified": False,
+            }
+        )
+    )
+    selected = {
+        "schema_version": 1,
+        "release_id": release,
+        "configuration_id": batch,
+        "manifest_sha256": checksum,
+        "receipt_sha256": policy.digest(receipt_path),
+    }
+    if changed == "manifest":
+        manifest_path.write_bytes(manifest_path.read_bytes() + b" ")
+    elif changed == "receipt":
+        receipt_path.write_bytes(receipt_path.read_bytes() + b" ")
+    elif changed == "shipped":
+        shipped = modules / "proxy_install.py"
+        shipped.chmod(0o644)
+        shipped.write_bytes(b"changed frozen source")
+        shipped.chmod(0o444)
+    real_digest = proxy_install.digest
+
+    def digest(path):
+        if changed == "running" and path == ROOT / "scripts/release/proxy_install.py":
+            return hashlib.sha256(b"different running helper").hexdigest()
+        return real_digest(path)
+
+    def selection(**kwargs):
+        assert kwargs == {"check_configuration": False}
+        return selected
+
+    monkeypatch.setattr(installer, "RELEASES", tmp_path)
+    monkeypatch.setattr(installer, "selection", selection)
+    monkeypatch.setattr(configuration, "installed_receipt_path", lambda *args: receipt_path)
+    monkeypatch.setattr(proxy_install.preflight, "protected", lambda *args, **kwargs: None)
+    monkeypatch.setattr(configuration, "private", lambda *args: None)
+    monkeypatch.setattr(proxy_install, "digest", digest)
+    monkeypatch.setattr(node_health, "binding", lambda: pytest.fail("unrelated judging policy"))
+    if changed:
+        with pytest.raises(policy.DeliveryError, match="proxy|selected delivery"):
+            proxy_install.startup_selection()
+    else:
+        assert proxy_install.startup_selection() == selected
+
+
+def test_proxy_startup_refuses_another_protected_selected_binding(monkeypatch):
+    monkeypatch.setattr(proxy_install.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(
+        proxy_install,
+        "startup_selection",
+        lambda: {
+            "release_id": "sd-123456789abc",
+            "configuration_id": "cfg-" + "e" * 24,
+        },
+    )
+    monkeypatch.setattr(installer, "selection", lambda **kwargs: pytest.fail("full image scan"))
+    with pytest.raises(policy.DeliveryError, match="another selected configuration"):
+        proxy_install.check_binding("sd-123456789abc", "cfg-" + "f" * 24)
+
+
+@pytest.mark.parametrize("changed", ["nginx.conf", "fullchain.pem", "key.pem", "selection"])
+def test_proxy_startup_still_refuses_own_bytes_or_selection_drift(monkeypatch, changed):
+    selected = {"release_id": "sd-123456789abc", "configuration_id": "cfg-" + "e" * 24}
+    fingerprints = {
+        name: hashlib.sha256(("synthetic protected " + name).encode()).hexdigest()
+        for name in ("nginx.conf", "fullchain.pem", "key.pem")
+    }
+    changed_fingerprint = hashlib.sha256(b"changed protected proxy bytes").hexdigest()
+    spec = {
+        "schema_version": 1,
+        **selected,
+        "origin": "https://oj.test",
+        "configuration_sha256": fingerprints["nginx.conf"],
+        "certificate_sha256": fingerprints["fullchain.pem"],
+        "key_sha256": fingerprints["key.pem"],
+    }
+    monkeypatch.setattr(proxy_install.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(proxy_install, "startup_selection", lambda: selected)
+    monkeypatch.setattr(proxy_service, "batch", lambda _: Path("/protected/proxy"))
+    monkeypatch.setattr(proxy_install, "read_json", lambda *args: spec)
+    monkeypatch.setattr(proxy_install.preflight, "protected", lambda *args, **kwargs: None)
+    real_stat = Path.stat
+    observed = {
+        Path("/protected/proxy/launch.json"),
+        Path("/protected/proxy/nginx.conf"),
+        proxy_service.ROOT / "tls/fullchain.pem",
+        proxy_service.ROOT / "tls/key.pem",
+    }
+
+    def file_info(path, *args, **kwargs):
+        if path not in observed:
+            return real_stat(path, *args, **kwargs)
+        return SimpleNamespace(
+            st_gid=1205 if path.name == "key.pem" else 0,
+            st_mode=stat.S_IFREG | (0o640 if path.name == "key.pem" else 0o644),
+            st_size=128,
+        )
+
+    monkeypatch.setattr(Path, "stat", file_info)
+    monkeypatch.setattr(
+        proxy_install,
+        "digest",
+        lambda p: changed_fingerprint if p.name == changed else fingerprints[p.name],
+    )
+    monkeypatch.setattr(proxy_install.journal, "check_profile", lambda **kwargs: None)
+    monkeypatch.setattr(proxy_install, "storage", lambda **kwargs: None)
+    monkeypatch.setattr(proxy_install, "account", lambda **kwargs: None)
+
+    def selection(**kwargs):
+        assert kwargs == {"check_configuration": False}
+        return {**selected, "configuration_id": "cfg-" + "f" * 24}
+
+    monkeypatch.setattr(installer, "selection", selection)
+    with pytest.raises(policy.DeliveryError, match="proxy.*changed"):
+        proxy_install.check_binding(selected["release_id"], selected["configuration_id"])
+
+
+def test_external_postgres_configuration_binds_ident_file_to_initialized_data():
+    files = dependencies.render("sd-123456789abc", "cfg-" + "e" * 24)
+    text = files["postgresql.conf"].decode()
+    paths = dict(re.findall(r"^(data_directory|ident_file|hba_file) = '([^']+)'$", text, re.M))
+    assert set(paths) == {"data_directory", "ident_file", "hba_file"}
+    assert Path(paths["ident_file"]) == Path(paths["data_directory"]) / "pg_ident.conf"
+    assert Path(paths["hba_file"]).parent == dependencies.CONFIGURATION_ROOT / (
+        "sd-123456789abc.cfg-" + "e" * 24
+    )
+
+
+@pytest.mark.parametrize("uid", [1201, 1202, 1203])
+def test_credential_acl_has_exactly_one_service_reader(uid):
+    assert credentials.validate_acl(credential_acl(uid), uid) is None
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"",
+        credential_acl()[:-1],
+        b"\x01" + credential_acl()[1:],
+        credential_acl(1202),
+        credential_acl(owner=6),
+        credential_acl(user=6),
+        credential_acl(group=4),
+        credential_acl(mask=7),
+        credential_acl(other=4),
+        credential_acl() + struct.pack("<HHI", 2, 4, 9999),
+    ],
+)
+def test_credential_acl_refuses_extra_readers_writers_or_noncanonical_acl(raw):
+    with pytest.raises(policy.DeliveryError, match="credential ACL differs"):
+        credentials.validate_acl(raw, 1203)
+
+
+def credential_metadata(monkeypatch, **overrides):
+    values = dict(st_mode=stat.S_IFREG | 0o440, st_nlink=1, st_uid=0, st_gid=0, st_size=65)
+    values.update(overrides)
+    monkeypatch.setattr(Path, "lstat", lambda _: SimpleNamespace(**values))
+    monkeypatch.setattr(credentials.os, "statvfs", lambda _: SimpleNamespace(f_flag=os.ST_RDONLY))
+    monkeypatch.setattr(credentials.os, "getxattr", lambda *args: credential_acl())
+    monkeypatch.setattr(credentials.preflight, "protected", lambda *args, **kwargs: None)
+
+
+def test_acl_credential_is_limited_to_fixed_readonly_systemd_binding(monkeypatch):
+    credential_metadata(monkeypatch)
+    path = Path("/run/credentials/kf-postgres-initialize.service/bootstrap")
+    assert credentials.validate_metadata(path, 1203, 65).st_size == 65
+    monkeypatch.setattr(credentials.os, "statvfs", lambda _: SimpleNamespace(f_flag=0))
+    with pytest.raises(policy.DeliveryError, match="bounded systemd credential"):
+        credentials.validate_metadata(path, 1203, 65)
+
+
+@pytest.mark.parametrize(
+    "path,uid",
+    [
+        ("/tmp/kf-postgres-initialize.service/bootstrap", 1203),
+        ("/run/credentials/foreign.service/bootstrap", 1203),
+        ("/run/credentials/kf-postgres-initialize.service/foreign", 1203),
+        ("/run/credentials/kf-postgres-initialize.service/bootstrap", 1202),
+    ],
+)
+def test_acl_credential_refuses_wrong_directory_member_or_role(monkeypatch, path, uid):
+    credential_metadata(monkeypatch)
+    with pytest.raises(policy.DeliveryError, match="bounded systemd credential"):
+        credentials.validate_metadata(Path(path), uid, 65)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"st_uid": 1203},
+        {"st_gid": 1203},
+        {"st_nlink": 2},
+        {"st_size": 66},
+        {"st_mode": stat.S_IFREG | 0o444},
+        {"st_mode": stat.S_IFLNK | 0o440},
+    ],
+)
+def test_acl_credential_refuses_unknown_file_identity_or_bounds(monkeypatch, overrides):
+    credential_metadata(monkeypatch, **overrides)
+    with pytest.raises(policy.DeliveryError, match="bounded systemd credential"):
+        credentials.validate_metadata(
+            Path("/run/credentials/kf-postgres-initialize.service/bootstrap"), 1203, 65
+        )
+
+
+def test_database_initialization_receipt_does_not_prove_migration_or_authentication():
+    receipt = {
+        "schema_version": 1,
+        "source_sha": "b" * 40,
+        "configuration_id": "cfg-" + "e" * 24,
+        "cluster_identity": {
+            "device": 5,
+            "inode": 900,
+            "major_version": 18,
+            "uid": 1203,
+        },
+        "bootstrap_sha256": "f" * 64,
+        "initialized": True,
+        "migrated": False,
+        "services_started": False,
+        "execution_verified": False,
+    }
+    dependency_initialize.validate_receipt(receipt)
+    receipt["migrated"] = True
+    with pytest.raises(policy.DeliveryError, match="binding"):
+        dependency_initialize.validate_receipt(receipt)
+    receipt["migrated"] = False
+    receipt["cluster_identity"]["uid"] = 0
+    with pytest.raises(policy.DeliveryError, match="cluster identity"):
+        dependency_initialize.validate_receipt(receipt)
+
+
+@pytest.mark.parametrize("state", ["inactive", "failed"])
+def test_initializer_cleanup_accepts_only_owned_stopped_empty_unit(monkeypatch, tmp_path, state):
+    group = tmp_path / "cgroup"
+    group.mkdir()
+    (group / "cgroup.procs").write_text("")
+    (group / "cgroup.events").write_text("populated 0\nfrozen 0\n")
+    monkeypatch.setattr(dependency_initialize, "CGROUP", group)
+    actual = {
+        "LoadState": "loaded",
+        "Description": "owned",
+        "Transient": "yes",
+        "ControlGroup": "/kfonlinejudge.slice/" + dependency_initialize.UNIT,
+        "ActiveState": state,
+        "MainPID": "0",
+    }
+    monkeypatch.setattr(dependency_initialize, "status", lambda: actual)
+    stopped = []
+    monkeypatch.setattr(service_install, "systemctl", lambda *args: stopped.append(args))
+    assert dependency_initialize.stop_owned_unit("owned") is None
+    assert stopped == [("stop", dependency_initialize.UNIT)]
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("Description", "foreign"), ("Transient", "no"), ("ControlGroup", "/foreign")],
+)
+def test_initializer_cleanup_never_stops_foreign_unit(monkeypatch, field, value):
+    actual = {
+        "LoadState": "loaded",
+        "Description": "owned",
+        "Transient": "yes",
+        "ControlGroup": "/kfonlinejudge.slice/" + dependency_initialize.UNIT,
+    }
+    actual[field] = value
+    monkeypatch.setattr(dependency_initialize, "status", lambda: actual)
+    monkeypatch.setattr(service_install, "systemctl", lambda *args: pytest.fail("foreign stop"))
+    with pytest.raises(policy.DeliveryError, match="foreign"):
+        dependency_initialize.stop_owned_unit("owned")
+
+
+@pytest.mark.parametrize("changed", ["Description", "ControlGroup"])
+def test_initializer_cleanup_refuses_unit_replacement_after_stop(monkeypatch, changed):
+    actual = {
+        "LoadState": "loaded",
+        "Description": "owned",
+        "Transient": "yes",
+        "ControlGroup": "/kfonlinejudge.slice/" + dependency_initialize.UNIT,
+        "ActiveState": "failed",
+        "MainPID": "0",
+    }
+    later = {**actual, changed: "foreign"}
+    states = iter([actual, later])
+    monkeypatch.setattr(dependency_initialize, "status", lambda: next(states))
+    monkeypatch.setattr(service_install, "systemctl", lambda *args: None)
+    with pytest.raises(policy.DeliveryError, match="ownership changed"):
+        dependency_initialize.stop_owned_unit("owned")
+
+
+@pytest.mark.parametrize(
+    "state,pid,procs,populated",
+    [
+        ("active", "0", "", 0),
+        ("failed", "45", "", 0),
+        ("failed", "0", "45\n", 0),
+        ("failed", "0", "", 1),
+    ],
+)
+def test_initializer_cleanup_refuses_live_or_residual_processes(
+    monkeypatch, tmp_path, state, pid, procs, populated
+):
+    group = tmp_path / "cgroup"
+    group.mkdir()
+    (group / "cgroup.procs").write_text(procs)
+    (group / "cgroup.events").write_text(f"populated {populated}\nfrozen 0\n")
+    monkeypatch.setattr(dependency_initialize, "CGROUP", group)
+    # Even a disappeared transient unit must not hide residual descendants.
+    monkeypatch.setattr(
+        dependency_initialize,
+        "status",
+        lambda: {
+            "LoadState": "not-found",
+            "ActiveState": state,
+            "MainPID": pid,
+        },
+    )
+    with pytest.raises(policy.DeliveryError, match="cleanup unconfirmed"):
+        dependency_initialize.stop_owned_unit("owned")
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("superuser", True),
+        ("set_role", True),
+        ("connection_limit", -1),
+        ("login", "postgres"),
+        ("inherited", False),
+    ],
+)
+def test_readiness_rejects_wrong_or_excess_database_authority(field, value):
+    observed = {
+        "login": "kf_coordinator",
+        "database": "kf_onlinejudge",
+        "canlogin": True,
+        "superuser": False,
+        "createdb": False,
+        "createrole": False,
+        "replication": False,
+        "bypassrls": False,
+        "member": True,
+        "inherited": True,
+        "set_role": False,
+        "connection_limit": 8,
+        "privileges": node_health.PRIVILEGES["coordinator"].copy(),
+        "functions": node_health.function_privileges("coordinator"),
+    }
+    node_health.validate_role("coordinator", observed)
+    observed[field] = value
+    with pytest.raises(policy.DeliveryError, match="role authority"):
+        node_health.validate_role("coordinator", observed)
+
+
+@pytest.mark.parametrize(
+    "missing", [*services.PROFILES, "postgres", "rabbitmq", "sandbox-factory", "proxy"]
+)
+@pytest.mark.parametrize("probe", [False, True])
+def test_missing_service_closes_readiness_without_dependency_queries(
+    monkeypatch, tmp_path, missing, probe
+):
+    selected = {"release_id": "sd-123456789abc", "configuration_id": "cfg-" + "1" * 24}
+    payload = tmp_path / "payload"
+    payload.mkdir()
+    (tmp_path / "manifest.json").write_text(json.dumps({"source_sha": "a" * 40}))
+    monkeypatch.setattr(node_health.operator_units, "guarded", lambda _: None)
+    monkeypatch.setattr(node_health, "binding", lambda: (selected, {}, payload))
+    monkeypatch.setattr(journal, "check_ready", lambda: {})
+    monkeypatch.setattr(proxy_install, "check_binding", lambda *args: {})
+    monkeypatch.setattr(node_health.proxy_health, "observe", lambda _: {})
+    monkeypatch.setattr(installer, "selection", lambda **kwargs: selected)
+
+    def inspect(name, binding):
+        if name == missing:
+            raise policy.DeliveryError("selected service is not running")
+        return {"active": True}
+
+    def unavailable(*args, **kwargs):
+        pytest.fail("missing required service must not start dependency queries")
+
+    monkeypatch.setattr(node_health, "inspect_unit", inspect)
+    monkeypatch.setattr(node_health, "roles", unavailable)
+    monkeypatch.setattr(node_health, "http", unavailable)
+    monkeypatch.setattr(dependency_install, "installed_endpoints", unavailable)
+    monkeypatch.setattr(node_health.operator_units, "run", unavailable)
+    monkeypatch.setattr(node_health.availability, "read", unavailable)
+    observed = node_health.observe(probe=probe)
+    assert observed["ready_for_admission"] is False
+    assert observed["service_preconditions_met"] is False
+    assert observed["isolation_verified"] is False
+    assert observed["errors"] == [missing + "_unavailable"]
+
+
+def test_readiness_refuses_context_swap_or_claimed_isolation_certificate():
+    value = {
+        "schema_version": 1,
+        "configuration_sha256": "b" * 64,
+        "supervisor_authorized": True,
+        "execution_gate": "required_per_execution",
+        "isolation_verified": False,
+        "max_concurrent_runs": 1,
+        "active_helpers": 0,
+        "cleanup_complete": True,
+        "remaining_requests": 4096,
+        "remaining_lifetime_seconds": 3600,
+    }
+    node_health.validate_factory(value, "b" * 64)
+    with pytest.raises(policy.DeliveryError, match="factory"):
+        node_health.validate_factory(value, "c" * 64)
+    value["isolation_verified"] = True
+    with pytest.raises(policy.DeliveryError, match="factory"):
+        node_health.validate_factory(value, "b" * 64)
+
+
+def test_busy_unknown_cleanup_or_expiring_factory_never_admits_new_work():
+    root = {
+        "cleanup_complete": True,
+        "active_helpers": 0,
+        "remaining_requests": 4096,
+        "remaining_lifetime_seconds": 3600,
+    }
+    counters = {
+        "in_flight": {"count_capped": 0, "truncated": False},
+        "cleanup_unconfirmed": {"count_capped": 0, "truncated": False},
+    }
+    admission = {
+        "legacy": {"max_job_wall_time_us": 60000000},
+        "multi_runtime": {"max_job_wall_time_us": 60000000},
+    }
+    assert node_health.admission_ready(root, counters, {"consumers": 1}, admission)
+    root["remaining_requests"] = 256
+    assert not node_health.admission_ready(root, counters, {"consumers": 1}, admission)
+    root["remaining_requests"] = 4096
+    root["remaining_lifetime_seconds"] = 119
+    assert not node_health.admission_ready(root, counters, {"consumers": 1}, admission)
+    root["remaining_lifetime_seconds"] = 3600
+    root["cleanup_complete"] = False
+    assert not node_health.admission_ready(root, counters, {"consumers": 1}, admission)
+    root["cleanup_complete"] = True
+    counters["cleanup_unconfirmed"]["count_capped"] = 1
+    assert not node_health.admission_ready(root, counters, {"consumers": 1}, admission)
+
+
+def test_actual_broker_argument_parser_keeps_typed_budgets_and_rejects_duplicates():
+    value = [
+        [key, "longstr" if key == "x-overflow" else "long", val]
+        for key, val in dependencies.QUEUE_ARGUMENTS.items()
+    ]
+    assert broker_health.queue_arguments(value) == dependencies.QUEUE_ARGUMENTS
+    value[-1] = value[0].copy()
+    with pytest.raises(policy.DeliveryError, match="duplicate"):
+        broker_health.queue_arguments(value)
+    with pytest.raises(policy.DeliveryError, match="budgets"):
+        broker_health.queue_arguments({**dependencies.QUEUE_ARGUMENTS, "x-max-length": 1024})
+
+
+def test_counter_projection_rejects_truncated_empty_and_source_admission_mismatch():
+    value = {
+        "schema_version": 1,
+        "admission": {"fixture": True},
+        "configured_workers": 1,
+        "lease_seconds": 120,
+        "counters": {
+            "queued": {"count_capped": 0, "truncated": False},
+            "in_flight": {"count_capped": 0, "truncated": False},
+            "cleanup_unconfirmed": {"count_capped": 0, "truncated": False},
+            "database_clock_unix_ms": 1791830000000,
+        },
+    }
+    node_health.validate_execution(value, value["admission"])
+    with pytest.raises(policy.DeliveryError, match="admission"):
+        node_health.validate_execution(value, {"fixture": False})
+    value["counters"]["cleanup_unconfirmed"]["truncated"] = True
+    with pytest.raises(policy.DeliveryError, match="bound"):
+        node_health.validate_execution(value, value["admission"])
+
+
+def empty_drain_projection():
+    return {
+        "execution": {
+            "database_clock_unix_ms": 1791830000000,
+            **{
+                name: {"count_capped": 0, "truncated": False}
+                for name in ("queued", "in_flight", "cleanup_unconfirmed")
+            },
+        },
+        "outbox": {
+            "schema_version": 1,
+            "pending_capped": 0,
+            "locked_capped": 0,
+            "truncated": False,
+        },
+        "imports": {
+            "schema_version": 1,
+            "worker_ready": True,
+            "reserved_bytes": 0,
+            "uploaded_capped": 0,
+            "validating_capped": 0,
+            "truncated": False,
+        },
+        "broker": {
+            "schema_version": 1,
+            "metadata_verified": True,
+            "messages_ready": 0,
+            "messages_unacknowledged": 0,
+            "message_bytes": 0,
+            "consumers": 1,
+        },
+        "factory": {
+            "schema_version": 1,
+            "configuration_sha256": "b" * 64,
+            "supervisor_authorized": True,
+            "execution_gate": "required_per_execution",
+            "isolation_verified": False,
+            "max_concurrent_runs": 1,
+            "active_helpers": 0,
+            "cleanup_complete": True,
+            "remaining_requests": 4096,
+            "remaining_lifetime_seconds": 3600,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "component,key,value",
+    [
+        ("outbox", "pending_capped", 1),
+        ("imports", "uploaded_capped", 1),
+        ("imports", "validating_capped", 1),
+        ("imports", "truncated", True),
+        ("broker", "messages_unacknowledged", 1),
+        ("factory", "cleanup_complete", False),
+        ("factory", "active_helpers", 1),
+    ],
+)
+def test_drain_cannot_release_with_pending_owner_work_or_unconfirmed_cleanup(component, key, value):
+    snapshot = empty_drain_projection()
+    assert lifecycle.projection_empty(snapshot)
+    snapshot[component][key] = value
+    if component == "factory" and key == "active_helpers":
+        snapshot["factory"]["cleanup_complete"] = False
+    assert not lifecycle.projection_empty(snapshot)
+
+
+@pytest.mark.parametrize("counter", ["queued", "in_flight", "cleanup_unconfirmed"])
+def test_drain_rejects_unknown_or_truncated_execution_counters(counter):
+    snapshot = empty_drain_projection()
+    snapshot["execution"][counter]["count_capped"] = False
+    with pytest.raises(policy.DeliveryError):
+        lifecycle.projection_empty(snapshot)
+    snapshot["execution"][counter] = {"count_capped": 0, "truncated": True}
+    assert not lifecycle.projection_empty(snapshot)
+
+
+def test_maintenance_receipt_cannot_silently_adopt_unknown_history_or_release_proof():
+    value = {
+        "schema_version": 1,
+        "source_sha": "b" * 40,
+        "configuration_id": "cfg-" + "c" * 24,
+        "action": "drain",
+        "phase": "quiescent",
+        "success": False,
+        "events": [],
+        "root_cleanup_confirmed": True,
+        "boot_id": "11111111-1111-4111-8111-111111111111",
+        "drain_projection": empty_drain_projection(),
+    }
+    lifecycle.validate_record(value)
+    with pytest.raises(policy.DeliveryError):
+        lifecycle.validate_record({**value, "clear_lease": True})
+    value["drain_projection"]["factory"]["cleanup_complete"] = False
+    with pytest.raises(policy.DeliveryError):
+        lifecycle.validate_record(value)
+
+
+def test_confirmed_drain_can_continue_to_stop_without_querying_stopped_owners(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    selected = {"release_id": "kf-" + "b" * 12, "configuration_id": "cfg-" + "c" * 24}
+    previous = {
+        "schema_version": 1,
+        "source_sha": "b" * 40,
+        "configuration_id": selected["configuration_id"],
+        "action": "drain",
+        "phase": "complete",
+        "success": True,
+        "events": [],
+        "root_cleanup_confirmed": True,
+        "boot_id": "11111111-1111-4111-8111-111111111111",
+        "drain_projection": empty_drain_projection(),
+    }
+    maintenance = object.__new__(lifecycle.Maintenance)
+    maintenance.selected = selected
+    maintenance.record = {**previous, "action": "stop", "root_cleanup_confirmed": False}
+    gate = SimpleNamespace(**selected, state="quiescent")
+    monkeypatch.setattr(lifecycle.availability, "read", lambda: gate)
+    observed = []
+    monkeypatch.setattr(
+        maintenance, "unit", lambda name: {"ActiveState": "inactive", "MainPID": "0"}
+    )
+    monkeypatch.setattr(maintenance, "empty_cgroup", lambda name: observed.append(name))
+    monkeypatch.setattr(maintenance, "root_stopped", lambda: observed.append("root-proof"))
+    assert maintenance.reuse_drained(previous) is True
+    assert observed == [*lifecycle.APPS, "root-proof"]
+    assert maintenance.record["drain_projection"] == previous["drain_projection"]
+    observed.clear()
+    with pytest.raises(policy.DeliveryError):
+        maintenance.reuse_drained({**previous, "boot_id": "22222222-2222-4222-8222-222222222222"})
+    assert observed == []
+    gate.state = "draining"
+    assert maintenance.reuse_drained(previous) is False
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("shared", True),
+        ("capacity_bytes", True),
+        ("capacity_bytes", 128 * 1024**2),
+        ("options", ["ro", "nosuid", "nodev", "noexec"]),
+        ("root", "/another-directory"),
+        ("filesystem", "tmpfs"),
+    ],
+)
+def test_journal_profile_never_substitutes_rotation_settings_for_a_dedicated_hard_volume(
+    field, value
+):
+    path = Path("/var/log/journal/" + "b" * 32 + ".kf-onlinejudge")
+    observed = {
+        "path": str(path),
+        "root": "/",
+        "filesystem": "ext4",
+        "options": ["rw", "nosuid", "nodev", "noexec"],
+        "shared": False,
+        "capacity_bytes": 64 * 1024**2,
+    }
+    journal.validate_storage(observed, path)
+    observed[field] = value
+    with pytest.raises(policy.DeliveryError):
+        journal.validate_storage(observed, path)
+
+
+def test_read_only_observer_mount_is_not_daemon_writability_proof():
+    path = Path("/var/log/journal/" + "b" * 32 + ".kf-onlinejudge")
+    observed = {
+        "path": str(path),
+        "root": "/",
+        "filesystem": "ext4",
+        "options": ["ro", "nosuid", "nodev", "noexec"],
+        "shared": False,
+        "capacity_bytes": 64 * 1024**2,
+    }
+    journal.validate_storage(observed, path, allow_read_only=True)
+    with pytest.raises(policy.DeliveryError):
+        journal.validate_storage(observed, path)
+
+
+@pytest.mark.parametrize("failure", ["publication", "receipt", "readback"])
+def test_maintenance_does_not_leave_admission_open_when_final_confirmation_fails(
+    monkeypatch, failure
+):
+    # Pure controller error flow, no Root, manager or filesystem operations.
+    # Publication atomicity, actual stop and disk failure remain VM-only cases.
+    gate = []
+    maintenance = object.__new__(lifecycle.Maintenance)
+    maintenance.selected = {}
+    maintenance.payload = Path("/unused")
+    monkeypatch.setattr(maintenance, "start_group", lambda *_: None)
+    monkeypatch.setattr(recovery_database, "admission_guard", nullcontext)
+
+    def publish(_, state):
+        gate.append(state)
+        if state == "open" and failure == "publication":
+            raise OSError("publication readback unavailable")
+
+    def save(_):
+        if failure == "receipt":
+            raise OSError("maintenance receipt unavailable")
+
+    monkeypatch.setattr(lifecycle.availability, "write", publish)
+    monkeypatch.setattr(maintenance, "save", save)
+    monkeypatch.setattr(
+        lifecycle.operator_units,
+        "run",
+        lambda *_: {
+            "service_preconditions_met": True,
+            "ready_for_admission": failure != "readback",
+        },
+    )
+    with pytest.raises((OSError, policy.DeliveryError)):
+        # Exercise the controller after its separately tested proof context;
+        # this model deliberately has no Root invocation or kernel boundary.
+        maintenance.start_locked(resume=True)
+    assert gate == ["draining", "open", "draining"]
+
+
+def test_failed_gate_closure_requires_known_api_stop_without_forging_owner_cleanup(
+    monkeypatch,
+):
+    # Controller flow only; actual cgroup/stop/full-volume evidence is VM-only.
+    maintenance = object.__new__(lifecycle.Maintenance)
+    maintenance.selected = {}
+    calls = []
+
+    def unavailable(*_):
+        raise OSError("publication unavailable")
+
+    monkeypatch.setattr(lifecycle.availability, "write", unavailable)
+    monkeypatch.setattr(
+        lifecycle,
+        "selected_unit",
+        lambda selected, name: {"ActiveState": "inactive", "MainPID": "0"},
+    )
+    monkeypatch.setattr(lifecycle.service_install, "systemctl", lambda *args: calls.append(args))
+    monkeypatch.setattr(
+        lifecycle.Maintenance,
+        "empty_cgroup",
+        lambda name: calls.append(("prove_empty", name)),
+    )
+    maintenance.close_failed_admission()
+    assert calls == [("--no-block", "stop", "kf-api.service"), ("prove_empty", "api")]
+
+
+@pytest.mark.parametrize("failure", ["exit", "timeout", "invalid_output", "cleanup"])
+def test_dispatched_operator_failure_is_distinct_from_preflight_refusal(monkeypatch, failure):
+    # Controller result handling only; real timeout/closure is verified in the VM.
+    from scripts.release import operator_units
+
+    selected = {"release_id": "sd-" + "a" * 12, "configuration_id": "cfg-" + "b" * 24}
+    payload = installer.RELEASES / selected["release_id"] / "payload"
+    monkeypatch.setattr(operator_units.os, "getuid", lambda: 0)
+    monkeypatch.setattr(operator_units.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(installer, "selection", lambda **_: selected)
+    observations = []
+
+    def manager(*args):
+        observations.append(args)
+        if len(observations) > 1 and failure == "cleanup":
+            return "LoadState=loaded\nTransient=yes\nDescription=foreign helper\n"
+        return "LoadState=not-found\nActiveState=inactive\nMainPID=0\nControlGroup=\n"
+
+    def dispatch(command, **kwargs):
+        assert kwargs["timeout"] == 915
+        assert "--property=RuntimeMaxSec=900" in command
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(command, 915)
+        return subprocess.CompletedProcess(
+            command,
+            1 if failure == "exit" else 0,
+            b"invalid" if failure == "invalid_output" else b'{"success":true}',
+            b"",
+        )
+
+    monkeypatch.setattr(service_install, "systemctl", manager)
+    monkeypatch.setattr(operator_units.subprocess, "run", dispatch)
+    with pytest.raises(operator_units.OperatorExecutionError):
+        operator_units.run("node-maintenance", payload, action="start")
+    assert len(observations) == 2
+
+
+@pytest.mark.parametrize("dispatched", [True, False])
+def test_outer_lifecycle_closes_admission_only_for_dispatched_helper_failure(
+    monkeypatch,
+    dispatched,
+):
+    from scripts.release import operator_units
+
+    selected = {"release_id": "sd-" + "a" * 12, "configuration_id": "cfg-" + "b" * 24}
+    gate = ["open"]
+    monkeypatch.setattr(sys, "argv", ["lifecycle", "--action", "start"])
+    monkeypatch.setattr(lifecycle.os, "getuid", lambda: 0)
+    monkeypatch.setattr(lifecycle.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(installer, "selection", lambda **_: selected)
+    monkeypatch.setattr(installer, "directory", lambda *_: None)
+
+    def failure(*args, **kwargs):
+        error = operator_units.OperatorExecutionError if dispatched else policy.DeliveryError
+        raise error(
+            "operator helper unavailable" if dispatched else "operator helper already active"
+        )
+
+    monkeypatch.setattr(operator_units, "run", failure)
+    monkeypatch.setattr(lifecycle.availability, "write", lambda binding, state: gate.append(state))
+    with pytest.raises(SystemExit) as exit_info:
+        lifecycle.main()
+    assert exit_info.value.code == 1
+    assert gate == (["open", "draining"] if dispatched else ["open"])
+
+
+def test_failed_dispatch_does_not_stop_an_unverified_api_when_gate_write_fails(
+    monkeypatch,
+):
+    calls = []
+
+    def unavailable(*_):
+        raise OSError("publication unavailable")
+
+    def foreign(*_):
+        raise policy.DeliveryError("lifecycle target is not the selected snapshot")
+
+    monkeypatch.setattr(lifecycle.availability, "write", unavailable)
+    monkeypatch.setattr(lifecycle, "selected_unit", foreign)
+    monkeypatch.setattr(service_install, "systemctl", lambda *args: calls.append(args))
+    with pytest.raises(policy.DeliveryError, match="selected snapshot"):
+        lifecycle.close_failed_admission({})
+    assert calls == []
+
+
+def proxy_catalog_shape():
+    # Structural example, not trusted executable bytes or ELF/version evidence.
+    names = ["bin/nginx", "lib/libc.so.6", "lib/ld-linux-x86-64.so.2"]
+    return {
+        "schema_version": 1,
+        "format": "kf.nginx.runtime.v1",
+        "version": "1.30.5",
+        "architecture": "x86_64",
+        "package_sha256": "b" * 64,
+        "directories": ["bin", "lib"],
+        "files": [
+            {
+                "path": name,
+                "bytes": 1,
+                "sha256": "b" * 64,
+                "mode": "0555" if name == "bin/nginx" else "0444",
+            }
+            for name in names
+        ],
+        "payload_bytes": 3,
+    }
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("version", "latest"), ("schema_version", True), ("architecture", "arm64")],
+)
+def test_proxy_runtime_cannot_silently_select_another_binary_profile(field, value):
+    value0 = proxy_catalog_shape()
+    proxy_runtime.validate(value0)
+    value0[field] = value
+    with pytest.raises(policy.DeliveryError):
+        proxy_runtime.validate(value0)
+
+
+def test_proxy_runtime_cannot_smuggle_tls_or_configuration_into_public_binary_bundle():
+    value = proxy_catalog_shape()
+    value["files"].append({"path": "lib/key.pem", "bytes": 1, "sha256": "b" * 64, "mode": "0444"})
+    value["payload_bytes"] += 1
+    with pytest.raises(policy.DeliveryError):
+        proxy_runtime.validate(value)
+    value = proxy_catalog_shape()
+    value["files"][1]["mode"] = "0555"
+    with pytest.raises(policy.DeliveryError):
+        proxy_runtime.validate(value)
+
+
+def proxy_process_shape():
+    return {
+        "uids": ["1205"] * 4,
+        "gids": ["1205"] * 4,
+        "groups": ["1205"],
+        "no_new_privileges": "1",
+        "capabilities": ["0000000000000400"] * 5,
+        "pid": 1,
+        "cgroup": "/sys/fs/cgroup/kfonlinejudge.slice/kf-proxy.service",
+        "limits": {
+            "memory.max": str(128 * 1024**2),
+            "memory.swap.max": "0",
+            "pids.max": "16",
+            "cpu.max": "50000 100000",
+        },
+        "node_limits": {
+            "memory.max": str(3840 * 1024**2),
+            "memory.swap.max": "0",
+            "pids.max": "384",
+            "cpu.max": "200000 100000",
+        },
+        "process_limits": {
+            "core": [0, 0],
+            "file": [8 * 1024**2] * 2,
+            "files": [256] * 2,
+            "stack": [16 * 1024**2] * 2,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("pid", True),
+        ("pid", 2),
+        ("uids", ["0"] * 4),
+        ("groups", ["1205", "0"]),
+        ("capabilities", ["0000000000200400"] * 5),
+    ],
+)
+def test_proxy_cannot_trade_the_listener_capability_for_other_authority(field, value):
+    observed = proxy_process_shape()
+    proxy_guard.validate_runtime(observed)
+    observed[field] = value
+    with pytest.raises(policy.DeliveryError):
+        proxy_guard.validate_runtime(observed)
+
+
+def test_proxy_render_is_fixed_to_a_selected_snapshot_without_business_credentials():
+    selected = {
+        "release_id": "sd-" + "b" * 12,
+        "configuration_id": "cfg-" + "c" * 24,
+        "manifest_sha256": "d" * 64,
+    }
+    text = proxy_service.render(selected).decode()
+    unit, service = text.split("[Service]", 1)
+    assert "RequiresMountsFor=" + str(proxy_service.DATA) in unit
+    assert "RequiresMountsFor=" not in service
+    assert "User=kf-proxy" in text and "CapabilityBoundingSet=CAP_NET_BIND_SERVICE" in text
+    assert "PrivatePIDs=yes" in text and "LogNamespace=kf-onlinejudge" in text
+    assert "IOAccounting=yes\n" in text
+    assert "EnvironmentFile=" not in text and "LoadCredential=" not in text
+
+
+def proxy_snapshot_metadata_fixture(
+    tmp_path, monkeypatch, *, current_source=False, pre_mount_fix=False
+):
+    """Ordinary file metadata only; Root authority and live replacement require VM."""
+    source = (
+        Path(proxy_service.__file__).read_bytes()
+        if current_source
+        else (Path(__file__).parent / "fixtures/delivery/legacy_proxy_service.py.txt").read_bytes()
+    )
+    if pre_mount_fix:
+        assert not current_source
+        source = (
+            Path(__file__).parent / "fixtures/delivery/pre_mount_fix_proxy_service.py.txt"
+        ).read_bytes()
+        assert len(source) == proxy_install.PRE_MOUNT_FIX_PROXY_SOURCE_BYTES
+        assert hashlib.sha256(source).hexdigest() == proxy_install.PRE_MOUNT_FIX_PROXY_SOURCE_SHA256
+    if not current_source and not pre_mount_fix:
+        assert len(source) == proxy_install.LEGACY_PROXY_SOURCE_BYTES
+        assert hashlib.sha256(source).hexdigest() == proxy_install.LEGACY_PROXY_SOURCE_SHA256
+    head = (
+        "07b3796f0ba1bb49c1e7aa7ec747ae22a0326eef"
+        if current_source
+        else "3923d8e45acaa91402322b15790371b4c78ef109"
+    )
+    release_id = "sd-" + head[:12]
+    releases, units = tmp_path / "releases", tmp_path / "unit-snapshots"
+    monkeypatch.setattr(proxy_install.install, "RELEASES", releases)
+    monkeypatch.setattr(proxy_service, "UNITS", units)
+    monkeypatch.setattr(proxy_install.preflight, "protected", lambda *a, **k: None)
+    monkeypatch.setattr(configuration, "private", lambda *a, **k: None)
+    relative = "delivery/scripts/release/proxy_service.py"
+    shipped = releases / release_id / "payload" / relative
+    shipped.parent.mkdir(parents=True)
+    shipped.write_bytes(source)
+    shipped.chmod(0o444)
+    catalog = releases / release_id / "manifest.json"
+    catalog.write_bytes(
+        policy.canonical(
+            {
+                "format": policy.FORMAT,
+                "schema_version": 1,
+                "source_sha": head,
+                "release_id": release_id,
+                "files": [
+                    {
+                        "path": relative,
+                        "sha256": hashlib.sha256(source).hexdigest(),
+                        "bytes": len(source),
+                        "mode": "0444",
+                    }
+                ],
+            }
+        )
+    )
+    manifest_sha = policy.digest(catalog)
+    hashes = {
+        name: hashlib.sha256(("ordinary-configuration:" + name).encode()).hexdigest()
+        for name in configuration.CONFIG_FILES
+    }
+    batch = configuration.configuration_id(head, manifest_sha, hashes)
+    receipt = tmp_path / "installed-receipt.json"
+    receipt.write_bytes(
+        policy.canonical(
+            {
+                "schema_version": 1,
+                "source_sha": head,
+                "release_id": release_id,
+                "configuration_id": batch,
+                "manifest_sha256": manifest_sha,
+                "configuration_files": {
+                    str(configuration.installed_path(release_id, batch, name)): value
+                    for name, value in hashes.items()
+                },
+                "operator_attested_measurement": False,
+                "installed": True,
+                "execution_verified": False,
+            }
+        )
+    )
+    monkeypatch.setattr(configuration, "installed_receipt_path", lambda *a: receipt)
+    selected = {
+        "schema_version": 1,
+        "release_id": release_id,
+        "configuration_id": batch,
+        "manifest_sha256": manifest_sha,
+        "receipt_sha256": policy.digest(receipt),
+    }
+    directory = units / proxy_service.batch(selected).name
+    directory.mkdir(parents=True)
+    (directory / "binding.json").write_bytes(policy.canonical(selected))
+    unit = directory / proxy_service.UNIT
+    rendered = proxy_service.render(selected)
+    mount = ("RequiresMountsFor=" + str(proxy_service.DATA) + "\n").encode()
+    writable = ("ReadWritePaths=" + str(proxy_service.DATA) + "\n").encode()
+    rendered = rendered.replace(mount, b"", 1).replace(writable, writable + mount, 1)
+    if not pre_mount_fix:
+        rendered = rendered.replace(b"IOAccounting=yes\n", b"", 1)
+    unit.write_bytes(rendered)
+    unit.chmod(0o644)
+    return directory, selected, unit, shipped, catalog
+
+
+def test_proxy_snapshot_recognizes_exact_catalog_bound_legacy_profile(tmp_path, monkeypatch):
+    directory, selected, unit, _, _ = proxy_snapshot_metadata_fixture(tmp_path, monkeypatch)
+    assert b"IOAccounting=" not in unit.read_bytes()
+    assert proxy_install.known_snapshot(directory) == selected
+    assert b"IOAccounting=yes\n" in proxy_service.render(selected)
+
+
+def test_proxy_snapshot_recognizes_exact_pre_mount_fix_source(tmp_path, monkeypatch):
+    directory, selected, unit, _, _ = proxy_snapshot_metadata_fixture(
+        tmp_path, monkeypatch, pre_mount_fix=True
+    )
+    assert b"IOAccounting=yes\n" in unit.read_bytes()
+    assert "RequiresMountsFor=" in unit.read_text().split("[Service]", 1)[1]
+    assert proxy_install.known_snapshot(directory) == selected
+
+
+def test_proxy_snapshot_current_source_requires_io_accounting(tmp_path, monkeypatch):
+    directory, _, _, _, _ = proxy_snapshot_metadata_fixture(
+        tmp_path, monkeypatch, current_source=True
+    )
+    with pytest.raises(policy.DeliveryError, match="proxy unit snapshot changed"):
+        proxy_install.known_snapshot(directory)
+
+
+def test_proxy_snapshot_current_profile_keeps_normal_validation(tmp_path, monkeypatch):
+    directory, selected, unit, _, _ = proxy_snapshot_metadata_fixture(
+        tmp_path, monkeypatch, current_source=True
+    )
+    unit.write_bytes(proxy_service.render(selected))
+    assert proxy_install.known_snapshot(directory) == selected
+
+
+@pytest.mark.parametrize("pre_mount_fix", [False, True])
+@pytest.mark.parametrize("changed", ["catalog", "source", "unit", "mode"])
+def test_proxy_snapshot_legacy_support_keeps_exact_authority_and_bytes(
+    tmp_path, monkeypatch, changed, pre_mount_fix
+):
+    directory, _, unit, shipped, catalog = proxy_snapshot_metadata_fixture(
+        tmp_path, monkeypatch, pre_mount_fix=pre_mount_fix
+    )
+    if changed == "catalog":
+        catalog.write_bytes(catalog.read_bytes() + b"\n")
+    elif changed == "source":
+        shipped.chmod(0o600)
+        shipped.write_bytes(shipped.read_bytes() + b"\n")
+        shipped.chmod(0o444)
+    elif changed == "unit":
+        unit.write_bytes(unit.read_bytes() + b"Environment=UNRECOGNIZED=1\n")
+    else:
+        unit.chmod(0o600)
+    with pytest.raises(policy.DeliveryError):
+        proxy_install.known_snapshot(directory)
+
+
+@pytest.mark.parametrize("failure", ["deadline", "exit", "output"])
+def test_broker_snapshot_failure_keeps_process_details_private(monkeypatch, failure):
+    from types import SimpleNamespace
+
+    from scripts.release import broker_snapshot
+
+    secret = "synthetic-private-process-detail"
+
+    def failed(command, *, stdout, stderr, timeout, env):
+        assert stderr == subprocess.DEVNULL and timeout == 30
+        assert command == [
+            str(broker_snapshot.CTL),
+            "-q",
+            "-n",
+            "kf@localhost",
+            "--timeout",
+            "5",
+            "eval",
+            broker_snapshot.SNAPSHOT_EXPRESSION,
+            "--formatter=json",
+        ]
+        assert env["ERL_EPMD_ADDRESS"] == "127.0.0.1"
+        assert "rpc:call(node(), erlang, apply," in command[7]
+        assert command[7].endswith("end, []], 5000).")
+        if failure == "deadline":
+            raise subprocess.TimeoutExpired([secret], timeout, stderr=secret.encode())
+        if failure == "output":
+            stdout.write(b"x" * 32769)
+        return SimpleNamespace(returncode=1 if failure == "exit" else 0)
+
+    monkeypatch.setattr(broker_snapshot.subprocess, "run", failed)
+    suffix = {
+        "deadline": "exceeded deadline",
+        "exit": "failed",
+        "output": "output exceeds bound",
+    }
+    with pytest.raises(policy.DeliveryError) as raised:
+        broker_snapshot.command()
+    assert str(raised.value) == "broker snapshot query " + suffix[failure]
+    assert secret not in str(raised.value)
+
+
+@pytest.mark.parametrize("change", [None, "node", "result", "rpc_failure", "extra", "duplicate"])
+def test_broker_snapshot_accepts_only_the_pinned_node_envelope(monkeypatch, change):
+    from types import SimpleNamespace
+
+    from scripts.release import broker_snapshot
+
+    snapshot = {"queues": [], "vhost_limits": [], "users": [], "permissions": []}
+    envelope = {"result": "ok", "node": "kf@localhost", "value": json.dumps(snapshot)}
+    if change == "node":
+        envelope["node"] = "other@localhost"
+    elif change == "result":
+        envelope["result"] = "error"
+    elif change == "rpc_failure":
+        envelope["value"] = ["badrpc", "timeout"]
+    elif change == "extra":
+        envelope["unknown"] = True
+    raw = json.dumps(envelope).encode()
+    if change == "duplicate":
+        raw = b'{"node":"kf@localhost",' + raw[1:]
+
+    def query(command, *, stdout, **kwargs):
+        stdout.write(raw)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(broker_snapshot.subprocess, "run", query)
+    if change is None:
+        assert broker_snapshot.command() == snapshot
+    else:
+        with pytest.raises(policy.DeliveryError):
+            broker_snapshot.command()
+
+
+@pytest.mark.parametrize("name", ["delete_queue", "users --delete", None])
+def test_broker_snapshot_has_no_command_or_expression_selector(monkeypatch, name):
+    from scripts.release import broker_snapshot
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("caller text launched a process")
+
+    monkeypatch.setattr(broker_snapshot.subprocess, "run", unexpected)
+    with pytest.raises(TypeError):
+        broker_snapshot.command(name)
+
+
+@pytest.mark.parametrize(
+    "kind,value", [("longstr", "classic"), ("longstr", "quorum"), ("long", "classic")]
+)
+def test_broker_arguments_allow_only_exact_automatic_classic_type(kind, value):
+    args = [
+        [k, "longstr" if k == "x-overflow" else "long", v]
+        for k, v in dependencies.QUEUE_ARGUMENTS.items()
+    ]
+    args.append(["x-queue-type", kind, value])
+    if (kind, value) == ("longstr", "classic"):
+        assert broker_health.queue_arguments(args) == dependencies.QUEUE_ARGUMENTS
+        supplied = {**dependencies.QUEUE_ARGUMENTS, "x-queue-type": "classic"}
+        assert broker_health.queue_arguments(supplied) == dependencies.QUEUE_ARGUMENTS
+        assert supplied["x-queue-type"] == "classic"
+        args[-1] = args[0].copy()
+    with pytest.raises(policy.DeliveryError):
+        broker_health.queue_arguments(args)
+
+
+@pytest.mark.parametrize(
+    "name", ["broker-health", "factory-health", "import-health", "outbox-health"]
+)
+@pytest.mark.parametrize("cpu", ["100000 100000", "max 100000", "200000 100000"])
+def test_fixed_health_guard_still_requires_exact_helper_and_node_cpu(monkeypatch, name, cpu):
+    import resource
+
+    from scripts.release import operator_units
+
+    _, uid, memory, pids, expected_cpu, _ = operator_units.PROFILES[name]
+    assert expected_cpu == 100
+    monkeypatch.setattr(operator_units.os, "getuid", lambda: uid)
+    monkeypatch.setattr(operator_units.os, "geteuid", lambda: uid)
+    monkeypatch.setattr(operator_units.os, "getgid", lambda: uid)
+    monkeypatch.setattr(operator_units.os, "getgroups", lambda: [uid])
+    group = Path("/sys/fs/cgroup/kfonlinejudge.slice/kf-" + name + ".service")
+    monkeypatch.setattr(operator_units.preflight, "current_cgroup", lambda: group)
+    observed = {
+        "memory.max": str(memory * 1024**2),
+        "memory.swap.max": "0",
+        "pids.max": str(pids),
+        "cpu.max": cpu,
+    }
+    node = {
+        "memory.max": str(3840 * 1024**2),
+        "memory.swap.max": "0",
+        "pids.max": "384",
+        "cpu.max": "200000 100000",
+    }
+
+    def read(path, *args, **kwargs):
+        if str(path) == "/proc/self/status":
+            return "NoNewPrivs: 1\n" + "\n".join(
+                k + ": 0" for k in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb")
+            )
+        return (observed if path.parent == group else node)[path.name]
+
+    monkeypatch.setattr(Path, "read_text", read)
+    limits = {
+        resource.RLIMIT_CORE: 0,
+        resource.RLIMIT_FSIZE: operator_units.FILE_LIMIT_MIB.get(name, 16) * 1024**2,
+        resource.RLIMIT_NOFILE: 256,
+        resource.RLIMIT_STACK: 16 * 1024**2,
+    }
+    monkeypatch.setattr(
+        operator_units.resource, "getrlimit", lambda key: (limits[key], limits[key])
+    )
+    if cpu == "100000 100000":
+        operator_units.guarded(name)
+    else:
+        with pytest.raises(policy.DeliveryError, match="budgets differ"):
+            operator_units.guarded(name)
+
+
+@pytest.mark.parametrize(
+    "name", ["factory_health", "outbox_health", "import_health", "broker_health"]
+)
+def test_readonly_helper_import_does_not_load_installation_or_configuration_tools(name):
+    # A fresh interpreter catches transitive imports hidden by this test module's
+    # own installer imports. Importing is safe here; helper main() is not run.
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import importlib,json,sys; importlib.import_module(sys.argv[1]); "
+            "print(json.dumps(sorted(sys.modules)))",
+            "scripts.release." + name,
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    loaded = set(json.loads(result.stdout))
+    assert not loaded.intersection(
+        {
+            "scripts.release.install",
+            "scripts.release.configuration",
+            "scripts.release.manifest",
+            "scripts.release.services",
+            "scripts.release.service_install",
+            "scripts.release.dependencies",
+            "sqlalchemy",
+            "pydantic",
+        }
+    )
+
+
+def test_readiness_database_handshake_uses_only_explicit_local_transport(monkeypatch):
+    import asyncio
+
+    import asyncpg
+
+    class ReachedLocalConnection(Exception):
+        pass
+
+    async def connect(raw, **kwargs):
+        assert raw == "synthetic-local-dsn"
+        assert kwargs["ssl"] is False
+        assert kwargs["timeout"] == 5 and kwargs["command_timeout"] == 2
+        assert kwargs["server_settings"]["default_transaction_read_only"] == "on"
+        assert kwargs["server_settings"]["statement_timeout"] == "2000"
+        raise ReachedLocalConnection
+
+    monkeypatch.setattr(asyncpg, "connect", connect)
+    with pytest.raises(ReachedLocalConnection):
+        asyncio.run(node_health.roles({"database": {"api": "synthetic-local-dsn"}}))
+
+
+@pytest.mark.parametrize(
+    "change", [None, "table_read", "column_write", "unlogged", "missing_entry"]
+)
+def test_identity_readiness_requires_only_the_audited_authority_entrypoint(change):
+    observed = {
+        "login": "kf_identity_operator",
+        "database": "kf_onlinejudge",
+        "canlogin": True,
+        "superuser": False,
+        "createdb": False,
+        "createrole": False,
+        "replication": False,
+        "bypassrls": False,
+        "member": True,
+        "inherited": True,
+        "set_role": False,
+        "connection_limit": 8,
+        "privileges": {
+            "accounts:SELECT": False,
+            "accounts:is_administrator:UPDATE": False,
+            "accounts:password_hash:SELECT": False,
+            "sessions:token_hash:SELECT": False,
+            "evaluations:SELECT": False,
+            "evaluations:state:UPDATE": False,
+        },
+        "functions": {
+            "public.kf_manage_account_authority(text,text)": True,
+            "public.kf_manage_account_authority_unlogged(text,text)": False,
+        },
+    }
+    if change == "table_read":
+        observed["privileges"]["accounts:SELECT"] = True
+    elif change == "column_write":
+        observed["privileges"]["accounts:is_administrator:UPDATE"] = True
+    elif change == "unlogged":
+        observed["functions"]["public.kf_manage_account_authority_unlogged(text,text)"] = True
+    elif change == "missing_entry":
+        observed["functions"]["public.kf_manage_account_authority(text,text)"] = False
+    if change is None:
+        node_health.validate_role("identity", observed)
+    else:
+        with pytest.raises(policy.DeliveryError, match="role authority"):
+            node_health.validate_role("identity", observed)

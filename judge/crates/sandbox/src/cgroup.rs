@@ -59,6 +59,45 @@ pub struct DelegatedCgroup {
 }
 
 impl DelegatedCgroup {
+    /// Read-only status: never repairs a missing controller or rewrites limits.
+    pub fn inspect(config: &ValidatedRuntimeConfig) -> Result<(), CgroupError> {
+        let policy = config.config();
+        let fd = open_directory(Path::new(&policy.delegated_cgroup_root))?;
+        let stat = rustix::fs::fstat(&fd).map_err(io::Error::from)?;
+        if stat.st_uid != rustix::process::geteuid().as_raw()
+            || stat.st_gid != 0
+            || stat.st_mode & 0o022 != 0
+            || rustix::fs::fstatfs(&fd).map_err(io::Error::from)?.f_type as u64 != CGROUP2_MAGIC
+            || read(&fd, "cgroup.type")?.trim() != "domain"
+            || !read(&fd, "cgroup.procs")?.trim().is_empty()
+            || read(&fd, "cgroup.max.depth")?.trim() != "1"
+            || read(&fd, "cgroup.max.descendants")?.trim() != policy.max_concurrent_runs.to_string()
+        {
+            return Err(invalid("delegation status differs").into());
+        }
+        for name in ["cgroup.controllers", "cgroup.subtree_control"] {
+            let observed = read(&fd, name)?;
+            if !["cpu", "memory", "pids"]
+                .iter()
+                .all(|required| observed.split_whitespace().any(|value| value == *required))
+            {
+                return Err(invalid("delegation controllers unavailable").into());
+            }
+        }
+        let budget = &policy.aggregate;
+        verify_limits(
+            &fd,
+            &AppliedLimits {
+                memory_bytes: budget.memory_bytes,
+                swap_bytes: 0,
+                processes: budget.processes,
+                cpu_quota_us: budget.cpu_quota_us,
+                cpu_period_us: budget.cpu_period_us,
+                oom_group: true,
+            },
+        )?;
+        Ok(())
+    }
     /// Config comes from the operator. Structural validation is not proof of
     /// config-file ownership, service delegation or an exec permit.
     /// The root must be empty, owned by this helper and not group/other writable.

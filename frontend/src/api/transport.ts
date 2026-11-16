@@ -15,6 +15,19 @@ export class ApiError extends Error {
   }
 }
 
+export function rejectSession401({
+  schemaPath,
+  response,
+}: {
+  schemaPath: string
+  response: Response
+}): void {
+  if (schemaPath !== '/api/v1/auth/me' || response.status !== 401) return
+  // Session identity follows the status even if its error body cannot be read.
+  void response.body?.cancel().catch(() => undefined)
+  throw new ApiError(401)
+}
+
 export function boundedFetch(
   fetcher: typeof fetch,
   unauthorized: () => void,

@@ -11,6 +11,9 @@ from sqlalchemy import text
 from kf_oj.contracts.judge import JudgeTaskNotification
 from kf_oj.core.settings import Settings
 from kf_oj.infra.db.session import build_engine, build_session_factory
+from kf_oj.infra.messaging.outbox_queries import OutboxQueries
+from kf_oj.infra.messaging.publisher_diagnostics import emit_failure
+from kf_oj.infra.service_readiness import notify_ready
 
 QUEUE = "kf.judge.evaluations.v1"
 QUEUE_ARGUMENTS = {
@@ -24,6 +27,9 @@ QUEUE_ARGUMENTS = {
 class OutboxRepository:
     def __init__(self, sessions):
         self.sessions = sessions
+
+    async def status(self):
+        return await OutboxQueries(self.sessions).status()
 
     async def claim(self):
         owner = uuid4()
@@ -124,6 +130,7 @@ class ConfirmedBroker:
 
 
 async def run(settings: Settings, stop: asyncio.Event):
+    _startup_phase = "configuration"
     if settings.amqp_url is None:
         raise ValueError("AMQP configuration required")
     engine = build_engine(settings)
@@ -134,7 +141,9 @@ async def run(settings: Settings, stop: asyncio.Event):
     for name in ("aio_pika", "aiormq", "pamqp"):
         logging.getLogger(name).disabled = True
     try:
+        _startup_phase = "database_connect"
         async with engine.connect() as c:
+            _startup_phase = "database_authority"
             allowed = await c.scalar(
                 text("""SELECT NOT r.rolsuper AND NOT r.rolbypassrls
                 AND pg_has_role(current_user,'kf_oj_platform','MEMBER')
@@ -143,6 +152,11 @@ async def run(settings: Settings, stop: asyncio.Event):
             )
             if not allowed:
                 raise ValueError("dedicated platform database role required")
+        if stop.is_set():
+            return
+        _startup_phase = "readiness_notify"
+        notify_ready()
+        _startup_phase = "running"
         while not stop.is_set():
             try:
                 item = await repository.claim()
@@ -175,7 +189,11 @@ def main():
 
     try:
         asyncio.run(entry())
-    except Exception:
+    except Exception as error:
+        try:
+            emit_failure(error, run.__code__)
+        except BaseException:
+            pass  # Diagnostics must never replace the original fatal result.
         raise SystemExit("outbox unavailable") from None
 
 

@@ -256,9 +256,18 @@ def test_operator_registry_example_preserves_old_protocol_and_binds_managed_runt
         ceiling = v1.RunLimits.model_validate(selected["per_task_ceiling"])
         assert cap.compile_ceiling.fits(ceiling) and cap.run_ceiling.fits(ceiling)
         manifest = fixture(f"judge-manifest.valid-{cap.language}", v2.JobManifest).model_copy(
-            update={"compile_limits": cap.compile_ceiling, "run_limits": cap.run_ceiling}
+            update={
+                "compile_limits": cap.compile_ceiling,
+                "run_limits": cap.run_ceiling,
+                "job_wall_time_us": policy.multi_runtime.max_job_wall_time_us,
+            }
         )
         policy.admit(manifest, 1)
+        with pytest.raises(ValueError, match="job deadline cannot cover execution budgets"):
+            policy.admit(
+                manifest.model_copy(update={"job_wall_time_us": cap.compile_ceiling.wall_time_us}),
+                1,
+            )
         changed = manifest.model_copy(
             update={"toolchain": manifest.toolchain.model_copy(update={"image_digest": "f" * 64})}
         )
