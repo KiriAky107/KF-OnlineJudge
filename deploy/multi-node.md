@@ -2,6 +2,8 @@
 
 本阶段使用一个控制端和两个 Worker，每个 Worker 一个执行槽位。至少一个 Worker 在独立机器/VM，保留现有 factory 隔离与停止确认。2026-11-16 已在同宿主的两个隔离 VM 上完成真实普通题与一次 Worker 进程故障接管；这不等同于跨物理主机性能基准或整套交付验收。
 
+本说明适用于独立 Worker 配置与手动搭建的固定拓扑。现有 immutable release 安装器仍生成单机 loopback 配置，尚未提供多节点配置生成/升级入口；不要直接修改受 release 绑定的已安装配置来套用本例。真实 VM 验证使用独立测试配置，不代表该安装器已支持多节点交付。
+
 ## 连接
 
 - 控制端的平台、Coordinator、PostgreSQL 继续监听 loopback。
