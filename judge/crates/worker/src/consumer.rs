@@ -21,7 +21,7 @@ use std::{
     io::{self, Read},
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex, RwLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -122,8 +122,7 @@ impl Config {
         c.ca_pem()?;
         if !c.socket.is_absolute()
             || !c.staging.is_absolute()
-            || c.admission.max_concurrent_jobs() != 1
-            || c.admission.prefetch() != 1
+            || c.admission.prefetch() != c.admission.max_concurrent_jobs()
         {
             return Err(error());
         }
@@ -240,7 +239,16 @@ impl Remote {
         if let Some(g) = grant {
             r = r.header("x-lease-token", g.lease_token.expose_secret());
         }
-        r.send().map_err(|_| error())
+        r.send().map_err(|e| {
+            io::Error::new(
+                if e.is_timeout() {
+                    io::ErrorKind::TimedOut
+                } else {
+                    io::ErrorKind::ConnectionAborted
+                },
+                "control request failed",
+            )
+        })
     }
     fn bytes(mut r: reqwest::blocking::Response, max: usize) -> io::Result<Vec<u8>> {
         if !r.status().is_success() || r.content_length().is_some_and(|n| n > max as u64) {
@@ -345,12 +353,41 @@ impl RemoteArtifacts {
             self.grant.binding.attempt_id.as_uuid()
         )
     }
+    fn get(&self, suffix: &str, max: usize) -> io::Result<Vec<u8>> {
+        // The platform's bounded read pool returns 429 under ordinary parallel
+        // load. Wait only for that backpressure, within the original total
+        // two-second artifact budget; authorization failures are never retried.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut waited = false;
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .ok_or_else(|| transport_error("artifact_read", "capacity_deadline"))?;
+            let response = self
+                .headers(self.client.get(self.url(suffix)).timeout(remaining))
+                .send()
+                .map_err(|_| transport_error("artifact_read", "send"))?;
+            if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS {
+                if !response.status().is_success() {
+                    eprintln!(
+                        "worker artifact read refused: http_{}",
+                        response.status().as_u16()
+                    );
+                }
+                return Remote::bytes(response, max);
+            }
+            drop(response);
+            if !waited {
+                eprintln!("worker artifact read backpressure: http_429");
+                waited = true;
+            }
+            std::thread::sleep(
+                Duration::from_millis(50).min(deadline.saturating_duration_since(Instant::now())),
+            );
+        }
+    }
     fn manifest(&self) -> io::Result<VersionedManifest> {
-        let response = self
-            .headers(self.client.get(self.url("/manifest")))
-            .send()
-            .map_err(|_| error())?;
-        authorized_manifest(&Remote::bytes(response, MAX_WIRE_BYTES)?, &self.grant)
+        authorized_manifest(&self.get("/manifest", MAX_WIRE_BYTES)?, &self.grant)
     }
 }
 fn authorized_manifest(raw: &[u8], grant: &Grant) -> io::Result<VersionedManifest> {
@@ -369,14 +406,10 @@ fn authorized_manifest(raw: &[u8], grant: &Grant) -> io::Result<VersionedManifes
 }
 impl ArtifactPort for RemoteArtifacts {
     fn read(&mut self, reference: &ArtifactReference) -> io::Result<Vec<u8>> {
-        let r = self
-            .headers(
-                self.client
-                    .get(self.url(&format!("/artifacts/{}", reference.digest.as_str()))),
-            )
-            .send()
-            .map_err(|_| error())?;
-        let bytes = Remote::bytes(r, reference.bytes as usize)?;
+        let bytes = self.get(
+            &format!("/artifacts/{}", reference.digest.as_str()),
+            reference.bytes as usize,
+        )?;
         if bytes.len() as u64 != reference.bytes
             || format!("{:x}", Sha256::digest(&bytes)) != reference.digest.as_str()
         {
@@ -396,6 +429,75 @@ fn lease_deadline(ms: u64) -> io::Result<Instant> {
         .ok_or_else(error)?;
     Ok(Instant::now() + Duration::from_millis(remaining))
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ControlFailure {
+    LeaseRejected,
+    LeaseExpired,
+    WorkerShutdown,
+    Timeout,
+    Transport,
+    Http(u16),
+    BodyRead,
+    InvalidResponse,
+    InvalidDeadline,
+}
+impl ControlFailure {
+    fn code(self) -> FailureCode {
+        match self {
+            Self::LeaseRejected | Self::LeaseExpired => FailureCode::LeaseLost,
+            Self::WorkerShutdown => FailureCode::WorkerShutdown,
+            _ => FailureCode::ControlPlaneUnavailable,
+        }
+    }
+    fn http(status: u16) -> Self {
+        if status == 409 {
+            Self::LeaseRejected
+        } else {
+            Self::Http(status)
+        }
+    }
+    fn transport(error: &io::Error) -> Self {
+        if error.kind() == io::ErrorKind::TimedOut {
+            Self::Timeout
+        } else {
+            Self::Transport
+        }
+    }
+    fn log(self, operation: &str, grant: &Grant, sequence: u64) {
+        // Identifiers and status only: never log tokens, URLs, or response bodies.
+        eprintln!(
+            "worker control failure: operation={operation} worker={} evaluation={} attempt={} sequence={sequence} reason={self:?}",
+            grant.binding.worker_id.as_uuid(),
+            grant.binding.evaluation_id.as_uuid(),
+            grant.binding.attempt_id.as_uuid()
+        );
+    }
+}
+fn cancel_control(
+    reason: &Mutex<Option<ControlFailure>>,
+    cancel: &AtomicBool,
+    failure: ControlFailure,
+) -> FailureCode {
+    let mut first = reason.lock().unwrap();
+    let code = first.get_or_insert(failure).code();
+    cancel.store(true, Ordering::Release);
+    code
+}
+fn renew_deadline(r: &Remote, g: &Grant) -> Result<Instant, ControlFailure> {
+    let response = r
+        .post("/internal/renew", &g.binding, Some(g))
+        .map_err(|e| ControlFailure::transport(&e))?;
+    if response.status().as_u16() != 200 {
+        return Err(ControlFailure::http(response.status().as_u16()));
+    }
+    let bytes = Remote::bytes(response, 1024).map_err(|_| ControlFailure::BodyRead)?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| ControlFailure::InvalidResponse)?;
+    let expires = value["expires_at_unix_ms"]
+        .as_u64()
+        .ok_or(ControlFailure::InvalidResponse)?;
+    lease_deadline(expires).map_err(|_| ControlFailure::InvalidDeadline)
+}
 fn execute(c: &Config, r: &Remote, g: Grant, stop: &AtomicBool) -> io::Result<()> {
     if g.binding.worker_id != c.worker_id {
         return Err(error());
@@ -411,28 +513,29 @@ fn execute(c: &Config, r: &Remote, g: Grant, stop: &AtomicBool) -> io::Result<()
         .map_err(|_| error())?;
     let cancel = AtomicBool::new(false);
     let done = AtomicBool::new(false);
+    let reason = Mutex::new(None);
     let initial = lease_deadline(g.expires_at_unix_ms)?;
     std::thread::scope(|scope| {
         let renew = scope.spawn(|| {
             let mut deadline = initial;
             let mut next = Instant::now() + Duration::from_secs(1);
             while !done.load(Ordering::Acquire) {
-                if stop.load(Ordering::Acquire) || Instant::now() >= deadline {
-                    cancel.store(true, Ordering::Release);
+                let local_failure = if stop.load(Ordering::Acquire) {
+                    Some(ControlFailure::WorkerShutdown)
+                } else if Instant::now() >= deadline { Some(ControlFailure::LeaseExpired) } else { None };
+                if let Some(failure) = local_failure {
+                    failure.log("renew", &g, 0);
+                    cancel_control(&reason, &cancel, failure);
                     break;
                 }
                 if Instant::now() >= next {
-                    let result = (|| {
-                        let response = r.post("/internal/renew", &g.binding, Some(&g))?;
-                        let b = Remote::bytes(response, 1024)?;
-                        let v: serde_json::Value =
-                            serde_json::from_slice(&b).map_err(|_| error())?;
-                        lease_deadline(v["expires_at_unix_ms"].as_u64().ok_or_else(error)?)
-                    })();
-                    match result {
+                    let request_started = Instant::now();
+                    match renew_deadline(r, &g) {
                         Ok(d) => deadline = d,
-                        Err(_) => {
-                            cancel.store(true, Ordering::Release);
+                        Err(failure) => {
+                            failure.log("renew", &g, 0);
+                            eprintln!("worker renewal cancellation: attempt={} elapsed_ms={} remaining_lease_ms={}", g.binding.attempt_id.as_uuid(), request_started.elapsed().as_millis(), deadline.saturating_duration_since(Instant::now()).as_millis());
+                            cancel_control(&reason, &cancel, failure);
                             break;
                         }
                     }
@@ -446,17 +549,25 @@ fn execute(c: &Config, r: &Remote, g: Grant, stop: &AtomicBool) -> io::Result<()
             let mut control = |stage, index| {
                 sequence += 1;
                 let report = stage_report(&m, g.binding.clone(), sequence, stage, index);
+                let mut failure = ControlFailure::Transport;
                 for _ in 0..2 {
-                    match r.post("/internal/stage", &report, Some(&g)) {
+                    failure = match r.post("/internal/stage", &report, Some(&g)) {
                         Ok(response) if response.status().as_u16() == 204 => return Ok(()),
-                        Ok(response) if response.status().as_u16() == 409 => break,
-                        _ => {}
+                        Ok(response) => ControlFailure::http(response.status().as_u16()),
+                        Err(error) => ControlFailure::transport(&error),
+                    };
+                    failure.log("stage", &g, sequence);
+                    eprintln!(
+                        "worker stage cancellation candidate: attempt={} stage={stage:?} case_index={index:?}",
+                        g.binding.attempt_id.as_uuid()
+                    );
+                    if failure == ControlFailure::LeaseRejected {
+                        break;
                     }
                     std::thread::sleep(Duration::from_millis(100));
                 }
-                cancel.store(true, Ordering::Release);
                 Err(StageFailure {
-                    code: FailureCode::LeaseLost,
+                    code: cancel_control(&reason, &cancel, failure),
                     cleanup_complete: true,
                 })
             };
@@ -510,7 +621,14 @@ fn execute(c: &Config, r: &Remote, g: Grant, stop: &AtomicBool) -> io::Result<()
                     )
                 }
             };
-            transport_cancellation_versioned(&mut report);
+            transport_cancellation_versioned(
+                &mut report,
+                reason
+                    .lock()
+                    .unwrap()
+                    .map(ControlFailure::code)
+                    .unwrap_or(FailureCode::ControlPlaneUnavailable),
+            );
             report
                 .validate_for_manifest(&m, &g.manifest_digest)
                 .map_err(|_| error())?;
@@ -518,8 +636,14 @@ fn execute(c: &Config, r: &Remote, g: Grant, stop: &AtomicBool) -> io::Result<()
             for _ in 0..3 {
                 match r.post("/internal/report", &report, Some(&g)) {
                     Ok(response) if response.status().as_u16() == 204 => return Ok(()),
-                    Ok(response) if response.status().as_u16() == 409 => break,
-                    _ => {}
+                    Ok(response) => {
+                        let failure = ControlFailure::http(response.status().as_u16());
+                        failure.log("report", &g, sequence);
+                        if failure == ControlFailure::LeaseRejected {
+                            break;
+                        }
+                    }
+                    Err(error) => ControlFailure::transport(&error).log("report", &g, sequence),
                 }
                 std::thread::sleep(Duration::from_millis(200));
             }
@@ -557,13 +681,13 @@ fn stage_report(
         }),
     }
 }
-fn transport_cancellation_versioned(report: &mut versions::JudgementReport) {
+fn transport_cancellation_versioned(report: &mut versions::JudgementReport, code: FailureCode) {
     match report {
-        versions::JudgementReport::V1(r) => transport_cancellation(r),
+        versions::JudgementReport::V1(r) => transport_cancellation(r, code),
         versions::JudgementReport::V2(r) => {
             if r.verdict == Verdict::Cancelled {
                 r.verdict = Verdict::SystemError;
-                r.failure_code = Some(FailureCode::LeaseLost);
+                r.failure_code = Some(code);
                 if r.compilation.status == CompilationStatus::Cancelled {
                     r.compilation.status = CompilationStatus::SystemError;
                 }
@@ -573,10 +697,10 @@ fn transport_cancellation_versioned(report: &mut versions::JudgementReport) {
 }
 // A task stopped by service shutdown/transport loss is an infrastructure failure.
 // User cancellation is authoritative in Coordinator and completes via actual stop proof.
-fn transport_cancellation(report: &mut JudgementReport) {
+fn transport_cancellation(report: &mut JudgementReport, code: FailureCode) {
     if report.verdict == Verdict::Cancelled {
         report.verdict = Verdict::SystemError;
-        report.failure_code = Some(FailureCode::LeaseLost);
+        report.failure_code = Some(code);
         if report.compilation.status == CompilationStatus::Cancelled {
             report.compilation.status = CompilationStatus::SystemError;
         }
@@ -601,8 +725,19 @@ async fn bounded<T>(
             )
         })
 }
-async fn consume(c: &Config, r: &Remote, stop: &AtomicBool) -> io::Result<()> {
-    if !r.reconcile(c)? {
+// Recovery drains the whole factory and staging tree. It must never overlap
+// another slot's claim/execution, including the gap between sandbox stages.
+fn reconcile_idle(c: &Config, r: &Remote, gate: &RwLock<()>) -> io::Result<bool> {
+    // An idle consumer must not wait for a long-running sibling when there
+    // is nothing to recover. Recheck under the exclusive gate before recovery.
+    if r.pending()?.is_empty() {
+        return Ok(true);
+    }
+    let _idle = gate.write().map_err(|_| error())?;
+    r.reconcile(c)
+}
+async fn consume(c: &Config, r: &Remote, stop: &AtomicBool, gate: &RwLock<()>) -> io::Result<()> {
+    if !reconcile_idle(c, r, gate)? {
         return Err(error());
     }
     let connection = bounded(
@@ -654,7 +789,7 @@ async fn consume(c: &Config, r: &Remote, stop: &AtomicBool) -> io::Result<()> {
         let delivery = tokio::time::timeout(Duration::from_secs(1), consumer.next()).await;
         let delivery = match delivery {
             Err(_) => {
-                if !r.reconcile(c)? {
+                if !reconcile_idle(c, r, gate)? {
                     return Err(error());
                 }
                 continue;
@@ -673,19 +808,27 @@ async fn consume(c: &Config, r: &Remote, stop: &AtomicBool) -> io::Result<()> {
                 continue;
             }
         };
+        let active = gate.read().map_err(|_| error())?;
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
         let grant = r.post("/internal/claim", &notice, None)?;
         match grant.status().as_u16() {
             200 => {
                 let g: versions::LeaseGrant =
                     decode_wire(&Remote::bytes(grant, MAX_WIRE_BYTES)?).map_err(|_| error())?;
                 let result = execute(c, r, g.into(), stop);
-                if result.is_err() && !r.reconcile(c)? {
+                drop(active);
+                if result.is_err() && !reconcile_idle(c, r, gate)? {
                     return Err(error());
                 }
                 // If report was unconfirmed, DB expiry/recovery owns the next notification.
                 bounded("amqp_ack", delivery.ack(BasicAckOptions::default())).await?;
             }
-            204 | 429 => bounded("amqp_ack", delivery.ack(BasicAckOptions::default())).await?,
+            204 | 429 => {
+                drop(active);
+                bounded("amqp_ack", delivery.ack(BasicAckOptions::default())).await?;
+            }
             _ => return Err(error()),
         }
     }
@@ -695,9 +838,31 @@ async fn consume(c: &Config, r: &Remote, stop: &AtomicBool) -> io::Result<()> {
 pub fn run(c: Config, stop: Arc<AtomicBool>) -> io::Result<()> {
     StagePublication::recover(&c.staging)?;
     let remote = Remote::new(&c)?;
+    let gate = RwLock::new(());
+    let runtime = tokio::runtime::Handle::current();
+    std::thread::scope(|scope| {
+        let slots: Vec<_> = (0..c.admission.max_concurrent_jobs())
+            .map(|_| {
+                let (c, remote, stop, gate, runtime) = (&c, &remote, &stop, &gate, &runtime);
+                scope.spawn(move || {
+                    let _runtime = runtime.enter();
+                    run_slot(c, remote, stop, gate);
+                })
+            })
+            .collect();
+        for slot in slots {
+            slot.join().map_err(|_| error())?;
+        }
+        Ok::<_, io::Error>(())
+    })?;
+    // All slots have finished before a global cleanup proof is requested.
+    let _ = remote.reconcile(&c);
+    Ok(())
+}
+fn run_slot(c: &Config, remote: &Remote, stop: &AtomicBool, gate: &RwLock<()>) {
     let mut failures = 0u32;
     while !stop.load(Ordering::Acquire) {
-        let result = block_on(consume(&c, &remote, &stop));
+        let result = block_on(consume(c, remote, stop, gate));
         if stop.load(Ordering::Acquire) {
             break;
         }
@@ -720,9 +885,6 @@ pub fn run(c: Config, stop: Arc<AtomicBool>) -> io::Result<()> {
             std::thread::sleep(Duration::from_millis(50));
         }
     }
-    // A still-live lease may take a bounded expiry interval to become pending.
-    let _ = remote.reconcile(&c);
-    Ok(())
 }
 
 #[cfg(test)]
@@ -741,6 +903,38 @@ mod tests {
                 "../../../../tests/fixtures/contracts/judge-admission.valid.json"
             )).unwrap()
         })
+    }
+    #[test]
+    fn slots_default_to_one_and_accept_bounded_parallelism() {
+        let mut value = config_value();
+        value["admission"]
+            .as_object_mut()
+            .unwrap()
+            .remove("max_concurrent_jobs");
+        value["admission"]
+            .as_object_mut()
+            .unwrap()
+            .remove("prefetch");
+        let c: Config = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(c.admission.max_concurrent_jobs(), 1);
+        for slots in [2, 4] {
+            value["admission"]["max_concurrent_jobs"] = slots.into();
+            value["admission"]["prefetch"] = slots.into();
+            let c: Config = serde_json::from_value(value.clone()).unwrap();
+            c.admission.validate().unwrap();
+            assert_eq!(c.admission.max_concurrent_jobs(), slots);
+        }
+    }
+    #[test]
+    fn active_slots_exclude_global_recovery_until_all_finish() {
+        let gate = RwLock::new(());
+        let first = gate.read().unwrap();
+        let second = gate.read().unwrap();
+        assert!(gate.try_write().is_err());
+        drop(first);
+        assert!(gate.try_write().is_err());
+        drop(second);
+        assert!(gate.try_write().is_ok());
     }
     #[test]
     fn remote_endpoints_require_tls_and_keep_numeric_broker_hosts() {
@@ -818,6 +1012,68 @@ mod tests {
         }
         drop(file);
         fs::remove_file(path).unwrap();
+    }
+    fn artifact_response_fixture(statuses: &[u16]) -> (io::Result<Vec<u8>>, usize, Duration) {
+        use std::io::Write;
+        use std::net::TcpListener;
+        use std::sync::atomic::AtomicUsize;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let stop = AtomicBool::new(false);
+        let count = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while !stop.load(Ordering::Acquire) {
+                    let (mut stream, _) = match listener.accept() {
+                        Ok(v) => v,
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(5));
+                            continue;
+                        }
+                        Err(e) => panic!("fixture listener: {e}"),
+                    };
+                    stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                    let mut request = [0; 4096];
+                    let _ = stream.read(&mut request);
+                    let index = count.fetch_add(1, Ordering::AcqRel);
+                    let status = statuses[index.min(statuses.len()-1)];
+                    let _ = write!(stream, "HTTP/1.1 {status} Fixture\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+                }
+            });
+            let c: Config = serde_json::from_value(config_value()).unwrap();
+            let grant: versions::LeaseGrant = decode_wire(include_bytes!(
+                "../../../../tests/fixtures/contracts-v2/judge-lease.valid.json"
+            ))
+            .unwrap();
+            let artifacts = RemoteArtifacts {
+                client: Remote::new(&c).unwrap().artifact_client,
+                base,
+                grant: grant.into(),
+            };
+            let start = Instant::now();
+            let result = artifacts.get("/fixture", 2);
+            let elapsed = start.elapsed();
+            stop.store(true, Ordering::Release);
+            (result, count.load(Ordering::Acquire), elapsed)
+        })
+    }
+    #[test]
+    fn artifact_backpressure_waits_without_retrying_authorization_failures() {
+        let (result, count, _) = artifact_response_fixture(&[429, 200]);
+        assert_eq!(result.unwrap(), b"ok");
+        assert_eq!(count, 2);
+        let (result, count, _) = artifact_response_fixture(&[404]);
+        assert!(result.is_err());
+        assert_eq!(count, 1);
+    }
+    #[test]
+    fn artifact_backpressure_keeps_original_total_deadline() {
+        let (result, count, elapsed) = artifact_response_fixture(&[429]);
+        assert!(result.is_err());
+        assert!(count > 1);
+        assert!(elapsed >= Duration::from_secs(2));
+        assert!(elapsed < Duration::from_secs(4));
     }
     #[test]
     fn real_delayed_control_response_does_not_extend_artifact_transport() {
@@ -968,18 +1224,154 @@ mod tests {
         assert!(amqp_uri("amqp://fixture:temporary@192.0.2.1/").is_err());
     }
     #[test]
+    fn control_failure_codes_and_first_cancel_reason_are_distinct() {
+        for status in [400, 401, 403, 429, 500, 503] {
+            assert_eq!(
+                ControlFailure::http(status).code(),
+                FailureCode::ControlPlaneUnavailable
+            );
+        }
+        assert_eq!(ControlFailure::http(409).code(), FailureCode::LeaseLost);
+        assert_eq!(ControlFailure::LeaseExpired.code(), FailureCode::LeaseLost);
+        assert_eq!(
+            ControlFailure::WorkerShutdown.code(),
+            FailureCode::WorkerShutdown
+        );
+        for failure in [
+            ControlFailure::Timeout,
+            ControlFailure::Transport,
+            ControlFailure::BodyRead,
+            ControlFailure::InvalidResponse,
+            ControlFailure::InvalidDeadline,
+        ] {
+            assert_eq!(failure.code(), FailureCode::ControlPlaneUnavailable);
+        }
+        let reason = Mutex::new(None);
+        let cancel = AtomicBool::new(false);
+        assert_eq!(
+            cancel_control(&reason, &cancel, ControlFailure::Timeout),
+            FailureCode::ControlPlaneUnavailable
+        );
+        assert!(cancel.load(Ordering::Acquire));
+        assert_eq!(
+            cancel_control(&reason, &cancel, ControlFailure::LeaseRejected),
+            FailureCode::ControlPlaneUnavailable
+        );
+        assert_eq!(*reason.lock().unwrap(), Some(ControlFailure::Timeout));
+    }
+    fn renew_fixture(status: u16, body: &str, delay: Duration) -> Result<Instant, ControlFailure> {
+        use std::io::Write;
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::scope(|scope| {
+            let server = scope.spawn(|| {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                let mut request = [0; 4096];
+                let _ = stream.read(&mut request);
+                std::thread::sleep(delay);
+                let _ = write!(stream, "HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            });
+            let client = Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_millis(100))
+                .build()
+                .unwrap();
+            let remote = Remote {
+                artifact_client: client.clone(),
+                client,
+                base,
+                service: "fixture".into(),
+            };
+            let grant: versions::LeaseGrant = decode_wire(include_bytes!(
+                "../../../../tests/fixtures/contracts-v2/judge-lease.valid.json"
+            ))
+            .unwrap();
+            let result = renew_deadline(&remote, &grant.into());
+            server.join().unwrap();
+            result
+        })
+    }
+    #[test]
+    fn renewal_http_transport_and_payload_failures_are_not_lease_expiry() {
+        for status in [401, 403, 429, 503] {
+            assert_eq!(
+                renew_fixture(status, "{}", Duration::ZERO).unwrap_err(),
+                ControlFailure::Http(status)
+            );
+        }
+        assert_eq!(
+            renew_fixture(409, "{}", Duration::ZERO).unwrap_err(),
+            ControlFailure::LeaseRejected
+        );
+        assert_eq!(
+            renew_fixture(200, "not json", Duration::ZERO).unwrap_err(),
+            ControlFailure::InvalidResponse
+        );
+        assert_eq!(
+            renew_fixture(200, "{}", Duration::ZERO).unwrap_err(),
+            ControlFailure::InvalidResponse
+        );
+        assert_eq!(
+            renew_fixture(200, r#"{"expires_at_unix_ms":0}"#, Duration::ZERO).unwrap_err(),
+            ControlFailure::InvalidDeadline
+        );
+        assert_eq!(
+            renew_fixture(200, "{}", Duration::from_millis(200)).unwrap_err(),
+            ControlFailure::Timeout
+        );
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        assert!(
+            renew_fixture(
+                200,
+                &format!(r#"{{"expires_at_unix_ms":{}}}"#, now + 8000),
+                Duration::ZERO
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            renew_fixture(
+                200,
+                &format!(r#"{{"expires_at_unix_ms":{}}}"#, now + 600000),
+                Duration::ZERO
+            )
+            .unwrap_err(),
+            ControlFailure::InvalidDeadline
+        );
+    }
+    #[test]
+    fn both_protocols_preserve_new_control_cancellation_codes() {
+        for raw in [
+            include_bytes!("../../../../tests/fixtures/contracts/judge-result.valid-cancel-before-compile.json").as_slice(),
+            include_bytes!("../../../../tests/fixtures/contracts-v2/judge-result.valid-cancel-before-compile.json").as_slice(),
+        ] {
+            for code in [FailureCode::ControlPlaneUnavailable, FailureCode::WorkerShutdown] {
+                let mut report: versions::JudgementReport = decode_wire(raw).unwrap();
+                transport_cancellation_versioned(&mut report, code);
+                let value = serde_json::to_value(&report).unwrap();
+                assert_eq!(value["failure_code"], serde_json::to_value(code).unwrap());
+                assert_eq!(value["verdict"], "system_error");
+                let _: versions::JudgementReport = decode_wire(&serde_json::to_vec(&report).unwrap()).unwrap();
+            }
+        }
+    }
+    #[test]
     fn stopped_transport_cannot_claim_user_cancellation() {
         let mut report: JudgementReport = decode_wire(include_bytes!(
             "../../../../tests/fixtures/contracts/judge-result.valid.json"
         ))
         .unwrap();
-        transport_cancellation(&mut report);
+        transport_cancellation(&mut report, FailureCode::LeaseLost);
         assert_eq!(report.verdict, Verdict::Accepted);
         assert_eq!(report.failure_code, None);
         report.cases.last_mut().unwrap().verdict = Verdict::Cancelled;
         report.verdict = Verdict::Cancelled;
         report.validate().unwrap();
-        transport_cancellation(&mut report);
+        transport_cancellation(&mut report, FailureCode::LeaseLost);
         assert_eq!(report.failure_code, Some(FailureCode::LeaseLost));
         assert_eq!(report.verdict, Verdict::SystemError);
         report.validate().unwrap();
@@ -991,7 +1383,7 @@ mod tests {
         report.verdict = Verdict::Cancelled;
         report.failure_code = None;
         report.validate().unwrap();
-        transport_cancellation(&mut report);
+        transport_cancellation(&mut report, FailureCode::LeaseLost);
         assert_eq!(report.compilation.status, CompilationStatus::SystemError);
         report.validate().unwrap();
     }

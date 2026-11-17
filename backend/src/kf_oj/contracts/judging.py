@@ -81,6 +81,8 @@ class FailureCode(StrEnum):
     SANDBOX_UNAVAILABLE = "sandbox_unavailable"
     CLEANUP_FAILED = "cleanup_failed"
     LEASE_LOST = "lease_lost"
+    CONTROL_PLANE_UNAVAILABLE = "control_plane_unavailable"
+    WORKER_SHUTDOWN = "worker_shutdown"
     JOB_DEADLINE = "job_deadline"
 
 

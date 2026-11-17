@@ -469,6 +469,7 @@ pub fn serve_with_limit(
     // Actual overall task delegation limits, including concurrency and no swap.
     let _delegated = crate::cgroup::DelegatedCgroup::open(&config).map_err(|_| denied())?;
     let mut active: Vec<Active> = Vec::new();
+    let mut recovery_needed = false;
     let deadline = Instant::now() + Duration::from_secs(lifetime_seconds);
     let mut health_checks = 0_usize;
     let mut last_health = None;
@@ -481,11 +482,15 @@ pub fn serve_with_limit(
                     // A failed helper may have durable residuals. Never start
                     // another task until recovery proves safe release.
                     if !status.success() {
-                        idle_recovery(&config)?;
+                        recovery_needed = true;
                     }
                 } else {
                     i += 1;
                 }
+            }
+            if recovery_needed && active.is_empty() {
+                idle_recovery(&config)?;
+                recovery_needed = false;
             }
             let stream = match listener.accept() {
                 Ok((s, _)) => s,
@@ -570,7 +575,7 @@ pub fn serve_with_limit(
                 let _ = channel.send(&Allocation::Refused {});
                 continue;
             }
-            if active.len() >= policy.max_concurrent_runs as usize {
+            if recovery_needed || active.len() >= policy.max_concurrent_runs as usize {
                 let _ = channel.send(&Allocation::Busy {});
                 continue;
             }

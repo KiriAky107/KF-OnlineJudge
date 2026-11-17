@@ -410,6 +410,7 @@ pub fn judge_local(
         admission,
     )
     .map_err(io::Error::other)?;
+    StagePublication::recover(staging)?;
     let cancellation = AtomicBool::new(false);
     let mut attempt = RuntimeAttempt::new(
         authorized,

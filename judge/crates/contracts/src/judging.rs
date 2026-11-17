@@ -236,6 +236,8 @@ pub enum FailureCode {
     SandboxUnavailable,
     CleanupFailed,
     LeaseLost,
+    ControlPlaneUnavailable,
+    WorkerShutdown,
     JobDeadline,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

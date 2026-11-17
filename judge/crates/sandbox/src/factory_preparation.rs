@@ -54,8 +54,6 @@ pub fn prepare(config_path: &Path) -> io::Result<serde_json::Value> {
         || policy.identities.worker_gid != 1202
         || policy.identities.first_task_uid != 100000
         || policy.identities.first_task_gid != 100000
-        || policy.identities.count != 1
-        || policy.max_concurrent_runs != 1
     {
         return Err(denied());
     }

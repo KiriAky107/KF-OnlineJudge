@@ -28,6 +28,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             database: Database::new(&c.database_url)?,
             admission: c.admission.clone(),
             lease_seconds: c.lease_seconds,
+            worker_capacities: c.workers.iter().map(|w| (w.id, w.capacity())).collect(),
             measurement_epochs: c
                 .workers
                 .iter()

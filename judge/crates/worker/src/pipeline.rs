@@ -186,7 +186,6 @@ impl<'a, A: ArtifactPort> Attempt<'a, A> {
         if wall_us == 0 || wall_us > MAX_JOB_WALL_US {
             return Err(io::Error::other("job deadline"));
         }
-        StagePublication::recover(&staging)?;
         let started = Instant::now();
         let deadline = started
             .checked_add(std::time::Duration::from_micros(wall_us))
@@ -483,6 +482,7 @@ pub fn judge_local(
     if digest(&canonical) != job.manifest_digest {
         return Err(io::Error::other("manifest digest mismatch"));
     }
+    StagePublication::recover(staging)?;
     let cancel = AtomicBool::new(false);
     let mut adapter = Attempt::new(
         LocalArtifacts::open(artifacts)?,
@@ -506,6 +506,31 @@ pub fn judge_local(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn constructing_parallel_attempt_does_not_scan_shared_staging() {
+        struct NoArtifacts;
+        impl ArtifactPort for NoArtifacts {
+            fn read(&mut self, _: &ArtifactReference) -> io::Result<Vec<u8>> {
+                unreachable!("construction must not read artifacts")
+            }
+        }
+        let staging = std::env::temp_dir().join(format!("kf-staging-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&staging).unwrap();
+        // Another slot may currently be creating its publication, before .owner exists.
+        std::fs::create_dir(staging.join("other-slot")).unwrap();
+        let cancel = AtomicBool::new(false);
+        assert!(
+            Attempt::new(
+                NoArtifacts,
+                "/unused.sock".into(),
+                staging.clone(),
+                1000,
+                &cancel
+            )
+            .is_ok()
+        );
+        std::fs::remove_dir_all(staging).unwrap();
+    }
     #[test]
     fn fixed_commands_and_source_digest() {
         let m: JobManifest = serde_json::from_str(include_str!(
