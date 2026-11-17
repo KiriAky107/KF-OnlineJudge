@@ -21,7 +21,7 @@ use std::{
     io::{self, Read},
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, RwLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -122,8 +122,7 @@ impl Config {
         c.ca_pem()?;
         if !c.socket.is_absolute()
             || !c.staging.is_absolute()
-            || c.admission.max_concurrent_jobs() != 1
-            || c.admission.prefetch() != 1
+            || c.admission.prefetch() != c.admission.max_concurrent_jobs()
         {
             return Err(error());
         }
@@ -345,12 +344,41 @@ impl RemoteArtifacts {
             self.grant.binding.attempt_id.as_uuid()
         )
     }
+    fn get(&self, suffix: &str, max: usize) -> io::Result<Vec<u8>> {
+        // The platform's bounded read pool returns 429 under ordinary parallel
+        // load. Wait only for that backpressure, within the original total
+        // two-second artifact budget; authorization failures are never retried.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut waited = false;
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .ok_or_else(|| transport_error("artifact_read", "capacity_deadline"))?;
+            let response = self
+                .headers(self.client.get(self.url(suffix)).timeout(remaining))
+                .send()
+                .map_err(|_| transport_error("artifact_read", "send"))?;
+            if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS {
+                if !response.status().is_success() {
+                    eprintln!(
+                        "worker artifact read refused: http_{}",
+                        response.status().as_u16()
+                    );
+                }
+                return Remote::bytes(response, max);
+            }
+            drop(response);
+            if !waited {
+                eprintln!("worker artifact read backpressure: http_429");
+                waited = true;
+            }
+            std::thread::sleep(
+                Duration::from_millis(50).min(deadline.saturating_duration_since(Instant::now())),
+            );
+        }
+    }
     fn manifest(&self) -> io::Result<VersionedManifest> {
-        let response = self
-            .headers(self.client.get(self.url("/manifest")))
-            .send()
-            .map_err(|_| error())?;
-        authorized_manifest(&Remote::bytes(response, MAX_WIRE_BYTES)?, &self.grant)
+        authorized_manifest(&self.get("/manifest", MAX_WIRE_BYTES)?, &self.grant)
     }
 }
 fn authorized_manifest(raw: &[u8], grant: &Grant) -> io::Result<VersionedManifest> {
@@ -369,14 +397,10 @@ fn authorized_manifest(raw: &[u8], grant: &Grant) -> io::Result<VersionedManifes
 }
 impl ArtifactPort for RemoteArtifacts {
     fn read(&mut self, reference: &ArtifactReference) -> io::Result<Vec<u8>> {
-        let r = self
-            .headers(
-                self.client
-                    .get(self.url(&format!("/artifacts/{}", reference.digest.as_str()))),
-            )
-            .send()
-            .map_err(|_| error())?;
-        let bytes = Remote::bytes(r, reference.bytes as usize)?;
+        let bytes = self.get(
+            &format!("/artifacts/{}", reference.digest.as_str()),
+            reference.bytes as usize,
+        )?;
         if bytes.len() as u64 != reference.bytes
             || format!("{:x}", Sha256::digest(&bytes)) != reference.digest.as_str()
         {
@@ -601,8 +625,19 @@ async fn bounded<T>(
             )
         })
 }
-async fn consume(c: &Config, r: &Remote, stop: &AtomicBool) -> io::Result<()> {
-    if !r.reconcile(c)? {
+// Recovery drains the whole factory and staging tree. It must never overlap
+// another slot's claim/execution, including the gap between sandbox stages.
+fn reconcile_idle(c: &Config, r: &Remote, gate: &RwLock<()>) -> io::Result<bool> {
+    // An idle consumer must not wait for a long-running sibling when there
+    // is nothing to recover. Recheck under the exclusive gate before recovery.
+    if r.pending()?.is_empty() {
+        return Ok(true);
+    }
+    let _idle = gate.write().map_err(|_| error())?;
+    r.reconcile(c)
+}
+async fn consume(c: &Config, r: &Remote, stop: &AtomicBool, gate: &RwLock<()>) -> io::Result<()> {
+    if !reconcile_idle(c, r, gate)? {
         return Err(error());
     }
     let connection = bounded(
@@ -654,7 +689,7 @@ async fn consume(c: &Config, r: &Remote, stop: &AtomicBool) -> io::Result<()> {
         let delivery = tokio::time::timeout(Duration::from_secs(1), consumer.next()).await;
         let delivery = match delivery {
             Err(_) => {
-                if !r.reconcile(c)? {
+                if !reconcile_idle(c, r, gate)? {
                     return Err(error());
                 }
                 continue;
@@ -673,19 +708,27 @@ async fn consume(c: &Config, r: &Remote, stop: &AtomicBool) -> io::Result<()> {
                 continue;
             }
         };
+        let active = gate.read().map_err(|_| error())?;
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
         let grant = r.post("/internal/claim", &notice, None)?;
         match grant.status().as_u16() {
             200 => {
                 let g: versions::LeaseGrant =
                     decode_wire(&Remote::bytes(grant, MAX_WIRE_BYTES)?).map_err(|_| error())?;
                 let result = execute(c, r, g.into(), stop);
-                if result.is_err() && !r.reconcile(c)? {
+                drop(active);
+                if result.is_err() && !reconcile_idle(c, r, gate)? {
                     return Err(error());
                 }
                 // If report was unconfirmed, DB expiry/recovery owns the next notification.
                 bounded("amqp_ack", delivery.ack(BasicAckOptions::default())).await?;
             }
-            204 | 429 => bounded("amqp_ack", delivery.ack(BasicAckOptions::default())).await?,
+            204 | 429 => {
+                drop(active);
+                bounded("amqp_ack", delivery.ack(BasicAckOptions::default())).await?;
+            }
             _ => return Err(error()),
         }
     }
@@ -695,9 +738,31 @@ async fn consume(c: &Config, r: &Remote, stop: &AtomicBool) -> io::Result<()> {
 pub fn run(c: Config, stop: Arc<AtomicBool>) -> io::Result<()> {
     StagePublication::recover(&c.staging)?;
     let remote = Remote::new(&c)?;
+    let gate = RwLock::new(());
+    let runtime = tokio::runtime::Handle::current();
+    std::thread::scope(|scope| {
+        let slots: Vec<_> = (0..c.admission.max_concurrent_jobs())
+            .map(|_| {
+                let (c, remote, stop, gate, runtime) = (&c, &remote, &stop, &gate, &runtime);
+                scope.spawn(move || {
+                    let _runtime = runtime.enter();
+                    run_slot(c, remote, stop, gate);
+                })
+            })
+            .collect();
+        for slot in slots {
+            slot.join().map_err(|_| error())?;
+        }
+        Ok::<_, io::Error>(())
+    })?;
+    // All slots have finished before a global cleanup proof is requested.
+    let _ = remote.reconcile(&c);
+    Ok(())
+}
+fn run_slot(c: &Config, remote: &Remote, stop: &AtomicBool, gate: &RwLock<()>) {
     let mut failures = 0u32;
     while !stop.load(Ordering::Acquire) {
-        let result = block_on(consume(&c, &remote, &stop));
+        let result = block_on(consume(c, remote, stop, gate));
         if stop.load(Ordering::Acquire) {
             break;
         }
@@ -720,9 +785,6 @@ pub fn run(c: Config, stop: Arc<AtomicBool>) -> io::Result<()> {
             std::thread::sleep(Duration::from_millis(50));
         }
     }
-    // A still-live lease may take a bounded expiry interval to become pending.
-    let _ = remote.reconcile(&c);
-    Ok(())
 }
 
 #[cfg(test)]
@@ -741,6 +803,38 @@ mod tests {
                 "../../../../tests/fixtures/contracts/judge-admission.valid.json"
             )).unwrap()
         })
+    }
+    #[test]
+    fn slots_default_to_one_and_accept_bounded_parallelism() {
+        let mut value = config_value();
+        value["admission"]
+            .as_object_mut()
+            .unwrap()
+            .remove("max_concurrent_jobs");
+        value["admission"]
+            .as_object_mut()
+            .unwrap()
+            .remove("prefetch");
+        let c: Config = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(c.admission.max_concurrent_jobs(), 1);
+        for slots in [2, 4] {
+            value["admission"]["max_concurrent_jobs"] = slots.into();
+            value["admission"]["prefetch"] = slots.into();
+            let c: Config = serde_json::from_value(value.clone()).unwrap();
+            c.admission.validate().unwrap();
+            assert_eq!(c.admission.max_concurrent_jobs(), slots);
+        }
+    }
+    #[test]
+    fn active_slots_exclude_global_recovery_until_all_finish() {
+        let gate = RwLock::new(());
+        let first = gate.read().unwrap();
+        let second = gate.read().unwrap();
+        assert!(gate.try_write().is_err());
+        drop(first);
+        assert!(gate.try_write().is_err());
+        drop(second);
+        assert!(gate.try_write().is_ok());
     }
     #[test]
     fn remote_endpoints_require_tls_and_keep_numeric_broker_hosts() {
@@ -818,6 +912,68 @@ mod tests {
         }
         drop(file);
         fs::remove_file(path).unwrap();
+    }
+    fn artifact_response_fixture(statuses: &[u16]) -> (io::Result<Vec<u8>>, usize, Duration) {
+        use std::io::Write;
+        use std::net::TcpListener;
+        use std::sync::atomic::AtomicUsize;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let stop = AtomicBool::new(false);
+        let count = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while !stop.load(Ordering::Acquire) {
+                    let (mut stream, _) = match listener.accept() {
+                        Ok(v) => v,
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(5));
+                            continue;
+                        }
+                        Err(e) => panic!("fixture listener: {e}"),
+                    };
+                    stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                    let mut request = [0; 4096];
+                    let _ = stream.read(&mut request);
+                    let index = count.fetch_add(1, Ordering::AcqRel);
+                    let status = statuses[index.min(statuses.len()-1)];
+                    let _ = write!(stream, "HTTP/1.1 {status} Fixture\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+                }
+            });
+            let c: Config = serde_json::from_value(config_value()).unwrap();
+            let grant: versions::LeaseGrant = decode_wire(include_bytes!(
+                "../../../../tests/fixtures/contracts-v2/judge-lease.valid.json"
+            ))
+            .unwrap();
+            let artifacts = RemoteArtifacts {
+                client: Remote::new(&c).unwrap().artifact_client,
+                base,
+                grant: grant.into(),
+            };
+            let start = Instant::now();
+            let result = artifacts.get("/fixture", 2);
+            let elapsed = start.elapsed();
+            stop.store(true, Ordering::Release);
+            (result, count.load(Ordering::Acquire), elapsed)
+        })
+    }
+    #[test]
+    fn artifact_backpressure_waits_without_retrying_authorization_failures() {
+        let (result, count, _) = artifact_response_fixture(&[429, 200]);
+        assert_eq!(result.unwrap(), b"ok");
+        assert_eq!(count, 2);
+        let (result, count, _) = artifact_response_fixture(&[404]);
+        assert!(result.is_err());
+        assert_eq!(count, 1);
+    }
+    #[test]
+    fn artifact_backpressure_keeps_original_total_deadline() {
+        let (result, count, elapsed) = artifact_response_fixture(&[429]);
+        assert!(result.is_err());
+        assert!(count > 1);
+        assert!(elapsed >= Duration::from_secs(2));
+        assert!(elapsed < Duration::from_secs(4));
     }
     #[test]
     fn real_delayed_control_response_does_not_extend_artifact_transport() {
