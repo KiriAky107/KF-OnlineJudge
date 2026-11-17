@@ -120,9 +120,13 @@ kf-worker check-stopped --socket /var/lib/kf-judge/factory/control.sock
 `database_url`、`workers`（`id`/64位十六进制 `token`）、不同的 `platform_token`、
 `admission`、`lease_seconds`（5–300）及 `recovery_seconds`（1–60）。
 Worker 配置包含 `worker_id`、`service_token`、`coordinator_url`、`platform_url`、
-`amqp_url`、固定 `socket`、自身 0700 `staging` 与同一 `admission`。
-本轮只允许单机数值 loopback HTTP/AMQP 与 loopback/绝对 Unix socket PostgreSQL；
-未提供跨机器 TLS 模式。Worker 固定并发/prefetch 为1，缺少有效领取权不能执行。
+`amqp_url`、固定 `socket`、自身 0700 `staging` 与对应 `admission`。
+Worker 的单槽位容量与 Coordinator 的全局容量分别配置，其余作业准入预算保持兼容。
+Worker 支持 HTTPS/AMQPS 远程端点；明文 HTTP/AMQP 仍仅允许数值 loopback。
+可选 `tls_ca_file` 指向 PEM CA 文件，HTTP 与 AMQP 共用该信任根并校验证书身份；
+不配置时使用 TLS 库的默认信任根。Coordinator 与数据库继续仅监听 loopback，
+远程控制流量通过 TLS 代理进入。Worker 固定并发/prefetch 为1，缺少有效领取权不能执行。
+双节点配置和运行范围见 [多节点运行说明](../deploy/multi-node.md)。
 
 `/health/live` 表示进程存活；配置后 `/health/ready` 连接数据库并核对最小权限。
 内部 HTTP 先认证再解析有界请求，整体10秒，数据库连接槽位4，handler槽位16。
@@ -150,7 +154,7 @@ Worker SIGTERM 取消当前执行后退出，SIGKILL 由 Root EOF 清理、租�
 
 新增外部依赖职责：Coordinator 的 `tokio-postgres 0.7.15` 只负责专用角色数据库事务；
 Worker 的 `lapin 2.5.5` / `futures-lite 2.6.1` 负责 AMQP 通知，`reqwest 0.12.24`
-负责有界 loopback 请求并禁用代理与重定向；`uuid 1.27.0` 生成身份，`sha2 0.10.9`
+负责有界 HTTP/TLS 请求并禁用代理与重定向；`uuid 1.27.0` 生成身份，`sha2 0.10.9`
 验证清单/工件/报告摘要。Engine 不引入数据库、HTTP、队列或权限依赖。
 
 
