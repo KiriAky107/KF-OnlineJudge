@@ -620,7 +620,7 @@ export interface components {
          * FailureCode
          * @enum {string}
          */
-        FailureCode: "artifact_unavailable" | "sandbox_unavailable" | "cleanup_failed" | "lease_lost" | "job_deadline";
+        FailureCode: "artifact_unavailable" | "sandbox_unavailable" | "cleanup_failed" | "lease_lost" | "control_plane_unavailable" | "worker_shutdown" | "job_deadline";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */

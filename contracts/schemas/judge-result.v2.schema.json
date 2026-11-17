@@ -188,6 +188,8 @@
         "sandbox_unavailable",
         "cleanup_failed",
         "lease_lost",
+        "control_plane_unavailable",
+        "worker_shutdown",
         "job_deadline"
       ],
       "title": "FailureCode",
