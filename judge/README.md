@@ -121,7 +121,7 @@ kf-worker check-stopped --socket /var/lib/kf-judge/factory/control.sock
 `admission`、`lease_seconds`（5–300）及 `recovery_seconds`（1–60）。
 Worker 配置包含 `worker_id`、`service_token`、`coordinator_url`、`platform_url`、
 `amqp_url`、固定 `socket`、自身 0700 `staging` 与对应 `admission`。
-Worker 的单槽位容量与 Coordinator 的全局容量分别配置，其余作业准入预算保持兼容。
+Worker 默认单槽，可显式配置有限多槽；Coordinator 分别限制每 Worker 槽位、可选 CPU/内存预留预算与全局容量。配置与 S0/S1 口径见 `deploy/multi-node.md`；原有租约与清理证明语义不变。
 Worker 支持 HTTPS/AMQPS 远程端点；明文 HTTP/AMQP 仍仅允许数值 loopback。
 可选 `tls_ca_file` 指向 PEM CA 文件，HTTP 与 AMQP 共用该信任根并校验证书身份；
 不配置时使用 TLS 库的默认信任根。Coordinator 与数据库继续仅监听 loopback，
