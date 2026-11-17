@@ -1,4 +1,5 @@
 //! Execution authority is applied under row locks, using database clock and fencing.
+use crate::admission::{AdmissionRefusal, ResourceBudget, WorkerCapacity};
 use crate::database::{Database, Error, Result};
 use kf_contracts::judging_versions::{
     JobManifest, JudgementReport, LeaseGrant, NodeAdmission, StageReport, StoppedReport,
@@ -14,6 +15,7 @@ pub struct Repository {
     pub database: Database,
     pub admission: NodeAdmission,
     pub lease_seconds: u32,
+    pub worker_capacities: HashMap<Identifier, WorkerCapacity>,
     pub measurement_epochs: HashMap<Identifier, Digest>,
 }
 pub fn identifier(v: Uuid) -> Identifier {
@@ -160,6 +162,37 @@ impl Repository {
         let m = self.manifest(&t, &e).await?;
         let number = e.get::<_, i32>("attempts_count") + 1;
         self.admission.admit(&m, number as u32).map_err(invalid)?;
+        let capacity = self.worker_capacities.get(&worker).ok_or(Error::Rejected)?;
+        // Expiry/revocation is not a cleanup proof. Keep the reservation until
+        // an accepted report proves cleanup, including while cancelling.
+        let rows = t.query(
+            "SELECT manifest FROM judge_attempts WHERE worker_id=$1 AND cleanup_complete IS DISTINCT FROM true",
+            &[&worker.as_uuid()],
+        ).await?;
+        let reservations = rows
+            .into_iter()
+            .map(|row| {
+                let manifest: JobManifest = as_wire(row.get("manifest"))?;
+                Ok(ResourceBudget::for_manifest(
+                    &manifest,
+                    capacity.task_cpu_millicores,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if let Err(reason) = capacity.admit(
+            ResourceBudget::for_manifest(&m, capacity.task_cpu_millicores),
+            &reservations,
+        ) {
+            eprintln!(
+                "worker admission refused: worker={} reason={reason:?}",
+                worker.as_uuid()
+            );
+            return Err(match reason {
+                AdmissionRefusal::JobExceedsBudget => Error::Invalid,
+                _ => Error::Busy,
+            });
+        }
+
         let attempt = Uuid::new_v4();
         let token = secret();
         let fence = e

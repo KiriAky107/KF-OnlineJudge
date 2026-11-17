@@ -1,4 +1,5 @@
 //! Sole execution-state writer. The Backend owns migrations and initial rows.
+pub mod admission;
 pub mod api;
 pub mod config;
 pub mod database;
