@@ -69,6 +69,10 @@ test('maintenance views keep readable records without rendering raw internal ide
     enabledFilter: 'all',
     problemAfter: null,
     selected: problem,
+    metadata: { problem_version_id: version, tags: ['基础'], difficulty: 'easy', revision: 1 },
+    metadataVersion: 2,
+    metadataTags: '基础',
+    metadataDifficulty: 'easy',
     versionBefore: null,
     versions: [
       {

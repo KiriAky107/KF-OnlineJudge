@@ -23,6 +23,49 @@ import {
   type MutationIntent,
 } from './intents'
 const session = useSession()
+const metadata = ref<Awaited<ReturnType<typeof api.learningMetadata>> | null>(null)
+const metadataVersion = ref<number | null>(null)
+const metadataTags = ref('')
+const metadataDifficulty = ref<'' | 'easy' | 'medium' | 'hard'>('')
+async function editMetadata(version: Version) {
+  await run(async () => {
+    const current = generation
+    metadata.value = null
+    const value = await request((s) => api.learningMetadata(version.version_id, s))
+    if (current !== generation) return
+    metadata.value = value
+    metadataVersion.value = version.revision
+    metadataTags.value = value.tags.join(', ')
+    metadataDifficulty.value = value.difficulty ?? ''
+  })
+}
+async function saveMetadata() {
+  await run(async () => {
+    if (!metadata.value) return
+    const current = generation
+    const value = await request((s) =>
+      api.updateLearningMetadata(
+        metadata.value!.problem_version_id,
+        {
+          tags: [
+            ...new Set(
+              metadataTags.value
+                .split(/[,，]/)
+                .map((v) => v.trim())
+                .filter(Boolean),
+            ),
+          ],
+          difficulty: metadataDifficulty.value || null,
+        },
+        s,
+      ),
+    )
+    if (current !== generation) return
+    metadata.value = value
+    info.value = '学习元数据已保存；未修改已发布题目或已有训练计划。'
+    await loadAudit()
+  })
+}
 const problems = ref<ManagedProblem[]>([]),
   problemAfter = ref<string | null>(null)
 const selected = ref<ManagedProblem | null>(null),
@@ -123,6 +166,7 @@ async function loadAudit(append = false) {
 async function chooseProblem(problem: ManagedProblem) {
   fence()
   selected.value = problem
+  metadata.value = null
   versions.value = []
   versionBefore.value = null
   await run(async () => {
@@ -374,6 +418,7 @@ watch(
     fence()
     task.value = null
     selected.value = null
+    metadata.value = null
     file.value = null
     audits.value = []
     problems.value = []
@@ -480,8 +525,31 @@ function sampleText(encoded: string) {
           </div>
           <p>{{ v.languages.join(' / ') }} · {{ v.case_count }} 个测试</p>
           <time :datetime="v.published_at">{{ displayTime(v.published_at) }}</time>
+          <button :disabled="busy" @click="editMetadata(v)">编辑学习元数据</button>
         </li>
       </ul>
+      <form v-if="metadata" @submit.prevent="saveMetadata">
+        <h3>学习元数据</h3>
+        <p class="admin-muted">
+          题目版本 {{ metadataVersion }} · 修订 {{ metadata.revision
+          }}{{ metadata.revision === 0 ? '（尚未标注）' : '' }}。不改变题目版本与历史计划。
+        </p>
+        <label
+          >知识点（逗号分隔，最多 16 个，每个最多 40 字）<input
+            v-model="metadataTags"
+            :disabled="busy"
+        /></label>
+        <label
+          >难度<select v-model="metadataDifficulty" :disabled="busy">
+            <option value="">未标注</option>
+            <option value="easy">简单</option>
+            <option value="medium">中等</option>
+            <option value="hard">困难</option>
+          </select></label
+        >
+        <button type="submit" :disabled="busy">保存学习元数据</button>
+        <button type="button" :disabled="busy" @click="metadata = null">关闭</button>
+      </form>
       <button v-if="versionBefore" :disabled="busy" @click="moreVersions">下一页历史版本</button>
     </section>
     <section class="admin-real-panel">

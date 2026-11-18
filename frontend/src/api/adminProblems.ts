@@ -10,6 +10,26 @@ export type Version = components['schemas']['MaintainedVersion']
 export type AuditEvent = components['schemas']['MaintenanceAuditEvent']
 
 export const adminProblems = {
+  learningMetadata: async (versionId: string, signal: AbortSignal) =>
+    unwrap(
+      await api.GET('/api/v1/admin/problem-versions/{version_id}/learning-metadata', {
+        params: { path: { version_id: versionId } },
+        signal,
+      }),
+    ),
+  updateLearningMetadata: async (
+    versionId: string,
+    body: components['schemas']['LearningMetadataUpdate'],
+    signal: AbortSignal,
+  ) =>
+    unwrap(
+      await api.PUT('/api/v1/admin/problem-versions/{version_id}/learning-metadata', {
+        params: { path: { version_id: versionId } },
+        body,
+        signal,
+        headers: csrfHeaders(),
+      }),
+    ),
   capabilities: async (signal: AbortSignal) =>
     unwrap(await api.GET('/api/v1/admin/problem-imports/capabilities', { signal })),
   page: async (signal: AbortSignal, after?: string, enabled?: boolean) =>
