@@ -322,3 +322,42 @@ class ProblemMaintenance:
             problem.enabled = enabled
             await session.flush()
             return await self._record(session, principal, request, action, digest, problem, version)
+
+    async def learning_metadata(self, principal, version_id, body=None):
+        from kf_oj.contracts.problem_learning import LearningMetadataView
+        from kf_oj.modules.problems.learning_models import ProblemLearningMetadata
+
+        async with self.transaction(principal) as session:
+            version = await session.scalar(
+                select(ProblemVersion).where(ProblemVersion.id == version_id).with_for_update()
+            )
+            if version is None:
+                raise ImportMissing("problem version unavailable")
+            row = await session.get(ProblemLearningMetadata, version_id)
+            if body is not None:
+                if row is None:
+                    row = ProblemLearningMetadata(
+                        problem_version_id=version_id,
+                        tags=list(body.tags),
+                        difficulty=body.difficulty,
+                        revision=1,
+                    )
+                    session.add(row)
+                elif row.tags != list(body.tags) or row.difficulty != body.difficulty:
+                    row.tags, row.difficulty = list(body.tags), body.difficulty
+                    row.revision += 1
+                await self.audit.record(
+                    session,
+                    principal.account_id,
+                    principal.authorization_version,
+                    uuid4(),
+                    "learning_metadata_updated",
+                    version_id,
+                )
+                await session.flush()
+            return LearningMetadataView(
+                problem_version_id=version_id,
+                tags=tuple(row.tags) if row else (),
+                difficulty=row.difficulty if row else None,
+                revision=row.revision if row else 0,
+            )

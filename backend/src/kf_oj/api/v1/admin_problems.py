@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import DBAPIError
 
 from kf_oj.api.admin_dependencies import maintenance_reader, maintenance_writer
+from kf_oj.contracts.problem_learning import LearningMetadataUpdate, LearningMetadataView
 from kf_oj.contracts.problem_maintenance import (
     AuditAction,
     ChangeProblemAvailability,
@@ -148,3 +149,20 @@ async def audit(
             principal, before=before, limit=limit, action=action
         )
     )
+
+
+@router.get("/problem-versions/{version_id}/learning-metadata", response_model=LearningMetadataView)
+async def learning_metadata(
+    version_id: UUID, request: Request, principal: Annotated[Principal, Depends(maintenance_reader)]
+):
+    return await operation(service(request).learning_metadata(principal, version_id))
+
+
+@router.put("/problem-versions/{version_id}/learning-metadata", response_model=LearningMetadataView)
+async def update_learning_metadata(
+    version_id: UUID,
+    body: LearningMetadataUpdate,
+    request: Request,
+    principal: Annotated[Principal, Depends(maintenance_writer)],
+):
+    return await operation(service(request).learning_metadata(principal, version_id, body))

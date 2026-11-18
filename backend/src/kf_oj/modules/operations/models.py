@@ -15,7 +15,7 @@ class MaintenanceEvent(CreatedAt, Base):
         CheckConstraint(
             "action IN ('upload_created','upload_received','import_ready',"
             "'import_failed','import_discarded','import_expired','published',"
-            "'disabled','restored','authority_bootstrap','authority_grant',"
+            "'disabled','restored','learning_metadata_updated','authority_bootstrap','authority_grant',"
             "'authority_revoke','authority_enable','authority_disable')",
             name="action",
         ),
@@ -35,5 +35,5 @@ class MaintenanceEvent(CreatedAt, Base):
     operator_name: Mapped[str | None] = mapped_column(String(63))
     authorization_version: Mapped[int] = mapped_column(BigInteger)
     operation_id: Mapped[UUID] = mapped_column()
-    action: Mapped[str] = mapped_column(String(24))
+    action: Mapped[str] = mapped_column(String(32))
     target_id: Mapped[UUID | None] = mapped_column()

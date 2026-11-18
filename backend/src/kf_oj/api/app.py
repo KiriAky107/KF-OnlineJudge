@@ -12,6 +12,7 @@ from kf_oj.api.dependency_errors import install_handlers
 from kf_oj.api.v1.admin_imports import router as import_router
 from kf_oj.api.v1.admin_problems import router as maintenance_router
 from kf_oj.api.v1.identity import router as identity_router
+from kf_oj.api.v1.learning import router as learning_router
 from kf_oj.api.v1.problems import router as problems_router
 from kf_oj.api.v1.router import router
 from kf_oj.api.v1.submissions import router as submission_router
@@ -24,6 +25,7 @@ from kf_oj.infra.artifacts.store import ArtifactStore
 from kf_oj.infra.coordinator import CoordinatorControl
 from kf_oj.infra.db.session import build_engine, build_session_factory
 from kf_oj.modules.identity.service import IdentityService
+from kf_oj.modules.learning.service import LearningService
 from kf_oj.modules.operations.queries import MaintenanceAuditQueries
 from kf_oj.modules.operations.service import MaintenanceAudit
 from kf_oj.modules.problems.imports import ProblemImports
@@ -54,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     app.state.sessions, lifetime_seconds=settings.session_lifetime_seconds
                 )
                 app.state.submission_performance = SubmissionPerformanceQueries(app.state.sessions)
+                app.state.learning = LearningService(app.state.sessions)
                 artifacts = None
                 if settings.artifact_root is not None:
                     store = ArtifactStore(
@@ -106,6 +109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
             yield
         finally:
+            app.state.learning = None
             app.state.identity = None
             app.state.problems = None
             app.state.worker_access = None
@@ -140,7 +144,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def private_responses(request, call_next):
         response = await call_next(request)
         if request.url.path.startswith(
-            ("/api/v1/auth", "/api/v1/submissions", "/api/v1/internal", "/api/v1/admin")
+            (
+                "/api/v1/auth",
+                "/api/v1/submissions",
+                "/api/v1/internal",
+                "/api/v1/admin",
+                "/api/v1/learning",
+                "/api/v1/trainings",
+            )
         ):
             response.headers["Cache-Control"] = "no-store"
         return response
@@ -153,6 +164,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(router, prefix="/api/v1")
     app.include_router(identity_router, prefix="/api/v1")
+    app.include_router(learning_router, prefix="/api/v1")
     app.include_router(problems_router, prefix="/api/v1")
     app.include_router(worker_router, prefix="/api/v1")
     app.include_router(submission_router, prefix="/api/v1")

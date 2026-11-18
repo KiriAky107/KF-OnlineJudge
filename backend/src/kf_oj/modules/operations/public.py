@@ -13,6 +13,7 @@ Action = Literal[
     "published",
     "disabled",
     "restored",
+    "learning_metadata_updated",
 ]
 
 
