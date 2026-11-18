@@ -122,7 +122,9 @@ fn main() -> ExitCode {
                     );
                     ExitCode::SUCCESS
                 }
-                Err(error) => spec_error(factory_health_error(&error), None),
+                Err(error) => {
+                    spec_error(factory_health_error(&error), factory_health_details(&error))
+                }
             }
             #[cfg(not(target_os = "linux"))]
             {
@@ -352,6 +354,13 @@ fn factory_health_error(error: &std::io::Error) -> &'static str {
     }
 }
 
+// Report only stable IO classification, never raw error text, paths or response bytes.
+fn factory_health_details(error: &std::io::Error) -> Option<serde_json::Value> {
+    (factory_health_error(error) == "factory_health_unavailable").then(|| {
+        serde_json::json!({"io_kind": format!("{:?}", error.kind()), "os_error": error.raw_os_error()})
+    })
+}
+
 fn spec_error(code: &str, details: Option<serde_json::Value>) -> ExitCode {
     eprintln!("{}", serde_json::json!({"error": code, "details": details}));
     ExitCode::from(2)
@@ -393,8 +402,29 @@ fn check_runtime(path: PathBuf) -> ExitCode {
 
 #[cfg(test)]
 mod factory_health_error_tests {
-    use super::factory_health_error;
+    use super::{factory_health_details, factory_health_error};
     use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn health_diagnostics_never_include_private_error_text() {
+        let error = Error::new(
+            ErrorKind::InvalidData,
+            "private socket /secret and response body",
+        );
+        assert_eq!(
+            factory_health_details(&error),
+            Some(serde_json::json!({"io_kind":"InvalidData", "os_error":null}))
+        );
+        assert_eq!(
+            factory_health_details(&Error::from(ErrorKind::NotFound)),
+            None
+        );
+        let error = Error::from_raw_os_error(13);
+        assert_eq!(
+            factory_health_details(&error),
+            Some(serde_json::json!({"io_kind":"PermissionDenied", "os_error":13}))
+        );
+    }
 
     #[test]
     fn only_typed_connect_failures_allow_startup_observation() {
