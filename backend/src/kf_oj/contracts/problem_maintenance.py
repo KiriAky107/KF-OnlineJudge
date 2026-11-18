@@ -20,6 +20,7 @@ AuditAction = Literal[
     "published",
     "disabled",
     "restored",
+    "learning_metadata_updated",
     "authority_bootstrap",
     "authority_grant",
     "authority_revoke",

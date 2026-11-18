@@ -15,6 +15,7 @@ export const auditActionLabels: Record<
   components['schemas']['MaintenanceAuditEvent']['action'],
   string
 > = {
+  learning_metadata_updated: '更新学习元数据',
   upload_created: '创建导入',
   upload_received: '接收题包',
   import_ready: '校验通过',

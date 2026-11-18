@@ -82,3 +82,36 @@ class ProblemPort(Protocol):
     async def for_accepted_execution(self, session, version_id: UUID) -> JudgingVersion:
         """Require an already-validated live execution lease; allow a disabled published version."""
         ...
+
+
+@dataclass(frozen=True)
+class LearningCandidate:
+    problem_id: UUID
+    version_id: UUID
+    title: str
+    tags: tuple[str, ...]
+    difficulty: str | None
+    metadata_revision: int
+    available: bool
+    slug: str
+    is_current_version: bool
+
+
+async def learning_candidates(
+    session, *, tags=(), difficulty=None, limit=500
+) -> tuple[LearningCandidate, ...]:
+    from .learning_metadata import candidates
+
+    return await candidates(session, tags=tags, difficulty=difficulty, limit=limit)
+
+
+async def learning_versions(session, version_ids: set[UUID]) -> dict[UUID, LearningCandidate]:
+    from .learning_metadata import versions
+
+    return await versions(session, version_ids)
+
+
+async def learning_selected(session, version_ids: set[UUID]) -> dict[UUID, LearningCandidate]:
+    from .learning_metadata import selected
+
+    return await selected(session, version_ids)

@@ -250,6 +250,13 @@ struct SocketLease {
     dev: u64,
     ino: u64,
 }
+impl SocketLease {
+    fn publish(&mut self, destination: &Path) -> io::Result<()> {
+        std::fs::rename(&self.path, destination)?;
+        self.path = destination.to_path_buf();
+        Ok(())
+    }
+}
 impl Drop for SocketLease {
     fn drop(&mut self) {
         if let Ok(m) = std::fs::symlink_metadata(&self.path)
@@ -421,8 +428,14 @@ pub fn serve_with_limit(
     // task journals alone authorize recovery; foreign entries fail closed.
     idle_recovery(&config)?;
     let socket = root.join("control.sock");
+    let pending_socket = root.join("control.pending.sock");
     let record_path = root.join("socket.json");
-    if let Ok(m) = std::fs::symlink_metadata(&socket) {
+    for previous in [&socket, &pending_socket] {
+        let m = match std::fs::symlink_metadata(previous) {
+            Ok(m) => m,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e),
+        };
         let bytes = execution::read_bounded_file(&record_path, 1024)?;
         let record: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| denied())?;
         let trusted = std::fs::symlink_metadata(&record_path)?;
@@ -437,7 +450,7 @@ pub fn serve_with_limit(
         {
             return Err(denied());
         }
-        std::fs::remove_file(&socket)?;
+        std::fs::remove_file(previous)?;
     }
     let mut ledger = private_file(&root.join("requests"))?;
     let current =
@@ -450,10 +463,11 @@ pub fn serve_with_limit(
             return Err(denied());
         }
     }
-    let listener = UnixListener::bind(&socket)?;
-    let m = std::fs::symlink_metadata(&socket)?;
-    let _lease = SocketLease {
-        path: socket.clone(),
+    // The advertised name is absent until permissions and task delegation are ready.
+    let listener = UnixListener::bind(&pending_socket)?;
+    let m = std::fs::symlink_metadata(&pending_socket)?;
+    let mut lease = SocketLease {
+        path: pending_socket.clone(),
         dev: m.dev(),
         ino: m.ino(),
     };
@@ -463,11 +477,12 @@ pub fn serve_with_limit(
     f.write_all(&record)?;
     f.sync_all()?;
     rustix::fs::fsync(&root_fd)?;
-    std::os::unix::fs::chown(&socket, Some(0), Some(policy.identities.worker_gid))?;
-    std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o660))?;
+    std::os::unix::fs::chown(&pending_socket, Some(0), Some(policy.identities.worker_gid))?;
+    std::fs::set_permissions(&pending_socket, std::fs::Permissions::from_mode(0o660))?;
     listener.set_nonblocking(true)?;
     // Actual overall task delegation limits, including concurrency and no swap.
     let _delegated = crate::cgroup::DelegatedCgroup::open(&config).map_err(|_| denied())?;
+    lease.publish(&socket)?;
     let mut active: Vec<Active> = Vec::new();
     let mut recovery_needed = false;
     let deadline = Instant::now() + Duration::from_secs(lifetime_seconds);
@@ -662,6 +677,46 @@ pub fn child(config_path: &Path, run_id: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn socket_publish_exposes_only_prepared_inode_and_lease_cleans_both_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "kf-publish-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let pending = root.join("pending.sock");
+        let public = root.join("control.sock");
+        for publish in [false, true] {
+            let listener = UnixListener::bind(&pending).unwrap();
+            let m = std::fs::symlink_metadata(&pending).unwrap();
+            let mut lease = SocketLease {
+                path: pending.clone(),
+                dev: m.dev(),
+                ino: m.ino(),
+            };
+            assert!(!public.exists());
+            std::fs::set_permissions(&pending, std::fs::Permissions::from_mode(0o660)).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            if publish {
+                lease.publish(&public).unwrap();
+                assert!(!pending.exists());
+                let ready = std::fs::symlink_metadata(&public).unwrap();
+                assert_eq!(
+                    (ready.dev(), ready.ino(), ready.mode() & 0o777),
+                    (m.dev(), m.ino(), 0o660)
+                );
+                let _client = UnixStream::connect(&public).unwrap();
+                assert!(listener.accept().is_ok());
+            }
+            drop(lease);
+            assert!(!pending.exists() && !public.exists());
+        }
+        std::fs::remove_dir(root).unwrap();
+    }
     #[test]
     fn protocol_never_accepts_worker_control_of_root_command_or_path() {
         for data in [

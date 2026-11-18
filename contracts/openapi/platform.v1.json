@@ -275,6 +275,62 @@
         "title": "CreateSubmission",
         "type": "object"
       },
+      "CreateTraining": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "default": 5,
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "difficulty": {
+            "anyOf": [
+              {
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "idempotency_key": {
+            "format": "uuid",
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "default": "个人训练计划",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key"
+        ],
+        "title": "CreateTraining",
+        "type": "object"
+      },
       "CurrentUser": {
         "additionalProperties": false,
         "properties": {
@@ -473,6 +529,364 @@
         ],
         "title": "Language",
         "type": "string"
+      },
+      "LearningEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluation_id": {
+            "format": "uuid",
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "problem_id": {
+            "format": "uuid",
+            "title": "Problem Id",
+            "type": "string"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          }
+        },
+        "required": [
+          "submission_id",
+          "evaluation_id",
+          "problem_id",
+          "problem_version_id",
+          "submitted_at",
+          "verdict",
+          "state"
+        ],
+        "title": "LearningEvidence",
+        "type": "object"
+      },
+      "LearningMetadataUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "difficulty": {
+            "anyOf": [
+              {
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "tags": {
+            "items": {
+              "maxLength": 40,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tags",
+          "difficulty"
+        ],
+        "title": "LearningMetadataUpdate",
+        "type": "object"
+      },
+      "LearningMetadataView": {
+        "additionalProperties": false,
+        "properties": {
+          "difficulty": {
+            "anyOf": [
+              {
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "tags": {
+            "items": {
+              "maxLength": 40,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tags",
+          "difficulty",
+          "problem_version_id",
+          "revision"
+        ],
+        "title": "LearningMetadataView",
+        "type": "object"
+      },
+      "LearningOverview": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_problem_count": {
+            "title": "Accepted Problem Count",
+            "type": "integer"
+          },
+          "accepted_version_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Accepted Version Ids",
+            "type": "array"
+          },
+          "distinct_problem_count": {
+            "title": "Distinct Problem Count",
+            "type": "integer"
+          },
+          "earliest_record_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earliest Record At"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "metadata_revisions": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "propertyNames": {
+              "format": "uuid"
+            },
+            "title": "Metadata Revisions",
+            "type": "object"
+          },
+          "missing_metadata_count": {
+            "title": "Missing Metadata Count",
+            "type": "integer"
+          },
+          "ordinary_sample_count": {
+            "title": "Ordinary Sample Count",
+            "type": "integer"
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/LearningEvidence"
+            },
+            "title": "Recent",
+            "type": "array"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          },
+          "since": {
+            "format": "date-time",
+            "title": "Since",
+            "type": "string"
+          },
+          "submission_count": {
+            "title": "Submission Count",
+            "type": "integer"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/TagStatistic"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "verdict_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Verdict Counts",
+            "type": "object"
+          }
+        },
+        "required": [
+          "generated_at",
+          "rule_version",
+          "since",
+          "limit",
+          "truncated",
+          "earliest_record_at",
+          "submission_count",
+          "ordinary_sample_count",
+          "distinct_problem_count",
+          "accepted_problem_count",
+          "accepted_version_ids",
+          "verdict_counts",
+          "tags",
+          "recent",
+          "missing_metadata_count",
+          "metadata_revisions"
+        ],
+        "title": "LearningOverview",
+        "type": "object"
+      },
+      "LearningParameters": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "default": 5,
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "difficulty": {
+            "anyOf": [
+              {
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "title": "LearningParameters",
+        "type": "object"
+      },
+      "LearningRecommendations": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_limit": {
+            "default": 500,
+            "title": "Candidate Limit",
+            "type": "integer"
+          },
+          "candidates_truncated": {
+            "default": false,
+            "title": "Candidates Truncated",
+            "type": "boolean"
+          },
+          "gaps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RecommendedProblem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/LearningParameters"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "generated_at",
+          "rule_version",
+          "parameters",
+          "items",
+          "gaps"
+        ],
+        "title": "LearningRecommendations",
+        "type": "object"
       },
       "LegacyImportBudget": {
         "additionalProperties": false,
@@ -759,6 +1173,7 @@
               "published",
               "disabled",
               "restored",
+              "learning_metadata_updated",
               "authority_bootstrap",
               "authority_grant",
               "authority_revoke",
@@ -1907,6 +2322,95 @@
         "title": "PublishCandidate",
         "type": "object"
       },
+      "RecommendedProblem": {
+        "additionalProperties": false,
+        "properties": {
+          "difficulty": {
+            "anyOf": [
+              {
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/LearningEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "metadata_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata Revision"
+          },
+          "previously_accepted": {
+            "title": "Previously Accepted",
+            "type": "boolean"
+          },
+          "problem_id": {
+            "format": "uuid",
+            "title": "Problem Id",
+            "type": "string"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "problem_id",
+          "problem_version_id",
+          "slug",
+          "title",
+          "tags",
+          "difficulty",
+          "metadata_revision",
+          "previously_accepted",
+          "reasons",
+          "evidence"
+        ],
+        "title": "RecommendedProblem",
+        "type": "object"
+      },
       "RunLimits": {
         "additionalProperties": false,
         "properties": {
@@ -2351,6 +2855,43 @@
         "title": "SubmissionSummary",
         "type": "object"
       },
+      "TagStatistic": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_count": {
+            "title": "Accepted Count",
+            "type": "integer"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/LearningEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "non_accepted_count": {
+            "title": "Non Accepted Count",
+            "type": "integer"
+          },
+          "sample_count": {
+            "title": "Sample Count",
+            "type": "integer"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "sample_count",
+          "accepted_count",
+          "non_accepted_count",
+          "evidence"
+        ],
+        "title": "TagStatistic",
+        "type": "object"
+      },
       "TestCase": {
         "additionalProperties": false,
         "properties": {
@@ -2400,6 +2941,275 @@
           "image_revision"
         ],
         "title": "Toolchain",
+        "type": "object"
+      },
+      "TrainingDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_count": {
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_count": {
+            "title": "Item Count",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/LearningParameters"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "created_at",
+          "rule_version",
+          "item_count",
+          "completed_count",
+          "parameters",
+          "items"
+        ],
+        "title": "TrainingDetail",
+        "type": "object"
+      },
+      "TrainingItem": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "difficulty": {
+            "anyOf": [
+              {
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/LearningEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_current_version": {
+            "title": "Is Current Version",
+            "type": "boolean"
+          },
+          "metadata_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata Revision"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "previously_accepted": {
+            "title": "Previously Accepted",
+            "type": "boolean"
+          },
+          "problem_id": {
+            "format": "uuid",
+            "title": "Problem Id",
+            "type": "string"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "progress": {
+            "enum": [
+              "not_started",
+              "attempted",
+              "completed"
+            ],
+            "title": "Progress",
+            "type": "string"
+          },
+          "progress_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/LearningEvidence"
+            },
+            "title": "Progress Evidence",
+            "type": "array"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "problem_id",
+          "problem_version_id",
+          "slug",
+          "title",
+          "tags",
+          "difficulty",
+          "metadata_revision",
+          "previously_accepted",
+          "reasons",
+          "evidence",
+          "id",
+          "position",
+          "note",
+          "progress",
+          "available",
+          "is_current_version",
+          "progress_evidence"
+        ],
+        "title": "TrainingItem",
+        "type": "object"
+      },
+      "TrainingPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "TrainingPage",
+        "type": "object"
+      },
+      "TrainingSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_count": {
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_count": {
+            "title": "Item Count",
+            "type": "integer"
+          },
+          "rule_version": {
+            "title": "Rule Version",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "created_at",
+          "rule_version",
+          "item_count",
+          "completed_count"
+        ],
+        "title": "TrainingSummary",
+        "type": "object"
+      },
+      "UpdateTrainingNote": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "maxLength": 1000,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "title": "UpdateTrainingNote",
         "type": "object"
       },
       "ValidationError": {
@@ -2540,6 +3350,7 @@
                     "published",
                     "disabled",
                     "restored",
+                    "learning_metadata_updated",
                     "authority_bootstrap",
                     "authority_grant",
                     "authority_revoke",
@@ -2967,6 +3778,100 @@
           }
         },
         "summary": "By Slug",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
+    "/api/v1/admin/problem-versions/{version_id}/learning-metadata": {
+      "get": {
+        "operationId": "learning_metadata_api_v1_admin_problem_versions__version_id__learning_metadata_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningMetadataView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Learning Metadata",
+        "tags": [
+          "problem-maintenance"
+        ]
+      },
+      "put": {
+        "operationId": "update_learning_metadata_api_v1_admin_problem_versions__version_id__learning_metadata_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LearningMetadataUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningMetadataView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Learning Metadata",
         "tags": [
           "problem-maintenance"
         ]
@@ -3535,6 +4440,68 @@
         ]
       }
     },
+    "/api/v1/learning/overview": {
+      "get": {
+        "operationId": "overview_api_v1_learning_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningOverview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Overview",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/learning/recommendations": {
+      "post": {
+        "operationId": "recommendations_api_v1_learning_recommendations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LearningParameters"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningRecommendations"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recommendations",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
     "/api/v1/problems": {
       "get": {
         "operationId": "list_problems_api_v1_problems_get",
@@ -3943,6 +4910,172 @@
         "summary": "Source",
         "tags": [
           "submissions"
+        ]
+      }
+    },
+    "/api/v1/trainings": {
+      "get": {
+        "operationId": "trainings_api_v1_trainings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Trainings",
+        "tags": [
+          "learning"
+        ]
+      },
+      "post": {
+        "operationId": "create_training_api_v1_trainings_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTraining"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Training",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/trainings/{training_id}": {
+      "get": {
+        "operationId": "training_detail_api_v1_trainings__training_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "training_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Training Detail",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/trainings/{training_id}/items/{item_id}": {
+      "patch": {
+        "operationId": "update_note_api_v1_trainings__training_id__items__item_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "training_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTrainingNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Note",
+        "tags": [
+          "learning"
         ]
       }
     }
