@@ -86,25 +86,11 @@ fn snapshot_reference(file: &SnapshotFile) -> Result<v1::ArtifactReference, old:
     })
 }
 fn diagnostics(result: &kf_sandbox::rpc::Executed) -> Result<(String, bool), old::StageFailure> {
-    let mut raw = Vec::new();
-    result
-        .stderr
-        .reader()
-        .map_err(artifact_error)?
-        .take(16385)
-        .read_to_end(&mut raw)
-        .map_err(artifact_error)?;
-    let mut text = String::from_utf8_lossy(&raw).into_owned();
-    let mut truncated = result.report.stderr.truncated || text.len() > 65536;
-    if text.len() > 65536 {
-        let mut end = 65536;
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        text.truncate(end);
-        truncated = true;
-    }
-    Ok((text, truncated))
+    crate::pipeline::read_compile_diagnostics(
+        result.stderr.reader().map_err(artifact_error)?,
+        result.report.stderr.truncated,
+    )
+    .map_err(artifact_error)
 }
 impl<'a, A: ArtifactPort> RuntimeAttempt<'a, A> {
     pub fn new(

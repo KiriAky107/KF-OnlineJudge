@@ -16,6 +16,25 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Instant,
 };
+pub(crate) fn read_compile_diagnostics(
+    reader: impl Read,
+    sandbox_truncated: bool,
+) -> io::Result<(String, bool)> {
+    let mut raw = Vec::new();
+    reader.take(65537).read_to_end(&mut raw)?;
+    let mut text = String::from_utf8_lossy(&raw).into_owned();
+    let mut truncated = sandbox_truncated || text.len() > 65536;
+    if text.len() > 65536 {
+        let mut end = 65536;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        truncated = true;
+    }
+    Ok((text, truncated))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Job {
@@ -299,24 +318,14 @@ impl<A: ArtifactPort> CompilationPort for Attempt<'_, A> {
             ExecutionOutcome::Cancelled => CompilationStatus::Cancelled,
             _ => CompilationStatus::SystemError,
         };
-        let mut raw = Vec::new();
-        result
-            .stderr
-            .reader()
-            .map_err(|_| stage_error(FailureCode::ArtifactUnavailable, true))?
-            .take(16385)
-            .read_to_end(&mut raw)
-            .map_err(|_| stage_error(FailureCode::ArtifactUnavailable, true))?;
-        let mut text = String::from_utf8_lossy(&raw).into_owned();
-        let mut truncated = result.report.stderr.truncated || text.len() > 65536;
-        if text.len() > 65536 {
-            let mut end = 65536;
-            while !text.is_char_boundary(end) {
-                end -= 1;
-            }
-            text.truncate(end);
-            truncated = true;
-        }
+        let (text, truncated) = read_compile_diagnostics(
+            result
+                .stderr
+                .reader()
+                .map_err(|_| stage_error(FailureCode::ArtifactUnavailable, true))?,
+            result.report.stderr.truncated,
+        )
+        .map_err(|_| stage_error(FailureCode::ArtifactUnavailable, true))?;
         let program = if status == CompilationStatus::Succeeded {
             if result.outputs.len() != 1
                 || result.outputs[0].path != "main"
@@ -522,6 +531,25 @@ pub fn judge_local(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn compile_diagnostics_preserve_limit_and_report_truncation() {
+        for size in [16385, 20000, 65536, 65537, 70000] {
+            let raw = vec![b'x'; size];
+            let (text, truncated) = read_compile_diagnostics(raw.as_slice(), false).unwrap();
+            assert_eq!(text.len(), size.min(65536));
+            assert_eq!(truncated, size > 65536);
+        }
+        assert!(
+            read_compile_diagnostics(b"short".as_slice(), true)
+                .unwrap()
+                .1
+        );
+        let raw = "界".repeat(22000);
+        let (text, truncated) = read_compile_diagnostics(raw.as_bytes(), false).unwrap();
+        assert!(truncated);
+        assert_eq!(text.len(), 65535);
+    }
+
     #[test]
     fn constructing_parallel_attempt_does_not_scan_shared_staging() {
         struct NoArtifacts;
