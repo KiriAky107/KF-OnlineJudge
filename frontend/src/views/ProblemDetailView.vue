@@ -39,7 +39,6 @@ watch(
 )
 const theme = ref('vs')
 const fontSize = ref(14)
-const plain = ref(false)
 const error = ref('')
 const submitError = ref('')
 const busy = ref(false)
@@ -287,9 +286,6 @@ onBeforeUnmount(() => {
           ><el-button size="small" aria-label="下载代码" @click="downloadCode"
             ><UiIcon name="document"
           /></el-button>
-          <el-button size="small" @click="plain = !plain">{{
-            plain ? '代码编辑器' : '纯文本编辑'
-          }}</el-button>
           <el-popover v-model:visible="settingsOpen" trigger="click" width="240"
             ><template #reference
               ><el-button size="small" aria-label="编辑器设置"><UiIcon name="settings" /></el-button
@@ -305,26 +301,7 @@ onBeforeUnmount(() => {
           ></el-popover>
         </header>
         <div class="editor-area">
-          <textarea
-            v-if="plain"
-            v-model="code"
-            aria-label="源码"
-            style="
-              width: 100%;
-              height: 100%;
-              min-height: 320px;
-              padding: 18px;
-              font-family: monospace;
-              resize: none;
-            "
-            spellcheck="false"
-          /><CodeEditor
-            v-else
-            v-model="code"
-            :language="language"
-            :theme="theme"
-            :font-size="fontSize"
-          />
+          <CodeEditor v-model="code" :language="language" :theme="theme" :font-size="fontSize" />
         </div>
         <div class="editor-testing">
           <p v-if="!supported" class="notice-strip">
