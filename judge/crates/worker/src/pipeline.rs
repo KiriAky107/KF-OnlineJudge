@@ -165,6 +165,7 @@ pub fn compiler_spec(
 }
 type StageControl<'a> = Box<dyn FnMut(Stage, Option<u16>) -> Result<(), StageFailure> + 'a>;
 pub struct Attempt<'a, A: ArtifactPort> {
+    self_test: bool,
     pub artifacts: A,
     pub stages: Vec<StageEvidence>,
     pub cancellation: &'a AtomicBool,
@@ -191,6 +192,7 @@ impl<'a, A: ArtifactPort> Attempt<'a, A> {
             .checked_add(std::time::Duration::from_micros(wall_us))
             .ok_or_else(|| io::Error::other("deadline overflow"))?;
         Ok(Self {
+            self_test: false,
             artifacts,
             stages: vec![],
             cancellation,
@@ -257,6 +259,7 @@ impl<'a, A: ArtifactPort> Attempt<'a, A> {
 }
 impl<A: ArtifactPort> CompilationPort for Attempt<'_, A> {
     fn compile(&mut self, m: &JobManifest, run_id: &str) -> Result<Compiled, StageFailure> {
+        self.self_test = m.self_test;
         if m.toolchain.image_revision != 1 || m.toolchain.toolchain_id.as_str() != "gnu-cxx-v1" {
             return Err(stage_error(FailureCode::SandboxUnavailable, true));
         }
@@ -301,7 +304,7 @@ impl<A: ArtifactPort> CompilationPort for Attempt<'_, A> {
             .stderr
             .reader()
             .map_err(|_| stage_error(FailureCode::ArtifactUnavailable, true))?
-            .take(65537)
+            .take(16385)
             .read_to_end(&mut raw)
             .map_err(|_| stage_error(FailureCode::ArtifactUnavailable, true))?;
         let mut text = String::from_utf8_lossy(&raw).into_owned();
@@ -431,7 +434,20 @@ impl<A: ArtifactPort> RunPort for Attempt<'_, A> {
         if stdout.len() as u64 > b.stdout_bytes {
             return Err(stage_error(FailureCode::ArtifactUnavailable, true));
         }
+        let mut stderr = Vec::new();
+        if self.self_test {
+            result
+                .stderr
+                .reader()
+                .map_err(|_e| stage_error(FailureCode::ArtifactUnavailable, true))?
+                .take(16385)
+                .read_to_end(&mut stderr)
+                .map_err(|_e| stage_error(FailureCode::ArtifactUnavailable, true))?;
+        }
         Ok(Observation {
+            stderr,
+            stdout_truncated: self.self_test && result.report.stdout.truncated,
+            stderr_truncated: self.self_test && result.report.stderr.truncated,
             kind: kind(outcome),
             stdout,
             cpu_time_us: metric(&result.report.usage.cpu_time_us),

@@ -15,6 +15,12 @@ pub enum JudgementReport {
     V2(v2::JudgementReport),
 }
 impl JobManifest {
+    pub fn self_test(&self) -> bool {
+        match self {
+            Self::V1(m) => m.self_test,
+            Self::V2(m) => m.self_test,
+        }
+    }
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, &'static str> {
         match self {
             Self::V1(manifest) => v1::manifest_bytes(manifest),

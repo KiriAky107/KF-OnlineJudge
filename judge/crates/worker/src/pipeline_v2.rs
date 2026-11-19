@@ -91,7 +91,7 @@ fn diagnostics(result: &kf_sandbox::rpc::Executed) -> Result<(String, bool), old
         .stderr
         .reader()
         .map_err(artifact_error)?
-        .take(65537)
+        .take(16385)
         .read_to_end(&mut raw)
         .map_err(artifact_error)?;
     let mut text = String::from_utf8_lossy(&raw).into_owned();
@@ -356,7 +356,22 @@ impl<A: ArtifactPort> engine::RunPort for RuntimeAttempt<'_, A> {
             if stdout.len() as u64 > budget.stdout_bytes {
                 return Err(failure(v1::FailureCode::ArtifactUnavailable, true));
             }
+            let mut stderr = Vec::new();
+            if self.authorized.manifest().self_test {
+                result
+                    .stderr
+                    .reader()
+                    .map_err(artifact_error)?
+                    .take(16385)
+                    .read_to_end(&mut stderr)
+                    .map_err(artifact_error)?;
+            }
             Ok(Observation {
+                stderr,
+                stdout_truncated: self.authorized.manifest().self_test
+                    && result.report.stdout.truncated,
+                stderr_truncated: self.authorized.manifest().self_test
+                    && result.report.stderr.truncated,
                 kind: kind(outcome),
                 stdout,
                 cpu_time_us: metric(&result.report.usage.cpu_time_us),

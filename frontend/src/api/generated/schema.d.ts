@@ -434,6 +434,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/self-tests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create */
+        post: operations["create_api_v1_self_tests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/self-tests/{self_test_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_self_tests__self_test_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/submissions": {
         parameters: {
             query?: never;
@@ -710,6 +744,27 @@ export interface components {
              */
             schema_version: 1;
         };
+        /** CreateSelfTest */
+        CreateSelfTest: {
+            /**
+             * Idempotency Key
+             * Format: uuid
+             */
+            idempotency_key: string;
+            language: components["schemas"]["Language-Input"];
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /** Source */
+            source: string;
+            /**
+             * Stdin
+             * @default
+             */
+            stdin: string;
+        };
         /** CreateSubmission */
         CreateSubmission: {
             /**
@@ -831,6 +886,11 @@ export interface components {
              * @constant
              */
             schema_version: 1;
+            /**
+             * Self Test
+             * @default false
+             */
+            self_test: boolean;
             source: components["schemas"]["ArtifactReference"];
             /**
              * Submission Id
@@ -1649,6 +1709,59 @@ export interface components {
             wall_time_us: number;
             /** Workdir Bytes */
             workdir_bytes: number;
+        };
+        /** SelfTestDetail */
+        SelfTestDetail: {
+            /** Compile Diagnostics */
+            compile_diagnostics?: string | null;
+            /**
+             * Compile Diagnostics Truncated
+             * @default false
+             */
+            compile_diagnostics_truncated: boolean;
+            /** Cpu Time Us */
+            cpu_time_us?: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Failure Code */
+            failure_code: string | null;
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
+            /** Memory Peak Bytes */
+            memory_peak_bytes?: number | null;
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * Self Test Id
+             * Format: uuid
+             */
+            self_test_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "claimed" | "compiling" | "running" | "cancelling" | "finished" | "cancelled" | "failed";
+            /** Stderr */
+            stderr?: string | null;
+            /**
+             * Stderr Truncated
+             * @default false
+             */
+            stderr_truncated: boolean;
+            /** Stdout */
+            stdout?: string | null;
+            /**
+             * Stdout Truncated
+             * @default false
+             */
+            stdout_truncated: boolean;
+            /** Verdict */
+            verdict: string | null;
         };
         /** SubmissionComparison */
         SubmissionComparison: {
@@ -2827,6 +2940,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_api_v1_self_tests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSelfTest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SelfTestDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detail_api_v1_self_tests__self_test_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                self_test_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SelfTestDetail"];
                 };
             };
             /** @description Validation Error */

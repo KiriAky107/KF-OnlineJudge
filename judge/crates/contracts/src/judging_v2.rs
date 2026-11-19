@@ -237,6 +237,7 @@ impl LanguageConfiguration {
     }
 }
 validated_struct!(JobManifest {
+    #[serde(default, skip_serializing_if = "v1::is_false")] self_test: bool,
     schema_version: SchemaVersion, kind: ManifestKind, evaluation_id: Identifier,
     submission_id: Identifier, problem_version_id: Identifier, language: Language,
     toolchain: RuntimeIdentity, source: ArtifactReference, cases: Vec<TestCase>,
@@ -346,6 +347,7 @@ impl CompilationReport {
     }
 }
 validated_struct!(JudgementReport {
+    #[serde(default, skip_serializing_if = "Option::is_none")] self_test_output: Option<v1::SelfTestOutput>,
     schema_version: SchemaVersion, kind: ResultKind, binding: LeaseBinding, manifest_digest: Digest,
     compilation: CompilationReport, cases: Vec<CaseReport>, verdict: Verdict, cleanup_complete: bool,
     #[serde(deserialize_with = "v1::required_option")] failure_code: Option<FailureCode>,
@@ -495,6 +497,14 @@ impl JobManifest {
                 .sum::<u64>()
     }
     pub fn validate(&self) -> Validation {
+        if self.self_test
+            && (self.cases.len() != 1
+                || self.cases[0].case_id != self.submission_id
+                || self.cases[0].expected.bytes != 0)
+        {
+            return Err("invalid self-test case");
+        }
+
         self.source.validate()?;
         self.toolchain.validate_for_language(self.language)?;
         validate_startup_budget(self.language, &self.compile_limits, true)?;
@@ -530,6 +540,10 @@ impl JobManifest {
 
 impl JudgementReport {
     pub fn validate(&self) -> Validation {
+        if let Some(output) = &self.self_test_output {
+            output.validate()?;
+        }
+
         self.binding.validate()?;
         self.compilation.validate()?;
         if self
@@ -621,6 +635,10 @@ impl JudgementReport {
         Ok(())
     }
     pub fn validate_for_manifest(&self, manifest: &JobManifest, digest: &Digest) -> Validation {
+        if !manifest.self_test && self.self_test_output.is_some() {
+            return Err("ordinary judgement cannot expose output");
+        }
+
         self.validate()?;
         manifest.validate()?;
         if self.compilation.program.as_ref().is_some_and(|p| {

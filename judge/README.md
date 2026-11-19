@@ -186,3 +186,14 @@ SystemError，未知计量不补零。
 逐文件摘要及 catalog 摘要核对后发布；路径只由可信 Root 配置决定。
 生产标准预算不使用 VM 模拟器验收时明确设置的较慢启动预算。
 新版节点配置与排空步骤见 [部署说明](../deploy/README.md#四语言节点的受控升级)。
+
+### 自测输出
+
+自测复用编译、沙箱、租约及准入，只执行用户输入对应的单个用例，不读取或比较隐藏答案。
+`self_test` 缺省为 false；正式评测的报告禁止携带 `self_test_output`。
+自测输出以 UTF-8 损失解码，当前每流最多返回 16 KiB，截断通过各自的
+`stdout_truncated` / `stderr_truncated` 标记。有运行输出时编译诊断最多 4 KiB，
+保证最坏 JSON 转义仍在原 256 KiB 报告传输预算内；契约单流上限 64 KiB 不是实际返回承诺。
+自测正常退出使用内部 accepted 判定，公开自测界面映射完成状态，不计正式成绩或性能排名。
+新增字段缺省省略，旧正式 manifest 的 canonical 字节保持不变；启用自测前须先同步升级
+Backend、Coordinator 与 Worker，旧版严格解析器不接受自测新增字段。

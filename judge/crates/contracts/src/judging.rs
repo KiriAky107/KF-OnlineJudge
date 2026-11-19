@@ -328,7 +328,27 @@ impl TestCase {
         self.expected.validate()
     }
 }
+pub fn is_false(value: &bool) -> bool {
+    !*value
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SelfTestOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
+}
+impl SelfTestOutput {
+    pub fn validate(&self) -> Validation {
+        if self.stdout.len() > 65536 || self.stderr.len() > 65536 {
+            return Err("self-test output exceeds bound");
+        }
+        Ok(())
+    }
+}
 validated_struct!(JobManifest {
+    #[serde(default, skip_serializing_if = "is_false")] self_test: bool,
     schema_version: SchemaVersion, kind: ManifestKind, evaluation_id: Identifier,
     submission_id: Identifier, problem_version_id: Identifier, language: Language,
     toolchain: Toolchain, source: ArtifactReference, cases: Vec<TestCase>,
@@ -344,6 +364,14 @@ impl JobManifest {
                 .sum::<u64>()
     }
     pub fn validate(&self) -> Validation {
+        if self.self_test
+            && (self.cases.len() != 1
+                || self.cases[0].case_id != self.submission_id
+                || self.cases[0].expected.bytes != 0)
+        {
+            return Err("invalid self-test case");
+        }
+
         self.source.validate()?;
         self.toolchain.validate()?;
         self.compile_limits.validate()?;
@@ -471,6 +499,7 @@ impl CaseReport {
     }
 }
 validated_struct!(JudgementReport {
+    #[serde(default, skip_serializing_if = "Option::is_none")] self_test_output: Option<SelfTestOutput>,
     schema_version: SchemaVersion, kind: ResultKind, binding: LeaseBinding, manifest_digest: Digest,
     compilation: CompilationReport, cases: Vec<CaseReport>, verdict: Verdict, cleanup_complete: bool,
     #[serde(deserialize_with = "required_option")] failure_code: Option<FailureCode>,
@@ -479,6 +508,10 @@ validated_struct!(JudgementReport {
 });
 impl JudgementReport {
     pub fn validate(&self) -> Validation {
+        if let Some(output) = &self.self_test_output {
+            output.validate()?;
+        }
+
         self.binding.validate()?;
         self.compilation.validate()?;
         measure(self.run_cpu_time_us)?;
@@ -562,6 +595,10 @@ impl JudgementReport {
         Ok(())
     }
     pub fn validate_for_manifest(&self, manifest: &JobManifest, digest: &Digest) -> Validation {
+        if !manifest.self_test && self.self_test_output.is_some() {
+            return Err("ordinary judgement cannot expose output");
+        }
+
         self.validate()?;
         manifest.validate()?;
         if self.binding.evaluation_id != manifest.evaluation_id || &self.manifest_digest != digest {

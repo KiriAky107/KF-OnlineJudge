@@ -238,6 +238,11 @@
       "title": "Schema Version",
       "type": "integer"
     },
+    "self_test": {
+      "default": false,
+      "title": "Self Test",
+      "type": "boolean"
+    },
     "source": {
       "$ref": "#/$defs/ArtifactReference"
     },

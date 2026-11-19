@@ -78,6 +78,9 @@ pub mod native {
                 Measurement::Unavailable { .. } => None,
             };
             Ok(Observation {
+                stderr: Vec::new(),
+                stdout_truncated: false,
+                stderr_truncated: false,
                 kind,
                 stdout,
                 cpu_time_us: value(result.report.usage.cpu_time_us),

@@ -1,15 +1,16 @@
 from sqlalchemy import func, select
 
 from kf_oj.contracts.judging import LeaseBinding
-from kf_oj.modules.submissions.models import Evaluation, JudgeAttempt, Submission
+from kf_oj.modules.submissions.models import Evaluation, JudgeAttempt, SelfTest, Submission
 
 
 async def leased_submission(session, binding: LeaseBinding, token_hash: str):
     return (
         await session.execute(
-            select(Evaluation, JudgeAttempt, Submission)
+            select(Evaluation, JudgeAttempt, Submission, SelfTest)
             .join(JudgeAttempt, JudgeAttempt.id == Evaluation.current_attempt_id)
-            .join(Submission, Submission.id == Evaluation.submission_id)
+            .outerjoin(Submission, Submission.id == Evaluation.submission_id)
+            .outerjoin(SelfTest, SelfTest.id == Evaluation.self_test_id)
             .where(
                 Evaluation.id == binding.evaluation_id,
                 Evaluation.state.in_(("claimed", "compiling", "running")),

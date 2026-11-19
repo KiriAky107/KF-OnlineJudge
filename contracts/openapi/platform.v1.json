@@ -243,6 +243,44 @@
         "title": "CreateProblemImport",
         "type": "object"
       },
+      "CreateSelfTest": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "format": "uuid",
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language-Input"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "source": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "stdin": {
+            "default": "",
+            "maxLength": 65536,
+            "title": "Stdin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "problem_version_id",
+          "language",
+          "idempotency_key",
+          "source"
+        ],
+        "title": "CreateSelfTest",
+        "type": "object"
+      },
       "CreateSubmission": {
         "additionalProperties": false,
         "properties": {
@@ -489,6 +527,11 @@
             "const": 1,
             "title": "Schema Version",
             "type": "integer"
+          },
+          "self_test": {
+            "default": false,
+            "title": "Self Test",
+            "type": "boolean"
           },
           "source": {
             "$ref": "#/components/schemas/ArtifactReference"
@@ -2488,6 +2531,146 @@
           "workdir_bytes"
         ],
         "title": "RunLimits",
+        "type": "object"
+      },
+      "SelfTestDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "compile_diagnostics": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compile Diagnostics"
+          },
+          "compile_diagnostics_truncated": {
+            "default": false,
+            "title": "Compile Diagnostics Truncated",
+            "type": "boolean"
+          },
+          "cpu_time_us": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Time Us"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "language": {
+            "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
+          },
+          "memory_peak_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Peak Bytes"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "self_test_id": {
+            "format": "uuid",
+            "title": "Self Test Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "claimed",
+              "compiling",
+              "running",
+              "cancelling",
+              "finished",
+              "cancelled",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "stderr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stderr"
+          },
+          "stderr_truncated": {
+            "default": false,
+            "title": "Stderr Truncated",
+            "type": "boolean"
+          },
+          "stdout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stdout"
+          },
+          "stdout_truncated": {
+            "default": false,
+            "title": "Stdout Truncated",
+            "type": "boolean"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          }
+        },
+        "required": [
+          "self_test_id",
+          "problem_version_id",
+          "language",
+          "created_at",
+          "state",
+          "verdict",
+          "failure_code"
+        ],
+        "title": "SelfTestDetail",
         "type": "object"
       },
       "SubmissionComparison": {
@@ -4638,6 +4821,90 @@
         "summary": "Problem Version",
         "tags": [
           "problems"
+        ]
+      }
+    },
+    "/api/v1/self-tests": {
+      "post": {
+        "operationId": "create_api_v1_self_tests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSelfTest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfTestDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create",
+        "tags": [
+          "self-tests"
+        ]
+      }
+    },
+    "/api/v1/self-tests/{self_test_id}": {
+      "get": {
+        "operationId": "detail_api_v1_self_tests__self_test_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "self_test_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Self Test Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfTestDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Detail",
+        "tags": [
+          "self-tests"
         ]
       }
     },

@@ -127,6 +127,7 @@ pub fn judge_submission<P: PreparationPort + RunPort + ExpectedPort + ControlPor
             compilation.program = None;
         }
     }
+    let mut self_test_output = None;
     let mut cases = Vec::with_capacity(m.cases.len());
     let mut run_ids = Vec::with_capacity(m.cases.len());
     if let Some(program) = &compilation.program {
@@ -160,6 +161,9 @@ pub fn judge_submission<P: PreparationPort + RunPort + ExpectedPort + ControlPor
                     }
                 }
                 Ok(o) => {
+                    if m.self_test {
+                        self_test_output = Some(crate::submission::capture_output(&o));
+                    }
                     let verdict = if o.kind == ExecutionKind::InfrastructureFailure {
                         Verdict::SystemError
                     } else {
@@ -172,6 +176,7 @@ pub fn judge_submission<P: PreparationPort + RunPort + ExpectedPort + ControlPor
                             Ok(false) if !matches!(o.kind, ExecutionKind::Exited { code: 0 }) => {
                                 classify(&o, &[])
                             }
+                            Ok(false) if m.self_test => Verdict::Accepted,
                             Ok(false) => match p.expected(c) {
                                 Ok(bytes)
                                     if bytes.len() as u64 == c.expected.bytes
@@ -263,7 +268,8 @@ pub fn judge_submission<P: PreparationPort + RunPort + ExpectedPort + ControlPor
             reason,
         })
         .collect();
-    let report = JudgementReport {
+    let mut report = JudgementReport {
+        self_test_output,
         schema_version: SchemaVersion,
         kind: ResultKind::Value,
         binding,
@@ -276,6 +282,17 @@ pub fn judge_submission<P: PreparationPort + RunPort + ExpectedPort + ControlPor
         run_cpu_time_us: cpu,
         run_memory_peak_bytes: memory,
     };
+    if report.self_test_output.is_some() {
+        let original = report.compilation.diagnostics.as_str();
+        if original.len() > 4096 {
+            let mut end = 4096;
+            while !original.is_char_boundary(end) {
+                end -= 1;
+            }
+            report.compilation.diagnostics = original[..end].to_owned().try_into()?;
+            report.compilation.diagnostics_truncated = true;
+        }
+    }
     report.validate_for_manifest(m, &report.manifest_digest)?;
     Ok(SubmissionResult {
         report,
@@ -371,6 +388,9 @@ mod tests {
                 .cases
                 .iter()
                 .map(|case| Observation {
+                    stderr: Vec::new(),
+                    stdout_truncated: false,
+                    stderr_truncated: false,
                     kind: ExecutionKind::Exited { code: 0 },
                     stdout: vec![0; case.expected.bytes as usize],
                     cpu_time_us: Some(3),
@@ -387,6 +407,26 @@ mod tests {
             fail_cleanup: false,
         };
         (m, r.binding, r.manifest_digest, p)
+    }
+    #[test]
+    fn self_test_captures_output_without_reading_expected() {
+        for language in ["c17", "cpp20", "python313", "java21"] {
+            let (mut m, b, d, mut p) = fixture(language);
+            m.self_test = true;
+            m.cases.truncate(1);
+            m.cases[0].case_id = m.submission_id;
+            m.cases[0].expected.bytes = 0;
+            p.observations[0].stdout = b"arbitrary output".to_vec();
+            let r = judge_submission(&mut p, &m, b, d.clone()).unwrap();
+            assert_eq!(p.expected_reads, 0);
+            assert_eq!(r.report.verdict, Verdict::Accepted);
+            assert_eq!(
+                r.report.self_test_output.as_ref().unwrap().stdout,
+                "arbitrary output"
+            );
+            m.self_test = false;
+            assert!(r.report.validate_for_manifest(&m, &d).is_err());
+        }
     }
     #[test]
     fn typed_prepare_once_same_program_every_point_and_unknown_measurements() {

@@ -193,6 +193,37 @@
       "title": "LeaseBinding",
       "type": "object"
     },
+    "SelfTestOutput": {
+      "additionalProperties": false,
+      "properties": {
+        "stderr": {
+          "maxLength": 65536,
+          "title": "Stderr",
+          "type": "string"
+        },
+        "stderr_truncated": {
+          "title": "Stderr Truncated",
+          "type": "boolean"
+        },
+        "stdout": {
+          "maxLength": 65536,
+          "title": "Stdout",
+          "type": "string"
+        },
+        "stdout_truncated": {
+          "title": "Stdout Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "stdout",
+        "stderr",
+        "stdout_truncated",
+        "stderr_truncated"
+      ],
+      "title": "SelfTestOutput",
+      "type": "object"
+    },
     "Verdict": {
       "enum": [
         "accepted",
@@ -283,6 +314,17 @@
       "const": 1,
       "title": "Schema Version",
       "type": "integer"
+    },
+    "self_test_output": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SelfTestOutput"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "verdict": {
       "$ref": "#/$defs/Verdict"
