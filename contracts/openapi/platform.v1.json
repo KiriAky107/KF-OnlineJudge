@@ -2490,6 +2490,40 @@
         "title": "RunLimits",
         "type": "object"
       },
+      "SubmissionComparison": {
+        "additionalProperties": false,
+        "properties": {
+          "left": {
+            "$ref": "#/components/schemas/SubmissionDetail"
+          },
+          "left_source": {
+            "maxLength": 262144,
+            "title": "Left Source",
+            "type": "string"
+          },
+          "right": {
+            "$ref": "#/components/schemas/SubmissionDetail"
+          },
+          "right_source": {
+            "maxLength": 262144,
+            "title": "Right Source",
+            "type": "string"
+          },
+          "same_version": {
+            "title": "Same Version",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "left",
+          "right",
+          "left_source",
+          "right_source",
+          "same_version"
+        ],
+        "title": "SubmissionComparison",
+        "type": "object"
+      },
       "SubmissionCreated": {
         "additionalProperties": false,
         "properties": {
@@ -4822,6 +4856,59 @@
           }
         },
         "summary": "Cancel",
+        "tags": [
+          "submissions"
+        ]
+      }
+    },
+    "/api/v1/submissions/{submission_id}/compare/{other_id}": {
+      "get": {
+        "operationId": "compare_api_v1_submissions__submission_id__compare__other_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Submission Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "other_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Other Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionComparison"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compare",
         "tags": [
           "submissions"
         ]

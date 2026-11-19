@@ -12,6 +12,7 @@ from kf_oj.contracts.submissions import (
     CancellationAccepted,
     PublicCaseResult,
     PublicJudgement,
+    SubmissionComparison,
     SubmissionDetail,
     SubmissionPage,
     SubmissionSummary,
@@ -123,7 +124,10 @@ class SubmissionQueries:
             row = (await session.execute(self.owned(principal, submission_id))).one_or_none()
         if row is None:
             raise SubmissionUnavailable("submission unavailable")
-        submission, evaluation = row
+        return self._project_detail(*row)
+
+    @staticmethod
+    def _project_detail(submission: Submission, evaluation: Evaluation) -> SubmissionDetail:
         result = None
         if evaluation.state in {"finished", "failed", "cancelled"} and evaluation.final_report:
             # A single joined snapshot, strict validation and explicit projection prevent leaking
@@ -151,6 +155,24 @@ class SubmissionQueries:
             )
         return SubmissionDetail(**summary(submission, evaluation).model_dump(), result=result)
 
+    async def compare(
+        self, principal: Principal, submission_id: UUID, other_id: UUID
+    ) -> SubmissionComparison:
+        if submission_id == other_id:
+            raise SubmissionUnavailable("submission comparison unavailable")
+        async with self.sessions() as session:
+            left = (await session.execute(self.owned(principal, submission_id))).one_or_none()
+            right = (await session.execute(self.owned(principal, other_id))).one_or_none()
+            if left is None or right is None or left[0].problem_id != right[0].problem_id:
+                raise SubmissionUnavailable("submission comparison unavailable")
+            return SubmissionComparison(
+                left=self._project_detail(*left),
+                right=self._project_detail(*right),
+                left_source=(await self._read_source(session, left[0])).decode("utf-8"),
+                right_source=(await self._read_source(session, right[0])).decode("utf-8"),
+                same_version=left[0].problem_version_id == right[0].problem_version_id,
+            )
+
     async def cancel(self, principal: Principal, submission_id: UUID) -> CancellationAccepted:
         async with self.sessions() as session:
             row = (await session.execute(self.owned(principal, submission_id))).one_or_none()
@@ -170,15 +192,18 @@ class SubmissionQueries:
             )
             if submission is None:
                 raise SubmissionUnavailable("submission unavailable")
-            metadata = await session.get(Artifact, submission.source_digest)
-            if (
-                metadata is None
-                or metadata.state != "ready"
-                or not 1 <= metadata.bytes <= MAX_SOURCE_BYTES
-            ):
-                raise SubmissionUnavailable("submission source unavailable")
-            reference = ArtifactReference(digest=metadata.digest, bytes=metadata.bytes)
-            try:
-                return await self.artifacts.read(session, reference)
-            except ArtifactError:
-                raise SubmissionUnavailable("submission source unavailable") from None
+            return await self._read_source(session, submission)
+
+    async def _read_source(self, session, submission: Submission) -> bytes:
+        metadata = await session.get(Artifact, submission.source_digest)
+        if (
+            metadata is None
+            or metadata.state != "ready"
+            or not 1 <= metadata.bytes <= MAX_SOURCE_BYTES
+        ):
+            raise SubmissionUnavailable("submission source unavailable")
+        reference = ArtifactReference(digest=metadata.digest, bytes=metadata.bytes)
+        try:
+            return await self.artifacts.read(session, reference)
+        except ArtifactError:
+            raise SubmissionUnavailable("submission source unavailable") from None

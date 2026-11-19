@@ -10,6 +10,7 @@ import PageHeading from './PageHeading.vue'
 import PanelCard from './PanelCard.vue'
 import JudgementStatus from './JudgementStatus.vue'
 import SubmissionPerformance from './SubmissionPerformance.vue'
+import SubmissionReview from './SubmissionReview.vue'
 import { preparationName } from '../composables/judgingLanguage'
 import { displayTime } from '../lib/presentation'
 const props = defineProps<{ submissionId: string; embedded?: boolean }>()
@@ -194,6 +195,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <SubmissionPerformance v-if="terminal" :submission-id="id" />
+    <SubmissionReview :submission="submission" />
     <PanelCard title="评测详情" icon="submissions">
       <p v-if="submission.failure_code" role="alert">系统原因：{{ submission.failure_code }}</p>
       <template v-if="submission.result">

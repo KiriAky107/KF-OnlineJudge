@@ -486,6 +486,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/submissions/{submission_id}/compare/{other_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Compare */
+        get: operations["compare_api_v1_submissions__submission_id__compare__other_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/submissions/{submission_id}/performance": {
         parameters: {
             query?: never;
@@ -1632,6 +1649,17 @@ export interface components {
             wall_time_us: number;
             /** Workdir Bytes */
             workdir_bytes: number;
+        };
+        /** SubmissionComparison */
+        SubmissionComparison: {
+            left: components["schemas"]["SubmissionDetail"];
+            /** Left Source */
+            left_source: string;
+            right: components["schemas"]["SubmissionDetail"];
+            /** Right Source */
+            right_source: string;
+            /** Same Version */
+            same_version: boolean;
         };
         /** SubmissionCreated */
         SubmissionCreated: {
@@ -2928,6 +2956,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CancellationAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compare_api_v1_submissions__submission_id__compare__other_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+                other_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionComparison"];
                 };
             };
             /** @description Validation Error */

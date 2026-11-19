@@ -74,6 +74,14 @@ class SubmissionDetail(SubmissionSummary):
     result: PublicJudgement | None
 
 
+class SubmissionComparison(WireModel):
+    left: SubmissionDetail
+    right: SubmissionDetail
+    left_source: Annotated[str, Field(max_length=MAX_SOURCE_BYTES, repr=False)]
+    right_source: Annotated[str, Field(max_length=MAX_SOURCE_BYTES, repr=False)]
+    same_version: bool
+
+
 class SubmissionPage(WireModel):
     items: tuple[SubmissionSummary, ...]
     next_after: str | None
