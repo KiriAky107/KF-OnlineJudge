@@ -32,7 +32,7 @@ API 类型更新执行根目录 `make contracts`；前端通过 `pnpm check:api`
 
 编辑器保留 Monaco 的输入、撤销、查找与快捷键，使用 `shiki` 提供 TextMate 高亮，
 `@shikijs/monaco` 将其接入 Monaco；仅加载 C++（C 共用）、Python、Java、Rust
-和 GitHub 浅/深主题。高亮实例跨编辑器挂载复用；加载失败时保留纯文本输入，
+和 GitHub 浅/深主题。高亮实例跨编辑器挂载复用；加载失败时显示错误提示，不提供纯文本编辑分支；
 切换主题、语言不会为高亮重建 model。高亮支持不代表后端判题能力。
 
 编辑器按题目版本和语言保留本地草稿，新增 Java 并保留原 C17/C++/Python/Rust 草稿。

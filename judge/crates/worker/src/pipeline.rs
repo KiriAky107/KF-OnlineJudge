@@ -16,6 +16,25 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Instant,
 };
+pub(crate) fn read_compile_diagnostics(
+    reader: impl Read,
+    sandbox_truncated: bool,
+) -> io::Result<(String, bool)> {
+    let mut raw = Vec::new();
+    reader.take(65537).read_to_end(&mut raw)?;
+    let mut text = String::from_utf8_lossy(&raw).into_owned();
+    let mut truncated = sandbox_truncated || text.len() > 65536;
+    if text.len() > 65536 {
+        let mut end = 65536;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        truncated = true;
+    }
+    Ok((text, truncated))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Job {
@@ -165,6 +184,7 @@ pub fn compiler_spec(
 }
 type StageControl<'a> = Box<dyn FnMut(Stage, Option<u16>) -> Result<(), StageFailure> + 'a>;
 pub struct Attempt<'a, A: ArtifactPort> {
+    self_test: bool,
     pub artifacts: A,
     pub stages: Vec<StageEvidence>,
     pub cancellation: &'a AtomicBool,
@@ -191,6 +211,7 @@ impl<'a, A: ArtifactPort> Attempt<'a, A> {
             .checked_add(std::time::Duration::from_micros(wall_us))
             .ok_or_else(|| io::Error::other("deadline overflow"))?;
         Ok(Self {
+            self_test: false,
             artifacts,
             stages: vec![],
             cancellation,
@@ -257,6 +278,7 @@ impl<'a, A: ArtifactPort> Attempt<'a, A> {
 }
 impl<A: ArtifactPort> CompilationPort for Attempt<'_, A> {
     fn compile(&mut self, m: &JobManifest, run_id: &str) -> Result<Compiled, StageFailure> {
+        self.self_test = m.self_test;
         if m.toolchain.image_revision != 1 || m.toolchain.toolchain_id.as_str() != "gnu-cxx-v1" {
             return Err(stage_error(FailureCode::SandboxUnavailable, true));
         }
@@ -296,24 +318,14 @@ impl<A: ArtifactPort> CompilationPort for Attempt<'_, A> {
             ExecutionOutcome::Cancelled => CompilationStatus::Cancelled,
             _ => CompilationStatus::SystemError,
         };
-        let mut raw = Vec::new();
-        result
-            .stderr
-            .reader()
-            .map_err(|_| stage_error(FailureCode::ArtifactUnavailable, true))?
-            .take(65537)
-            .read_to_end(&mut raw)
-            .map_err(|_| stage_error(FailureCode::ArtifactUnavailable, true))?;
-        let mut text = String::from_utf8_lossy(&raw).into_owned();
-        let mut truncated = result.report.stderr.truncated || text.len() > 65536;
-        if text.len() > 65536 {
-            let mut end = 65536;
-            while !text.is_char_boundary(end) {
-                end -= 1;
-            }
-            text.truncate(end);
-            truncated = true;
-        }
+        let (text, truncated) = read_compile_diagnostics(
+            result
+                .stderr
+                .reader()
+                .map_err(|_| stage_error(FailureCode::ArtifactUnavailable, true))?,
+            result.report.stderr.truncated,
+        )
+        .map_err(|_| stage_error(FailureCode::ArtifactUnavailable, true))?;
         let program = if status == CompilationStatus::Succeeded {
             if result.outputs.len() != 1
                 || result.outputs[0].path != "main"
@@ -431,7 +443,20 @@ impl<A: ArtifactPort> RunPort for Attempt<'_, A> {
         if stdout.len() as u64 > b.stdout_bytes {
             return Err(stage_error(FailureCode::ArtifactUnavailable, true));
         }
+        let mut stderr = Vec::new();
+        if self.self_test {
+            result
+                .stderr
+                .reader()
+                .map_err(|_e| stage_error(FailureCode::ArtifactUnavailable, true))?
+                .take(16385)
+                .read_to_end(&mut stderr)
+                .map_err(|_e| stage_error(FailureCode::ArtifactUnavailable, true))?;
+        }
         Ok(Observation {
+            stderr,
+            stdout_truncated: self.self_test && result.report.stdout.truncated,
+            stderr_truncated: self.self_test && result.report.stderr.truncated,
             kind: kind(outcome),
             stdout,
             cpu_time_us: metric(&result.report.usage.cpu_time_us),
@@ -506,6 +531,25 @@ pub fn judge_local(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn compile_diagnostics_preserve_limit_and_report_truncation() {
+        for size in [16385, 20000, 65536, 65537, 70000] {
+            let raw = vec![b'x'; size];
+            let (text, truncated) = read_compile_diagnostics(raw.as_slice(), false).unwrap();
+            assert_eq!(text.len(), size.min(65536));
+            assert_eq!(truncated, size > 65536);
+        }
+        assert!(
+            read_compile_diagnostics(b"short".as_slice(), true)
+                .unwrap()
+                .1
+        );
+        let raw = "界".repeat(22000);
+        let (text, truncated) = read_compile_diagnostics(raw.as_bytes(), false).unwrap();
+        assert!(truncated);
+        assert_eq!(text.len(), 65535);
+    }
+
     #[test]
     fn constructing_parallel_attempt_does_not_scan_shared_staging() {
         struct NoArtifacts;

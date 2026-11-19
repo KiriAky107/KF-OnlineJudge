@@ -32,6 +32,9 @@ class JudgingVersion:
         submission_id: UUID,
         language: v1.Language | v2.Language,
         source: v1.ArtifactReference,
+        *,
+        cases: tuple[v1.TestCase, ...] | None = None,
+        self_test: bool = False,
     ) -> Manifest:
         """Build only from the immutable authorized version, preserving v1 wire bytes."""
         if language not in self.languages:
@@ -44,7 +47,8 @@ class JudgingVersion:
             problem_version_id=self.version_id,
             language=language,
             source=source,
-            cases=self.cases,
+            cases=self.cases if cases is None else cases,
+            self_test=self_test,
             comparison="exact_bytes",
         )
         if self.judging_schema_version == 1:
@@ -77,6 +81,10 @@ class JudgingVersion:
 
 
 class ProblemPort(Protocol):
+    async def for_self_test(
+        self, session, version_id: UUID, *, accepted=False
+    ) -> JudgingVersion: ...
+
     async def for_submission(self, session, version_id: UUID) -> JudgingVersion: ...
 
     async def for_accepted_execution(self, session, version_id: UUID) -> JudgingVersion:

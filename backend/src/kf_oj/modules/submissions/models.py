@@ -59,9 +59,62 @@ class Submission(CreatedAt, Base):
     request_digest: Mapped[str] = mapped_column(String(64))
 
 
+class SelfTest(CreatedAt, Base):
+    __tablename__ = "self_tests"
+    __table_args__ = (
+        UniqueConstraint("account_id", "idempotency_key", name="uq_self_tests_idempotency"),
+        UniqueConstraint("id", "problem_version_id", name="uq_self_tests_version"),
+        ForeignKeyConstraint(
+            ["problem_version_id", "problem_id"],
+            ["problem_versions.id", "problem_versions.problem_id"],
+        ),
+        ForeignKeyConstraint(
+            ["source_digest", "artifact_state"],
+            ["artifacts.digest", "artifacts.state"],
+            name="fk_self_tests_source",
+        ),
+        ForeignKeyConstraint(
+            ["stdin_digest", "artifact_state"],
+            ["artifacts.digest", "artifacts.state"],
+            name="fk_self_tests_stdin",
+        ),
+        ForeignKeyConstraint(
+            ["empty_digest", "artifact_state"],
+            ["artifacts.digest", "artifacts.state"],
+            name="fk_self_tests_empty",
+        ),
+        CheckConstraint("stdin_bytes BETWEEN 0 AND 65536", name="stdin_bytes"),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    account_id: Mapped[UUID] = mapped_column(ForeignKey("accounts.id"), index=True)
+    problem_id: Mapped[UUID]
+    problem_version_id: Mapped[UUID]
+    language: Mapped[str] = mapped_column(String(16))
+    source_digest: Mapped[str] = mapped_column(String(64))
+    stdin_digest: Mapped[str] = mapped_column(String(64))
+    stdin_bytes: Mapped[int] = mapped_column(BigInteger)
+    empty_digest: Mapped[str] = mapped_column(
+        String(64),
+        Computed(
+            "'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'", persisted=True
+        ),
+    )
+    artifact_state: Mapped[str] = mapped_column(String(8), Computed("'ready'", persisted=True))
+    idempotency_key: Mapped[UUID]
+    request_digest: Mapped[str] = mapped_column(String(64))
+
+
 class Evaluation(CreatedAt, Base):
     __tablename__ = "evaluations"
     __table_args__ = (
+        CheckConstraint(
+            "(submission_id IS NULL) <> (self_test_id IS NULL)", name="execution_owner"
+        ),
+        ForeignKeyConstraint(
+            ["self_test_id", "problem_version_id"],
+            ["self_tests.id", "self_tests.problem_version_id"],
+            name="fk_evaluations_self_test",
+        ),
         UniqueConstraint("id", "problem_version_id"),
         ForeignKeyConstraint(
             ["submission_id", "problem_version_id"],
@@ -92,7 +145,8 @@ class Evaluation(CreatedAt, Base):
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
-    submission_id: Mapped[UUID] = mapped_column(unique=True)
+    submission_id: Mapped[UUID | None] = mapped_column(unique=True)
+    self_test_id: Mapped[UUID | None] = mapped_column(unique=True)
     problem_version_id: Mapped[UUID]
     state: Mapped[str] = mapped_column(String(16), server_default="queued")
     fencing_version: Mapped[int] = mapped_column(BigInteger, server_default="0")

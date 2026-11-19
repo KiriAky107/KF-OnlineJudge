@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from kf_oj.contracts.judging import LeaseBinding
+from kf_oj.contracts.judging import ArtifactReference, LeaseBinding
 from kf_oj.contracts.judging_versions import (
     Manifest,
     decode_manifest,
@@ -18,6 +18,7 @@ from kf_oj.infra.artifacts.store import ArtifactError
 from kf_oj.modules.problems.public import ProblemPort, ProblemUnavailable
 from kf_oj.modules.submissions import repository
 from kf_oj.modules.submissions.public import WorkerAccessDenied, WorkerReadBusy
+from kf_oj.modules.submissions.self_tests import self_test_manifest
 
 
 class WorkerAccess:
@@ -44,14 +45,19 @@ class WorkerAccess:
         row = await repository.leased_submission(session, binding, self._token_hash(token))
         if row is None:
             raise WorkerAccessDenied("worker grant rejected")
-        evaluation, attempt, submission = row
+        evaluation, attempt, submission, self_test = row
+        execution = self_test if self_test is not None else submission
+        if execution is None:
+            raise WorkerAccessDenied("worker grant rejected")
+        submission = execution
         # Use a sanitized decoder at this trust boundary. JSONB snapshots are immutable for
         # runtime roles; use canonical bytes for both retrieval and digest verification.
 
         try:
             manifest = decode_manifest(json.dumps(attempt.manifest).encode())
             if (
-                manifest.evaluation_id != evaluation.id
+                manifest.self_test != (self_test is not None)
+                or manifest.evaluation_id != evaluation.id
                 or manifest.submission_id != submission.id
                 or manifest.problem_version_id != evaluation.problem_version_id
                 or manifest.problem_version_id != submission.problem_version_id
@@ -62,13 +68,32 @@ class WorkerAccess:
                 )
             ):
                 raise WorkerAccessDenied("worker snapshot rejected")
-            version = await self.problems.for_accepted_execution(
-                session, manifest.problem_version_id
-            )
+            if self_test is not None:
+                version = await self.problems.for_self_test(
+                    session, manifest.problem_version_id, accepted=True
+                )
+                stdin = ArtifactReference(
+                    digest=self_test.stdin_digest, bytes=self_test.stdin_bytes
+                )
+                expected = self_test_manifest(
+                    version,
+                    manifest.evaluation_id,
+                    manifest.submission_id,
+                    manifest.language,
+                    manifest.source,
+                    stdin,
+                )
+            else:
+                version = await self.problems.for_accepted_execution(
+                    session, manifest.problem_version_id
+                )
+                expected = version.manifest(
+                    manifest.evaluation_id,
+                    manifest.submission_id,
+                    manifest.language,
+                    manifest.source,
+                )
             await self.artifacts.check_metadata(session, manifest.source)
-            expected = version.manifest(
-                manifest.evaluation_id, manifest.submission_id, manifest.language, manifest.source
-            )
             if version.problem_id != submission.problem_id or manifest_bytes(
                 manifest
             ) != manifest_bytes(expected):

@@ -11,6 +11,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StrictBool,
+    model_serializer,
     model_validator,
 )
 
@@ -134,6 +135,15 @@ class TestCase(WireModel):
 
 
 class JobManifest(WireModel):
+    self_test: StrictBool = False
+
+    @model_serializer(mode="wrap")
+    def omit_normal_mode(self, handler):
+        data = handler(self)
+        if not self.self_test:
+            data.pop("self_test", None)
+        return data
+
     schema_version: Version
     kind: Literal["judge.manifest"]
     evaluation_id: Identifier
@@ -154,6 +164,12 @@ class JobManifest(WireModel):
 
     @model_validator(mode="after")
     def consistent(self) -> Self:
+        if self.self_test and (
+            len(self.cases) != 1
+            or self.cases[0].case_id != self.submission_id
+            or self.cases[0].expected.bytes != 0
+        ):
+            raise ValueError("invalid self-test case")
         if not 1 <= self.source.bytes <= MAX_SOURCE_BYTES:
             raise ValueError("source size outside policy")
         if len({c.case_id for c in self.cases}) != len(self.cases):
@@ -245,7 +261,29 @@ class CaseReport(WireModel):
         return self
 
 
+class SelfTestOutput(WireModel):
+    stdout: Annotated[str, Field(max_length=65536)]
+    stderr: Annotated[str, Field(max_length=65536)]
+    stdout_truncated: StrictBool
+    stderr_truncated: StrictBool
+
+    @model_validator(mode="after")
+    def bounded_bytes(self):
+        if len(self.stdout.encode("utf-8")) > 65536 or len(self.stderr.encode("utf-8")) > 65536:
+            raise ValueError("self-test output exceeds byte limit")
+        return self
+
+
 class JudgementReport(WireModel):
+    self_test_output: SelfTestOutput | None = None
+
+    @model_serializer(mode="wrap")
+    def omit_normal_output(self, handler):
+        data = handler(self)
+        if self.self_test_output is None:
+            data.pop("self_test_output", None)
+        return data
+
     schema_version: Version
     kind: Literal["judge.result"]
     binding: LeaseBinding
@@ -318,6 +356,8 @@ class JudgementReport(WireModel):
         return self
 
     def validate_for_manifest(self, manifest: JobManifest, digest: str) -> None:
+        if not manifest.self_test and self.self_test_output is not None:
+            raise ValueError("ordinary judgement cannot expose execution output")
         if self.binding.evaluation_id != manifest.evaluation_id or self.manifest_digest != digest:
             raise ValueError("report does not belong to authorized manifest")
         if [c.case_id for c in self.cases] != [

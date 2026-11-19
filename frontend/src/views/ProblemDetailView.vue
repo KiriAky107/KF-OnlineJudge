@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { sample } from '../lib/publicSample'
 import { displayRuntimeVersion } from '../lib/presentation'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -15,6 +16,7 @@ import EmptyState from '../components/EmptyState.vue'
 import UiIcon from '../components/UiIcon.vue'
 import ProblemSubmissionList from '../components/ProblemSubmissionList.vue'
 import SubmissionInspector from '../components/SubmissionInspector.vue'
+import SelfTestPanel from '../components/SelfTestPanel.vue'
 const route = useRoute()
 const router = useRouter()
 const id = String(route.params.id)
@@ -37,12 +39,11 @@ watch(
 )
 const theme = ref('vs')
 const fontSize = ref(14)
-const plain = ref(false)
 const error = ref('')
 const submitError = ref('')
 const busy = ref(false)
 const loading = ref(true)
-const testInput = ref('')
+const selfTestPanel = ref<InstanceType<typeof SelfTestPanel>>()
 const settingsOpen = ref(false)
 const split = ref(50)
 const workspace = ref<HTMLDivElement>()
@@ -120,16 +121,6 @@ function downloadCode() {
         : 'solution-' + id + '.' + { c: 'c', cpp: 'cpp', rust: 'rs' }[language.value]
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-function sample(value: string) {
-  const bytes = Uint8Array.from(atob(value), (c) => c.charCodeAt(0))
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-  } catch {
-    return (
-      '字节（十六进制）：' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join(' ')
-    )
-  }
 }
 async function copySample(value: string) {
   try {
@@ -295,9 +286,6 @@ onBeforeUnmount(() => {
           ><el-button size="small" aria-label="下载代码" @click="downloadCode"
             ><UiIcon name="document"
           /></el-button>
-          <el-button size="small" @click="plain = !plain">{{
-            plain ? '代码编辑器' : '纯文本编辑'
-          }}</el-button>
           <el-popover v-model:visible="settingsOpen" trigger="click" width="240"
             ><template #reference
               ><el-button size="small" aria-label="编辑器设置"><UiIcon name="settings" /></el-button
@@ -313,26 +301,7 @@ onBeforeUnmount(() => {
           ></el-popover>
         </header>
         <div class="editor-area">
-          <textarea
-            v-if="plain"
-            v-model="code"
-            aria-label="源码"
-            style="
-              width: 100%;
-              height: 100%;
-              min-height: 320px;
-              padding: 18px;
-              font-family: monospace;
-              resize: none;
-            "
-            spellcheck="false"
-          /><CodeEditor
-            v-else
-            v-model="code"
-            :language="language"
-            :theme="theme"
-            :font-size="fontSize"
-          />
+          <CodeEditor v-model="code" :language="language" :theme="theme" :font-size="fontSize" />
         </div>
         <div class="editor-testing">
           <p v-if="!supported" class="notice-strip">
@@ -361,12 +330,12 @@ onBeforeUnmount(() => {
               >重新登录</RouterLink
             >
           </p>
-          <el-input
-            v-model="testInput"
-            type="textarea"
-            :rows="3"
-            aria-label="自测输入"
-            placeholder="自测能力暂未开放，输入不会随提交发送"
+          <SelfTestPanel
+            ref="selfTestPanel"
+            :problem="problem"
+            :language="wireLanguage"
+            :source="code"
+            @run="save"
           />
         </div>
         <footer class="editor-buttons">
@@ -374,7 +343,14 @@ onBeforeUnmount(() => {
             session.user.value ? '提交后评测隐藏测试' : '登录后可提交'
           }}</span
           ><el-button size="small" @click="save">保存草稿</el-button
-          ><el-button size="small" type="success" plain disabled>自测运行</el-button
+          ><el-button
+            size="small"
+            type="success"
+            plain
+            :loading="selfTestPanel?.running"
+            :disabled="!supported"
+            @click="selfTestPanel?.run()"
+            >自测运行</el-button
           ><el-button
             size="small"
             type="primary"

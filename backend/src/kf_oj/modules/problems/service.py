@@ -172,11 +172,15 @@ class ProblemService:
         row = await repository.published_version(session, version_id)
         return await self._judging_version(session, row)
 
-    async def _judging_version(self, session, row):
+    async def for_self_test(self, session, version_id: UUID, *, accepted=False):
+        row = await repository.published_version(session, version_id, admission=not accepted)
+        return await self._judging_version(session, row, include_cases=False)
+
+    async def _judging_version(self, session, row, *, include_cases=True):
         if row is None:
             raise ProblemUnavailable("problem version unavailable")
         version, problem = row
-        cases = await repository.ordered_cases(session, version.id)
+        cases = await repository.ordered_cases(session, version.id) if include_cases else ()
         refs = []
         digests = {d for case in cases for d in (case.input_digest, case.expected_digest)}
         records = {

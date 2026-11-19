@@ -87,7 +87,16 @@ export const router = createRouter({
       meta: { title: '退出登录' },
       component: () => import('../views/LogoutView.vue'),
     },
-    { path: '/about', meta: { title: '关于' }, component: () => import('../views/AboutView.vue') },
+    {
+      path: '/about',
+      meta: { title: '简介' },
+      component: () => import('../views/AboutView.vue'),
+    },
+    {
+      path: '/about/developers',
+      meta: { title: '开发者' },
+      component: () => import('../views/DevelopersView.vue'),
+    },
     {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
@@ -97,6 +106,7 @@ export const router = createRouter({
   ],
 })
 router.beforeEach(async (to) => {
+  if (to.path === '/about' && to.hash === '#system') return '/about/developers#system'
   if (to.path === '/submissions' || to.path.startsWith('/submissions/') || to.path === '/logout') {
     try {
       if (await useSession().refresh()) return true

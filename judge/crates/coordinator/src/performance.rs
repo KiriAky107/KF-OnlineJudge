@@ -11,6 +11,9 @@ use serde_json::{Value, json};
 use tokio_postgres::Transaction;
 
 pub fn comparison_group(manifest: &JobManifest, epoch: &str) -> Result<String> {
+    if manifest.self_test() {
+        return Err(Error::Rejected);
+    }
     let _: Digest = epoch.to_owned().try_into().map_err(|_| Error::Invalid)?;
     let value = serde_json::to_value(manifest).map_err(|_| Error::Invalid)?;
     let group = json!({
@@ -32,6 +35,9 @@ pub async fn record(
     report: &JudgementReport,
     digest: &str,
 ) -> Result<u64> {
+    if manifest.self_test() {
+        return Ok(0);
+    }
     let fields = report.fields();
     let b = fields.binding;
     let Some(row) = transaction
@@ -90,6 +96,22 @@ pub async fn record(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn self_tests_never_form_public_performance_cohorts() {
+        let mut value: Value = serde_json::from_slice(include_bytes!(
+            "../../../../tests/fixtures/contracts-v2/judge-manifest.valid-python313.json"
+        ))
+        .unwrap();
+        value["self_test"] = json!(true);
+        value["cases"] = json!([{
+            "case_id": value["submission_id"],
+            "input": value["cases"][0]["input"],
+            "expected": {"digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "bytes": 0}
+        }]);
+        let manifest: JobManifest = serde_json::from_value(value).unwrap();
+        assert!(comparison_group(&manifest, &"a".repeat(64)).is_err());
+    }
 
     #[test]
     fn grouping_separates_exact_image_version_and_execution_budgets() {

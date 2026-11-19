@@ -89,15 +89,7 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <div v-if="failed" class="editor-fallback">
-    <p role="status">代码高亮加载失败，仍可使用纯文本编辑。</p>
-    <textarea
-      :value="modelValue"
-      aria-label="源码"
-      spellcheck="false"
-      @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
-    />
-  </div>
+  <p v-if="failed" class="editor-error" role="status">代码高亮加载失败。</p>
   <div v-else ref="container" class="monaco-container" />
 </template>
 <style scoped>
@@ -106,19 +98,7 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 320px;
 }
-.editor-fallback {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-.editor-fallback p {
+.editor-error {
   margin: 8px 18px;
-}
-.editor-fallback textarea {
-  flex: 1;
-  min-height: 280px;
-  padding: 18px;
-  font-family: monospace;
-  resize: none;
 }
 </style>

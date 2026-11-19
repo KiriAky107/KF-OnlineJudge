@@ -261,3 +261,16 @@ fn typed_compiler_output_checks_individual_files_and_collection_storage() {
     m.validate().unwrap();
     assert!(report.validate_program_budget(&manifest).is_err());
 }
+
+#[test]
+fn self_test_canonical_and_report_match_python() {
+    let manifest: v2::JobManifest = fixture("judge-manifest.valid-self-test");
+    assert_eq!(
+        v2::manifest_bytes(&manifest).unwrap(),
+        fs::read(fixtures().join("canonical-manifest.self-test.txt")).unwrap()
+    );
+    let report: v2::JudgementReport = fixture("judge-result.valid-self-test");
+    report
+        .validate_for_manifest(&manifest, &report.manifest_digest)
+        .unwrap();
+}

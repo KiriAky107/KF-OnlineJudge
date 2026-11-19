@@ -39,11 +39,23 @@ fn as_wire<T: serde::de::DeserializeOwned>(v: Value) -> Result<T> {
 }
 impl Repository {
     async fn manifest(&self, t: &Transaction<'_>, e: &Row) -> Result<JobManifest> {
-        let sid: Uuid = e.get("submission_id");
+        let submission: Option<Uuid> = e.get("submission_id");
+        let self_test: Option<Uuid> = e.get("self_test_id");
+        let (sid, is_self_test) = match (submission, self_test) {
+            (Some(id), None) => (id, false),
+            (None, Some(id)) => (id, true),
+            _ => return Err(Error::Invalid),
+        };
         let eid: Uuid = e.get("id");
-        let h=t.query_opt("SELECT s.id,s.problem_version_id,s.language,s.source_digest,a.bytes,v.judging_schema_version,v.languages,v.language_configurations,v.toolchain,v.compile_limits,v.run_limits,v.job_wall_time_us FROM submissions s JOIN problem_versions v ON v.id=s.problem_version_id JOIN artifacts a ON a.digest=s.source_digest AND a.state='ready' WHERE s.id=$1 AND v.published_at IS NOT NULL",&[&sid]).await?.ok_or(Error::Invalid)?;
+        // Execution envelopes share the queue, but self-tests never become submissions.
+        let h=t.query_opt("SELECT s.id,s.problem_version_id,s.language,s.source_digest,a.bytes,v.judging_schema_version,v.languages,v.language_configurations,v.toolchain,v.compile_limits,v.run_limits,v.job_wall_time_us FROM (SELECT id,problem_version_id,language,source_digest FROM submissions WHERE id=$1 AND NOT $2 UNION ALL SELECT id,problem_version_id,language,source_digest FROM self_tests WHERE id=$1 AND $2) s JOIN problem_versions v ON v.id=s.problem_version_id JOIN artifacts a ON a.digest=s.source_digest AND a.state='ready' WHERE v.published_at IS NOT NULL",&[&sid,&is_self_test]).await?.ok_or(Error::Invalid)?;
         let vid: Uuid = h.get("problem_version_id");
-        let rows=t.query("SELECT c.id,c.position,c.input_digest,c.expected_digest,i.bytes input_bytes,o.bytes expected_bytes FROM problem_cases c JOIN artifacts i ON i.digest=c.input_digest AND i.state='ready' JOIN artifacts o ON o.digest=c.expected_digest AND o.state='ready' WHERE c.version_id=$1 ORDER BY c.position LIMIT 257",&[&vid]).await?;
+        let rows = if is_self_test {
+            // No hidden-case query or hidden artifact enters a self-test grant.
+            t.query("SELECT s.id,0::integer position,s.stdin_digest input_digest,o.digest expected_digest,i.bytes input_bytes,o.bytes expected_bytes FROM self_tests s JOIN artifacts i ON i.digest=s.stdin_digest AND i.state='ready' JOIN artifacts o ON o.digest='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' AND o.state='ready' AND o.bytes=0 WHERE s.id=$1 AND s.stdin_bytes=i.bytes", &[&sid]).await?
+        } else {
+            t.query("SELECT c.id,c.position,c.input_digest,c.expected_digest,i.bytes input_bytes,o.bytes expected_bytes FROM problem_cases c JOIN artifacts i ON i.digest=c.input_digest AND i.state='ready' JOIN artifacts o ON o.digest=c.expected_digest AND o.state='ready' WHERE c.version_id=$1 ORDER BY c.position LIMIT 257",&[&vid]).await?
+        };
         let mut cases = Vec::new();
         for (n, r) in rows.iter().enumerate() {
             if r.get::<_, i32>("position") != n as i32 {
@@ -79,6 +91,7 @@ impl Repository {
             JobManifest::V1(kf_contracts::judging::JobManifest {
                 schema_version: SchemaVersion,
                 kind: ManifestKind::Value,
+                self_test: is_self_test,
                 evaluation_id: identifier(eid),
                 submission_id: identifier(sid),
                 problem_version_id: identifier(vid),
@@ -120,6 +133,7 @@ impl Repository {
             JobManifest::V2(v2::JobManifest {
                 schema_version: v2::SchemaVersion,
                 kind: ManifestKind::Value,
+                self_test: is_self_test,
                 evaluation_id: identifier(eid),
                 submission_id: identifier(sid),
                 problem_version_id: identifier(vid),
@@ -412,7 +426,7 @@ impl Repository {
             }
         }
         let vid = m.problem_version_id().as_uuid();
-        for (position, c) in fields.cases.iter().enumerate() {
+        for (position, c) in fields.cases.iter().enumerate().filter(|_| !m.self_test()) {
             let verdict = serde_json::to_value(c.verdict).map_err(invalid)?;
             t.execute("INSERT INTO case_results(attempt_id,case_id,evaluation_id,problem_version_id,position,verdict,cpu_time_us,memory_peak_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",&[&b.attempt_id.as_uuid(),&c.case_id.as_uuid(),&b.evaluation_id.as_uuid(),&vid,&(position as i32),&verdict.as_str().ok_or(Error::Invalid)?,&c.cpu_time_us.map(|v|v as i64),&c.memory_peak_bytes.map(|v|v as i64)]).await?;
         }
@@ -446,7 +460,7 @@ impl Repository {
         let t = s.client.transaction().await?;
         let row = t
             .query_opt(
-                "SELECT final_report FROM evaluations WHERE id=$1 FOR UPDATE",
+                "SELECT final_report FROM evaluations WHERE id=$1 AND self_test_id IS NULL FOR UPDATE",
                 &[&evaluation.as_uuid()],
             )
             .await?

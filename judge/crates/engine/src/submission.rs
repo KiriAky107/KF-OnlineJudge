@@ -149,6 +149,7 @@ pub fn judge_submission<P: CompilationPort + RunPort + ExpectedPort + ControlPor
             compilation.program = None;
         }
     }
+    let mut self_test_output = None;
     let mut cases = Vec::with_capacity(m.cases.len());
     let mut run_ids = Vec::with_capacity(m.cases.len());
     if let Some(program) = &compilation.program {
@@ -182,6 +183,9 @@ pub fn judge_submission<P: CompilationPort + RunPort + ExpectedPort + ControlPor
                     }
                 }
                 Ok(o) => {
+                    if m.self_test {
+                        self_test_output = Some(crate::submission::capture_output(&o));
+                    }
                     let verdict = if o.kind == ExecutionKind::InfrastructureFailure {
                         Verdict::SystemError
                     } else {
@@ -194,6 +198,7 @@ pub fn judge_submission<P: CompilationPort + RunPort + ExpectedPort + ControlPor
                             Ok(false) if !matches!(o.kind, ExecutionKind::Exited { code: 0 }) => {
                                 classify(&o, &[])
                             }
+                            Ok(false) if m.self_test => Verdict::Accepted,
                             Ok(false) => match p.expected(c) {
                                 Ok(bytes)
                                     if bytes.len() as u64 == c.expected.bytes
@@ -285,7 +290,8 @@ pub fn judge_submission<P: CompilationPort + RunPort + ExpectedPort + ControlPor
             reason,
         })
         .collect();
-    let report = JudgementReport {
+    let mut report = JudgementReport {
+        self_test_output,
         schema_version: SchemaVersion,
         kind: ResultKind::Value,
         binding,
@@ -298,6 +304,17 @@ pub fn judge_submission<P: CompilationPort + RunPort + ExpectedPort + ControlPor
         run_cpu_time_us: cpu,
         run_memory_peak_bytes: memory,
     };
+    if report.self_test_output.is_some() {
+        let original = report.compilation.diagnostics.as_str();
+        if original.len() > 4096 {
+            let mut end = 4096;
+            while !original.is_char_boundary(end) {
+                end -= 1;
+            }
+            report.compilation.diagnostics = original[..end].to_owned().try_into()?;
+            report.compilation.diagnostics_truncated = true;
+        }
+    }
     report.validate_for_manifest(m, &report.manifest_digest)?;
     Ok(SubmissionResult {
         report,
@@ -306,6 +323,27 @@ pub fn judge_submission<P: CompilationPort + RunPort + ExpectedPort + ControlPor
         skipped,
     })
 }
+pub(crate) fn capture_output(o: &Observation) -> SelfTestOutput {
+    fn decode(bytes: &[u8], truncated: bool) -> (String, bool) {
+        let mut text = String::from_utf8_lossy(bytes).into_owned();
+        let truncated = truncated || text.len() > 16384;
+        let mut end = text.len().min(16384);
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        (text, truncated)
+    }
+    let (stdout, stdout_truncated) = decode(&o.stdout, o.stdout_truncated);
+    let (stderr, stderr_truncated) = decode(&o.stderr, o.stderr_truncated);
+    SelfTestOutput {
+        stdout,
+        stderr,
+        stdout_truncated,
+        stderr_truncated,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -390,6 +428,9 @@ mod tests {
             observed: kinds
                 .into_iter()
                 .map(|kind| Observation {
+                    stderr: Vec::new(),
+                    stdout_truncated: false,
+                    stderr_truncated: false,
                     kind,
                     stdout: vec![],
                     cpu_time_us: Some(3),
@@ -404,6 +445,26 @@ mod tests {
             advance_us: 0,
             fail_compile: false,
         }
+    }
+    #[test]
+    fn self_test_skips_expected_and_never_exports_for_ordinary_manifest() {
+        let (mut m, b, d) = fixture();
+        m.self_test = true;
+        m.cases.truncate(1);
+        m.cases[0].case_id = m.submission_id;
+        m.cases[0].expected.bytes = 0;
+        let mut p = port(vec![ExecutionKind::Exited { code: 0 }]);
+        p.observed[0].stdout = b"arbitrary output".to_vec();
+        p.observed[0].stderr = vec![255; 70000];
+        let r = judge_submission(&mut p, &m, b, d.clone()).unwrap();
+        assert_eq!(p.expected_calls, 0);
+        assert_eq!(r.report.verdict, Verdict::Accepted);
+        let output = r.report.self_test_output.as_ref().unwrap();
+        assert_eq!(output.stdout, "arbitrary output");
+        assert!(output.stderr.len() <= 16384 && output.stderr_truncated);
+        assert!(serde_json::to_vec(&r.report).unwrap().len() <= MAX_WIRE_BYTES);
+        m.self_test = false;
+        assert!(r.report.validate_for_manifest(&m, &d).is_err());
     }
     #[test]
     fn compile_once_order_exact_bytes_and_measurements() {
@@ -465,6 +526,9 @@ mod tests {
             (vec![10], vec![], Verdict::WrongAnswer),
         ] {
             let o = Observation {
+                stderr: Vec::new(),
+                stdout_truncated: false,
+                stderr_truncated: false,
                 kind: ExecutionKind::Exited { code: 0 },
                 stdout: out,
                 cpu_time_us: None,

@@ -25,6 +25,9 @@ pub enum ExecutionKind {
     InfrastructureFailure,
 }
 pub struct Observation {
+    pub stderr: Vec<u8>,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
     pub kind: ExecutionKind,
     pub stdout: Vec<u8>,
     pub cpu_time_us: Option<u64>,
@@ -129,6 +132,9 @@ mod tests {
         fn execute(&mut self, _: &CaseRequest) -> Result<Observation, PortError> {
             self.calls += 1;
             Ok(Observation {
+                stderr: Vec::new(),
+                stdout_truncated: false,
+                stderr_truncated: false,
                 kind: self.kinds.pop_front().unwrap()?,
                 stdout: vec![0, 255, 10],
                 cpu_time_us: Some(42),

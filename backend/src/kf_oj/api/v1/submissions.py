@@ -9,6 +9,7 @@ from kf_oj.contracts.submission_performance import SubmissionPerformance
 from kf_oj.contracts.submissions import (
     CancellationAccepted,
     CreateSubmission,
+    SubmissionComparison,
     SubmissionCreated,
     SubmissionDetail,
     SubmissionPage,
@@ -88,6 +89,21 @@ async def detail(
         raise HTTPException(404, "submission unavailable") from None
     except ValueError:
         raise HTTPException(503, "stored result unavailable") from None
+
+
+@router.get("/{submission_id}/compare/{other_id}", response_model=SubmissionComparison)
+async def compare(
+    submission_id: UUID,
+    other_id: UUID,
+    request: Request,
+    principal: Annotated[Principal, Depends(current_principal)],
+):
+    try:
+        return await queries(request).compare(principal, submission_id, other_id)
+    except SubmissionUnavailable:
+        raise HTTPException(404, "submission comparison unavailable") from None
+    except ValueError:
+        raise HTTPException(503, "stored comparison unavailable") from None
 
 
 @router.get("/{submission_id}/performance", response_model=SubmissionPerformance)

@@ -12,7 +12,7 @@ from kf_oj.infra.artifacts.repository import ArtifactRepository
 from kf_oj.infra.messaging.models import Outbox
 from kf_oj.modules.identity.public import Principal
 from kf_oj.modules.problems.public import ProblemPort, ProblemUnavailable
-from kf_oj.modules.submissions.models import Evaluation, Submission
+from kf_oj.modules.submissions.models import Evaluation, SelfTest, Submission
 from kf_oj.modules.submissions.public import (
     IdempotencyConflict,
     SubmissionBusy,
@@ -82,7 +82,13 @@ class SubmissionService:
                 .join(Evaluation, Evaluation.submission_id == Submission.id)
                 .where(Submission.account_id == principal.account_id, Evaluation.state.in_(pending))
             )
-            if total >= 64 or owned >= 8:
+            owned_self = await session.scalar(
+                select(func.count())
+                .select_from(SelfTest)
+                .join(Evaluation, Evaluation.self_test_id == SelfTest.id)
+                .where(SelfTest.account_id == principal.account_id, Evaluation.state.in_(pending))
+            )
+            if total >= 64 or owned + owned_self >= 8:
                 raise SubmissionBusy("pending submission capacity exhausted")
             try:
                 version = await self.problems.for_submission(session, request.problem_version_id)

@@ -15,6 +15,7 @@ from kf_oj.api.v1.identity import router as identity_router
 from kf_oj.api.v1.learning import router as learning_router
 from kf_oj.api.v1.problems import router as problems_router
 from kf_oj.api.v1.router import router
+from kf_oj.api.v1.self_tests import router as self_test_router
 from kf_oj.api.v1.submissions import router as submission_router
 from kf_oj.api.v1.worker_artifacts import router as worker_router
 from kf_oj.core.logging import configure_logging
@@ -33,6 +34,7 @@ from kf_oj.modules.problems.maintenance import ProblemMaintenance
 from kf_oj.modules.problems.service import ProblemService
 from kf_oj.modules.submissions.performance import SubmissionPerformanceQueries
 from kf_oj.modules.submissions.queries import SubmissionQueries
+from kf_oj.modules.submissions.self_tests import SelfTestService
 from kf_oj.modules.submissions.service import SubmissionService
 from kf_oj.modules.submissions.worker_access import WorkerAccess
 
@@ -94,6 +96,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     app.state.submissions = SubmissionService(
                         app.state.sessions, app.state.problems, artifacts, settings.judge_admission
                     )
+                    app.state.self_tests = SelfTestService(
+                        app.state.sessions, app.state.problems, artifacts, settings.judge_admission
+                    )
                     app.state.worker_access = WorkerAccess(
                         app.state.sessions, app.state.problems, artifacts
                     )
@@ -113,6 +118,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.identity = None
             app.state.problems = None
             app.state.worker_access = None
+            app.state.self_tests = None
             app.state.submissions = None
             app.state.submission_queries = None
             app.state.submission_performance = None
@@ -147,6 +153,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             (
                 "/api/v1/auth",
                 "/api/v1/submissions",
+                "/api/v1/self-tests",
                 "/api/v1/internal",
                 "/api/v1/admin",
                 "/api/v1/learning",
@@ -168,6 +175,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(problems_router, prefix="/api/v1")
     app.include_router(worker_router, prefix="/api/v1")
     app.include_router(submission_router, prefix="/api/v1")
+    app.include_router(self_test_router, prefix="/api/v1")
     app.include_router(import_router, prefix="/api/v1")
     app.include_router(maintenance_router, prefix="/api/v1")
     return app

@@ -26,6 +26,8 @@ class BodyLimitMiddleware:
         if scope["path"] == "/api/v1/submissions":
             # Max256KiB UTF-8 source, worst-case JSON escaping plus bounded metadata.
             limit = 6 * 256 * 1024 + 8192
+        if scope["path"] == "/api/v1/self-tests":
+            limit = 6 * (256 + 64) * 1024 + 8192
         headers = dict(scope.get("headers", []))
         length = headers.get(b"content-length")
         if length is not None:

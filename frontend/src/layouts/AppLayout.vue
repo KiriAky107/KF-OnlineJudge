@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import UiIcon from '../components/UiIcon.vue'
 import { useSession } from '../composables/useSession'
@@ -9,6 +9,17 @@ onMounted(() => {
 })
 const route = useRoute()
 const mobileOpen = ref(false)
+const aboutMenu = ref<HTMLDetailsElement>()
+function closeAbout() {
+  if (aboutMenu.value) aboutMenu.value.open = false
+}
+watch(
+  () => route.fullPath,
+  () => {
+    closeAbout()
+    mobileOpen.value = false
+  },
+)
 const links = [
   { to: '/', label: '首页', icon: 'home' },
   { to: '/problems', label: '题库', icon: 'problems' },
@@ -18,7 +29,6 @@ const links = [
   { to: '/rankings', label: '排名', icon: 'rankings' },
   { to: '/discussions', label: '讨论', icon: 'discussions' },
   { to: '/teams', label: '团队', icon: 'teams' },
-  { to: '/about', label: '关于', icon: 'about' },
 ]
 const activePath = computed(() => '/' + route.path.split('/')[1])
 </script>
@@ -54,6 +64,25 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
             @click="mobileOpen = false"
             ><UiIcon :name="link.icon" />{{ link.label }}</RouterLink
           >
+          <details ref="aboutMenu" class="about-menu" @keydown.esc.prevent="closeAbout">
+            <summary :class="{ active: activePath === '/about' }">
+              关于 <span aria-hidden="true">⌄</span>
+            </summary>
+            <div class="about-menu-links">
+              <RouterLink
+                to="/about"
+                :aria-current="route.path === '/about' ? 'page' : undefined"
+                @click="closeAbout"
+                >简介</RouterLink
+              >
+              <RouterLink
+                to="/about/developers"
+                :aria-current="route.path === '/about/developers' ? 'page' : undefined"
+                @click="closeAbout"
+                >开发者</RouterLink
+              >
+            </div>
+          </details>
         </nav>
         <div class="header-account">
           <template v-if="user"
@@ -90,7 +119,8 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
         <div>
           <h3>平台</h3>
           <RouterLink to="/about">关于 KF OnlineJudge</RouterLink
-          ><RouterLink to="/about#system">系统状态</RouterLink
+          ><RouterLink to="/about/developers">开发者</RouterLink
+          ><RouterLink to="/about/developers#system">系统状态</RouterLink
           ><a href="/admin/index.html">管理入口</a>
         </div>
       </div>
@@ -101,3 +131,53 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
     </footer>
   </div>
 </template>
+
+<style scoped>
+.about-menu {
+  position: relative;
+  color: #64748b;
+}
+.about-menu summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 13px;
+  border-radius: 8px;
+  font-size: 13px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.about-menu summary::-webkit-details-marker {
+  display: none;
+}
+.about-menu summary.active,
+.about-menu[open] summary {
+  background: #edf6ff;
+  color: var(--blue);
+}
+.about-menu summary:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.about-menu-links {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 140px;
+  padding: 6px;
+  background: white;
+  border: 1px solid #e4ebf4;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px #263d5d18;
+  z-index: 101;
+}
+.main-nav .about-menu-links a {
+  display: block;
+  padding: 10px 14px;
+}
+.about-menu-links a:hover,
+.about-menu-links a[aria-current='page'] {
+  background: #edf6ff;
+  color: var(--blue);
+}
+</style>
