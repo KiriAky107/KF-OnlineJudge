@@ -15,7 +15,7 @@ const current = computed(() => adminSections.find((item) => item.id === section.
     description="题目维护与审计已接通真实服务。"
   />
   <PanelCard v-if="section === 'overview'" title="管理工作台" icon="connection"
-    ><p>当前可维护不可变题目版本、上传并校验题包、下架或恢复题目，以及查询维护审计。</p>
+    ><p>在题目维护中查看版本、下架或恢复题目、查询审计，以及查看题包导入状态。</p>
     <RouterLink to="/problems">打开题目维护</RouterLink>
     <p>比赛、用户管理、评测节点和站点设置仍在开发中。</p></PanelCard
   >

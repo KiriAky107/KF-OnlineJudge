@@ -73,6 +73,7 @@ export const router = createRouter({
     },
     {
       path: '/users/:username',
+      name: 'profile',
       meta: { title: '个人主页' },
       component: () => import('../views/ProfileView.vue'),
     },
@@ -107,7 +108,12 @@ export const router = createRouter({
 })
 router.beforeEach(async (to) => {
   if (to.path === '/about' && to.hash === '#system') return '/about/developers#system'
-  if (to.path === '/submissions' || to.path.startsWith('/submissions/') || to.path === '/logout') {
+  if (
+    to.name === 'profile' ||
+    to.path === '/submissions' ||
+    to.path.startsWith('/submissions/') ||
+    to.path === '/logout'
+  ) {
     try {
       if (await useSession().refresh()) return true
     } catch {
