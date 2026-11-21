@@ -13,6 +13,7 @@ import { ApiError } from '../api/transport'
 import { boundedPoll } from '../api/polling'
 import { auditActionLabels, importStateLabels } from './presentation'
 import { displayRuntimeVersion, displayTime } from '../lib/presentation'
+import { sha256Fingerprint } from '../lib/requestCrypto'
 import {
   importIntent,
   mutationIntent,
@@ -84,6 +85,7 @@ const file = ref<File | null>(null),
   info = ref('')
 const targetReady = ref(false)
 const uploadAvailable = ref(false),
+  importHistoryAvailable = ref(true),
   enabledFilter = ref('all'),
   publicationTarget = ref<ManagedProblem | null>(null)
 let intent = loadIntent<ImportIntent>('import'),
@@ -147,12 +149,21 @@ async function loadProblems(append = false) {
 }
 async function loadImports(append = false) {
   const current = generation
-  const page = await request((s) =>
-    api.imports(s, append ? (importAfter.value ?? undefined) : undefined),
-  )
-  if (current !== generation) return
-  imports.value = page.items
-  importAfter.value = page.next_after
+  try {
+    const page = await request((s) =>
+      api.imports(s, append ? (importAfter.value ?? undefined) : undefined),
+    )
+    if (current !== generation) return
+    importHistoryAvailable.value = true
+    imports.value = page.items
+    importAfter.value = page.next_after
+  } catch (cause) {
+    if (current !== generation) return
+    if (!(cause instanceof ApiError && cause.status === 503) || uploadAvailable.value) throw cause
+    importHistoryAvailable.value = false
+    imports.value = []
+    importAfter.value = null
+  }
 }
 async function loadAudit(append = false) {
   const current = generation
@@ -256,10 +267,7 @@ async function chooseFile(event: Event) {
   await run(async () => {
     const current = generation
     if (picked.size < 1 || picked.size > 67108864) throw new Error('ZIP 题包限 1 字节至 64 MiB。')
-    const digest = Array.from(
-      new Uint8Array(await crypto.subtle.digest('SHA-256', await picked.arrayBuffer())),
-      (b) => b.toString(16).padStart(2, '0'),
-    ).join('')
+    const digest = sha256Fingerprint(new Uint8Array(await picked.arrayBuffer()))
     if (current !== generation) return
     intent = importIntent(intent, session.user.value!.id, digest, picked.size)
     saveIntent('import', intent)
@@ -555,7 +563,8 @@ function sampleText(encoded: string) {
     <section class="admin-real-panel">
       <h2>导入新候选</h2>
       <p>单层 ZIP，problem.json 清单；最大 64 MiB；不运行上传内容。修改题目请上传新包。</p>
-      <p v-if="!uploadAvailable">上传或校验服务尚未就绪。可查询已有任务。</p>
+      <p v-if="!importHistoryAvailable">当前站点未启用题包导入。</p>
+      <p v-else-if="!uploadAvailable">上传或校验服务尚未就绪。可查询已有任务。</p>
       <input
         class="admin-file-input"
         aria-label="选择 ZIP 题包"
@@ -584,7 +593,9 @@ function sampleText(encoded: string) {
           </button>
         </li>
       </ul>
-      <p v-if="!loading && !imports.length" class="admin-empty">暂无导入记录。</p>
+      <p v-if="!loading && importHistoryAvailable && !imports.length" class="admin-empty">
+        暂无导入记录。
+      </p>
       <button v-if="importAfter" :disabled="busy" @click="run(() => loadImports(true))">
         下一页导入
       </button>

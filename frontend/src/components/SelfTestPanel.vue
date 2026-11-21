@@ -7,6 +7,7 @@ import { boundedPoll } from '../api/polling'
 import { useSession } from '../composables/useSession'
 import type { components } from '../api/generated/schema'
 import { sample } from '../lib/publicSample'
+import { newRequestId } from '../lib/requestCrypto'
 const props = defineProps<{
   problem: components['schemas']['ProblemDetail']
   language: components['schemas']['SubmissionSummary']['language'] | null
@@ -146,10 +147,10 @@ async function run() {
     language: body.language,
     expected: expected.value ?? null,
   }
-  const fingerprint = JSON.stringify(body)
-  if (intent?.fingerprint !== fingerprint) intent = { fingerprint, key: crypto.randomUUID() }
-  emit('run')
   try {
+    const fingerprint = JSON.stringify(body)
+    if (intent?.fingerprint !== fingerprint) intent = { fingerprint, key: newRequestId() }
+    emit('run')
     const value = unwrap(
       await api.POST('/api/v1/self-tests', {
         body: { ...body, idempotency_key: intent.key },

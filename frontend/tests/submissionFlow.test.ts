@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { test } from 'node:test'
 import createClient from 'openapi-fetch'
 import type { paths } from '../src/api/generated/schema'
@@ -23,6 +24,33 @@ const input = {
 const flush = async () => {
   await new Promise<void>((resolve) => setImmediate(resolve))
 }
+
+test('non-local HTTP can create a submission UUID and reuse the same SHA-256 fingerprint', async (t) => {
+  const realCrypto = globalThis.crypto
+  t.mock.getter(
+    globalThis,
+    'crypto',
+    () =>
+      ({
+        getRandomValues: realCrypto.getRandomValues.bind(realCrypto),
+      }) as Crypto,
+  )
+  const storage = memory()
+  let key: string | undefined
+  assert.equal(
+    await submissionIntent(storage, 'http-user').submit(input, async (id) => {
+      key = id
+      return 'accepted-request'
+    }),
+    'accepted-request',
+  )
+  assert.match(key!, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  assert.deepEqual(JSON.parse(storage.getItem('kf-oj:submission-intent:http-user:version')!), {
+    fingerprint: createHash('sha256').update(JSON.stringify(input)).digest('hex'),
+    key,
+    submissionId: 'accepted-request',
+  })
+})
 
 test('Python and Java retries preserve UUID and language/content changes create a new intent', async () => {
   const storage = memory()

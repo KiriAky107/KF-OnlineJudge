@@ -1,5 +1,6 @@
 // No source is stored here. Fingerprints bind an immutable request and owner to a UUID.
 import type { components } from './generated/schema'
+import { newRequestId, sha256Fingerprint } from '../lib/requestCrypto.ts'
 export type SubmissionInput = {
   problem_version_id: string
   language: components['schemas']['kf_oj__contracts__judging_v2__Language']
@@ -17,13 +18,7 @@ export function submissionIntent(storage: Pick<Storage, 'getItem' | 'setItem'>, 
       pending = (async () => {
         const bytes = new TextEncoder().encode(snapshot.source)
         if (!bytes.length || bytes.length > 262144) throw new Error('源码必须为 1 至 262144 字节。')
-        const hash = await crypto.subtle.digest(
-          'SHA-256',
-          new TextEncoder().encode(JSON.stringify(snapshot)),
-        )
-        const fingerprint = Array.from(new Uint8Array(hash), (v) =>
-          v.toString(16).padStart(2, '0'),
-        ).join('')
+        const fingerprint = sha256Fingerprint(new TextEncoder().encode(JSON.stringify(snapshot)))
         const location = prefix + snapshot.problem_version_id
         let intent: Intent
         try {
@@ -37,7 +32,7 @@ export function submissionIntent(storage: Pick<Storage, 'getItem' | 'setItem'>, 
             typeof raw.key === 'string' &&
             /^[0-9a-f-]{36}$/.test(raw.key)
               ? (raw as Intent)
-              : { fingerprint, key: crypto.randomUUID() }
+              : { fingerprint, key: newRequestId() }
           storage.setItem(location, JSON.stringify(intent))
         } catch {
           throw new Error('浏览器无法保存提交凭据。请恢复本地存储后重试，草稿仍在编辑器中。')

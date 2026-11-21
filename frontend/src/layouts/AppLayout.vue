@@ -10,13 +10,18 @@ onMounted(() => {
 const route = useRoute()
 const mobileOpen = ref(false)
 const aboutMenu = ref<HTMLDetailsElement>()
+const accountMenu = ref<HTMLDetailsElement>()
 function closeAbout() {
   if (aboutMenu.value) aboutMenu.value.open = false
+}
+function closeAccount() {
+  if (accountMenu.value) accountMenu.value.open = false
 }
 watch(
   () => route.fullPath,
   () => {
     closeAbout()
+    closeAccount()
     mobileOpen.value = false
   },
 )
@@ -85,12 +90,27 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
           </details>
         </nav>
         <div class="header-account">
-          <template v-if="user"
-            ><span>{{ user.username }}</span
-            ><RouterLink to="/logout"
-              ><el-button size="small" round>退出登录</el-button></RouterLink
-            ></template
+          <details
+            v-if="user"
+            ref="accountMenu"
+            class="about-menu"
+            @keydown.esc.prevent="closeAccount"
           >
+            <summary aria-label="账号菜单">
+              {{ user.username }} <span aria-hidden="true">⌄</span>
+            </summary>
+            <div class="about-menu-links account-links">
+              <RouterLink
+                :to="{ name: 'profile', params: { username: user.username } }"
+                @click="closeAccount"
+                >个人主页</RouterLink
+              >
+              <a v-if="user.capabilities?.problem_maintenance" href="/admin/index.html"
+                >管理控制台</a
+              >
+              <RouterLink to="/logout" @click="closeAccount">退出登录</RouterLink>
+            </div>
+          </details>
           <RouterLink v-else to="/login"
             ><el-button type="primary" size="small" round>登录</el-button></RouterLink
           >
@@ -171,9 +191,15 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
   box-shadow: 0 8px 24px #263d5d18;
   z-index: 101;
 }
-.main-nav .about-menu-links a {
+.main-nav .about-menu-links a,
+.account-links a {
   display: block;
   padding: 10px 14px;
+}
+.account-links a {
+  border-radius: 6px;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
 }
 .about-menu-links a:hover,
 .about-menu-links a[aria-current='page'] {

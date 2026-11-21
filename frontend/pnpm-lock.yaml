@@ -14,6 +14,9 @@ importers:
       '@misskey-dev/tagcanvas-es':
         specifier: 0.1.2
         version: 0.1.2
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
       '@shikijs/monaco':
         specifier: 4.6.0
         version: 4.6.0
@@ -359,6 +362,10 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [glibc]
+
+  '@noble/hashes@2.4.0':
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
+    engines: {node: '>= 20.19.0'}
 
   '@redocly/ajv@8.11.2':
     resolution: {integrity: sha512-io1JpnwtIcvojV7QKDUSIuMN/ikdOUd1ReEnUnMKGfDVridQZ31J0MmIuqwuRjWDZfmvr+Q0MqCcfHM2gTivOg==}
@@ -1630,6 +1637,8 @@ snapshots:
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
+
+  '@noble/hashes@2.4.0': {}
 
   '@redocly/ajv@8.11.2':
     dependencies:
