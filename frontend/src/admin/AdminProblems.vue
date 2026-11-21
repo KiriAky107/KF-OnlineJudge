@@ -13,6 +13,7 @@ import { ApiError } from '../api/transport'
 import { boundedPoll } from '../api/polling'
 import { auditActionLabels, importStateLabels } from './presentation'
 import { displayRuntimeVersion, displayTime } from '../lib/presentation'
+import { sha256Fingerprint } from '../lib/requestCrypto'
 import {
   importIntent,
   mutationIntent,
@@ -256,10 +257,7 @@ async function chooseFile(event: Event) {
   await run(async () => {
     const current = generation
     if (picked.size < 1 || picked.size > 67108864) throw new Error('ZIP 题包限 1 字节至 64 MiB。')
-    const digest = Array.from(
-      new Uint8Array(await crypto.subtle.digest('SHA-256', await picked.arrayBuffer())),
-      (b) => b.toString(16).padStart(2, '0'),
-    ).join('')
+    const digest = sha256Fingerprint(new Uint8Array(await picked.arrayBuffer()))
     if (current !== generation) return
     intent = importIntent(intent, session.user.value!.id, digest, picked.size)
     saveIntent('import', intent)

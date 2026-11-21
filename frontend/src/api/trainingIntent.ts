@@ -1,9 +1,11 @@
+import { newRequestId } from '../lib/requestCrypto.ts'
+
 // Keep a pending creation key across refreshes, but never store learning evidence.
 export function trainingIntent(
   storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>,
   owner: string,
   fingerprint: string,
-  makeId: () => string = () => crypto.randomUUID(),
+  makeId: () => string = newRequestId,
 ) {
   const location = 'kf-oj:training-intent:' + owner
   const raw = storage.getItem(location)

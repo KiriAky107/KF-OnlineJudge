@@ -22,6 +22,7 @@
   "dependencies": {
     "@element-plus/icons-vue": "2.3.2",
     "@misskey-dev/tagcanvas-es": "0.1.2",
+    "@noble/hashes": "2.4.0",
     "@shikijs/monaco": "4.6.0",
     "element-plus": "^2.9.0",
     "monaco-editor": "0.57.0",
