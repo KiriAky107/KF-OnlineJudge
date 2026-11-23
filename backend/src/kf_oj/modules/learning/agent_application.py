@@ -45,6 +45,7 @@ from kf_oj.modules.learning.agent_store import PostgresAgentStorage
 from kf_oj.modules.learning.public import (
     AGENT_TOOL_SCOPES,
     SOURCE_EVIDENCE,
+    TRAINING_CANDIDATES,
     LearningUnavailable,
     scoped_agent_tools,
 )
@@ -238,7 +239,10 @@ class AgentLearning:
 
         await self._training_source(storage, session_id, skill_version_id, body.training_set)
         configuration = await self.skills.freeze(
-            principal, skill_version_id, purpose=session.purpose
+            principal,
+            skill_version_id,
+            purpose=session.purpose,
+            required_tool=TRAINING_CANDIDATES if body.training_set is not None else None,
         )
         now = datetime.now(UTC)
         snapshot = StoredAgentLearningInput(
@@ -354,12 +358,17 @@ class AgentLearning:
             previous = await service.saved_agent_plan(db, principal, run_id)
             if previous is not None:
                 return previous
+            result = execution.result
             config = await self.skills.require_execution_configuration(
-                db, principal, execution.run.skill_version_id, execution.run.configuration_digest
+                db,
+                principal,
+                execution.run.skill_version_id,
+                execution.run.configuration_digest,
+                required_tool=TRAINING_CANDIDATES
+                if isinstance(result, FocusedTrainingResult) and result.training_set is not None
+                else None,
             )
-            return await service.save_agent_plan(
-                db, principal, run_id, execution.result, config.parameters
-            )
+            return await service.save_agent_plan(db, principal, run_id, result, config.parameters)
 
     async def _add_model_hint[
         WithHint: (
@@ -549,8 +558,12 @@ class AgentLearning:
                 source_evidence=body.source_evidence,
                 as_of=body.evidence_as_of or running.created_at,
             )
+            required_tool = TRAINING_CANDIDATES if body.training_set is not None else None
             config = await self.skills.configuration(
-                principal, running.skill_version_id, running.configuration_digest
+                principal,
+                running.skill_version_id,
+                running.configuration_digest,
+                required_tool=required_tool,
             )
             workflow = LearningWorkflow(invoke)
             try:
@@ -656,7 +669,11 @@ class AgentLearning:
 
                 async def verify(actual: AgentRun) -> None:
                     await self.skills.require_execution_configuration(
-                        db, principal, actual.skill_version_id, actual.configuration_digest
+                        db,
+                        principal,
+                        actual.skill_version_id,
+                        actual.configuration_digest,
+                        required_tool=required_tool,
                     )
 
                 result = result.model_copy(update={"evidence_as_of": body.evidence_as_of})

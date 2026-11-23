@@ -149,6 +149,36 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                     if item["version_id"] == skill_id
                 )
                 assert saved_skill["binding"]["parameters"] == binding.json()["parameters"]
+
+                rename = draft | {
+                    "title": "二分自查",
+                    "revision": {"run_id": original["run_id"], "replace_position": None},
+                }
+                rename_path, renamed = await complete(rename)
+                assert [
+                    item["problem_version_id"] for item in renamed["result"]["items"]
+                ] == selected
+                assert (await browser.get(f"{rename_path}/trace")).json()["tool_calls"] == 0
+                queued = await send_draft(path, rename | {"title": "下次练习"})
+                assert queued.status_code == 202, queued.text
+
+                revoked = await browser.put(
+                    binding_path,
+                    json={
+                        "enabled": True,
+                        "authorized_tools": [],
+                        "parameters": binding.json()["parameters"],
+                    },
+                )
+                assert revoked.status_code == 200, revoked.text
+                assert (await send_draft(path, rename)).status_code == 404
+                assert (await browser.post(f"{rename_path}/training")).status_code == 404
+                assert await worker.run_once()
+                denied_run = (await browser.get(f"{AGENT}/runs/{queued.json()['run_id']}")).json()
+                assert denied_run["state"] == "failed"
+                assert denied_run["failure_code"] == "authorization_unavailable"
+                assert denied_run["result"] is None
+                assert (await browser.get(f"/api/v1/trainings/{plan['id']}")).json() == plan
         finally:
             await worker_engine.dispose()
 
