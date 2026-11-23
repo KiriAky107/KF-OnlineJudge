@@ -1,6 +1,7 @@
 """Only verified principals cross business module boundaries."""
 
 from dataclasses import dataclass, field
+from hashlib import sha256
 from typing import Protocol
 from uuid import UUID
 
@@ -36,3 +37,40 @@ class ReservedMaintenancePort(Protocol):
 
 class LoginThrottled(ValueError):
     pass
+
+
+class ActiveSessionPort(Protocol):
+    async def require_active_session(self, session, principal: Principal) -> None:
+        """Verify the current session and authority inside the caller's transaction."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class AcceptedSession:
+    """A job proof derived from a live session. It cannot authenticate a browser."""
+
+    authorization_version: int
+    session_proof: str = field(repr=False)
+
+    @classmethod
+    def from_principal(cls, principal: Principal) -> "AcceptedSession":
+        if principal.session_token_hash is None:
+            raise AuthenticationFailed("session required to start a learning run")
+        proof = sha256(principal.session_token_hash.encode("ascii")).hexdigest()
+        return cls(principal.authorization_version, proof)
+
+
+def accepted_session_access(owner_id: UUID, receipt: AcceptedSession) -> ActiveSessionPort:
+    from kf_oj.modules.identity.service import AcceptedSessionAccess
+
+    return AcceptedSessionAccess(owner_id, receipt)
+
+
+class AdministrationDenied(ValueError):
+    pass
+
+
+class AdministrationPort(ActiveSessionPort, Protocol):
+    async def require_administrator(self, session, principal: Principal) -> None:
+        """Recheck and lock the administrator account and login session."""
+        ...

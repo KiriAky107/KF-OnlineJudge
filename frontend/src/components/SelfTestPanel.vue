@@ -207,7 +207,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="self-test-panel">
     <el-tabs v-model="tab">
-      <el-tab-pane label="自测输入" name="input">
+      <el-tab-pane class="self-test-input" label="自测输入" name="input">
         <div class="sample-actions">
           <el-button
             v-for="(_, index) in problem.samples"
@@ -271,12 +271,24 @@ onBeforeUnmount(() => {
 pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-height: 12rem;
-  overflow: auto;
 }
-.self-test-panel {
-  max-height: 25rem;
-  overflow: auto;
+.self-test-panel,
+.self-test-panel :deep(.el-tabs),
+.self-test-panel :deep(.el-tabs__content),
+.self-test-panel :deep(.self-test-input) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.self-test-panel :deep(.el-tabs__content) {
+  overflow: visible;
+}
+.self-test-input :deep(.el-textarea) {
+  display: flex;
+  flex: 1;
+}
+.self-test-input :deep(textarea) {
+  resize: none;
 }
 h4 {
   margin-top: 0.6rem;

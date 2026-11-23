@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "runtime_version": 1,
+  "slug": "guided-help",
+  "release": 1,
+  "author": "KF-OnlineJudge",
+  "license": "MIT",
+  "title": "渐进式答疑",
+  "description": "从概念提醒开始，按当前提示级别帮助用户定位问题。",
+  "purpose": "guided_help",
+  "method": "先确认用户正在尝试的思路，再给一条与现有证据对应的提示。默认只提示相关概念。位置线索和局部修改由当前提示级别决定。启用例子时使用独立的最小示例，避免给出整题答案。",
+  "requested_tools": [{"name":"submission_history","version":1}],
+  "parameters": {"hint_level":"concept","allow_code_examples":false}
+}

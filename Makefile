@@ -3,7 +3,7 @@ CARGO ?= $(if $(wildcard $(HOME)/.cargo/bin/cargo),$(HOME)/.cargo/bin/cargo,carg
 UV ?= uv
 PNPM ?= pnpm
 
-.PHONY: help install check architecture check-backend check-frontend check-judge contracts format api frontend coordinator sandbox-probe worker-check infra-config infra-up infra-down
+.PHONY: help install check architecture check-backend check-frontend check-judge contracts format api frontend coordinator sandbox-probe learning-worker learning-worker-check worker-check infra-config infra-up infra-down
 
 help:
 	@echo 'install          安装锁定依赖并编译 Rust workspace'
@@ -13,6 +13,8 @@ help:
 	@echo 'api / frontend   启动平台 API / 前端开发服务'
 	@echo 'coordinator      启动协调器 HTTP 骨架'
 	@echo 'sandbox-probe    只读探测当前 Linux 环境'
+	@echo 'learning-worker 启动独立学习任务进程'
+	@echo 'learning-worker-check 检查学习进程的数据库权限，不领取任务'
 	@echo 'worker-check     验证三个后台进程入口，不消费任务'
 	@echo 'infra-config     检查本地 PostgreSQL / RabbitMQ 配置'
 	@echo 'infra-up/down    启动/停止本地开发依赖（保留数据卷）'
@@ -68,8 +70,13 @@ coordinator:
 sandbox-probe:
 	cd judge && $(CARGO) run --locked -p kf-sandbox -- probe
 
-worker-check:
+learning-worker:
+	cd backend && $(UV) run --locked kf-learning-worker
+
+learning-worker-check:
 	cd backend && $(UV) run --locked kf-learning-worker --check
+
+worker-check: learning-worker-check
 	cd backend && $(UV) run --locked kf-outbox-publisher --check
 	cd judge && $(CARGO) run --locked -p kf-worker -- --check
 

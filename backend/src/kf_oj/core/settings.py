@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,6 +14,13 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     database_url: SecretStr | None = None
+    learning_database_url: SecretStr | None = None
+    learning_model_base_url: str | None = None
+    learning_model_name: str | None = Field(default=None, min_length=1, max_length=96)
+    learning_model_api_key: SecretStr | None = None
+    learning_model_reasoning_effort: Literal["none"] | None = None
+    learning_model_account_calls_per_hour: int = Field(default=12, ge=1, le=1000)
+    learning_model_service_calls_per_hour: int = Field(default=120, ge=1, le=10000)
     identity_operator_database_url: SecretStr | None = None
     amqp_url: SecretStr | None = None
     browser_origins: tuple[str, ...] = (
@@ -36,7 +44,31 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def secure_origins(self):
         from ipaddress import ip_address
-        from urllib.parse import urlsplit
+
+        if (self.learning_model_base_url is None) != (self.learning_model_name is None):
+            raise ValueError("both Responses base URL and model name are required")
+        if self.learning_model_base_url is not None:
+            endpoint = urlsplit(self.learning_model_base_url)
+            try:
+                local = endpoint.hostname == "localhost" or (
+                    endpoint.hostname is not None and ip_address(endpoint.hostname).is_loopback
+                )
+            except ValueError:
+                local = False
+            if (
+                not endpoint.hostname
+                or endpoint.username
+                or endpoint.password
+                or endpoint.query
+                or endpoint.fragment
+                or (endpoint.scheme != "https" and (endpoint.scheme != "http" or not local))
+            ):
+                raise ValueError("Responses URL must use HTTPS or local HTTP")
+            if not local and (
+                self.learning_model_api_key is None
+                or not self.learning_model_api_key.get_secret_value().strip()
+            ):
+                raise ValueError("remote Responses model requires a service credential")
 
         if (self.coordinator_url is None) != (self.coordinator_token is None):
             raise ValueError("both coordinator URL and token required")

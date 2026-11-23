@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, String
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,10 +19,16 @@ class ProblemLearningMetadata(Base):
         CheckConstraint(
             "jsonb_typeof(tags) = 'array' AND jsonb_array_length(tags) <= 16", name="tags"
         ),
+        CheckConstraint(
+            "jsonb_typeof(prerequisite_tags) = 'array' "
+            "AND jsonb_array_length(prerequisite_tags) <= 8",
+            name="prerequisite_tags",
+        ),
     )
     problem_version_id: Mapped[UUID] = mapped_column(
         ForeignKey("problem_versions.id"), primary_key=True
     )
     tags: Mapped[list[str]] = mapped_column(JSONB)
+    prerequisite_tags: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     difficulty: Mapped[str | None] = mapped_column(String(8))
     revision: Mapped[int] = mapped_column(Integer)

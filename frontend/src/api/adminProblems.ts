@@ -10,6 +10,22 @@ export type Version = components['schemas']['MaintainedVersion']
 export type AuditEvent = components['schemas']['MaintenanceAuditEvent']
 
 export const adminProblems = {
+  editor: async (id: string, signal: AbortSignal) =>
+    unwrap(
+      await api.GET('/api/v1/admin/problems/{problem_id}/editor', {
+        params: { path: { problem_id: id } },
+        signal,
+      }),
+    ),
+  revise: async (id: string, body: components['schemas']['ReviseProblem'], signal: AbortSignal) =>
+    unwrap(
+      await api.POST('/api/v1/admin/problems/{problem_id}/revisions', {
+        params: { path: { problem_id: id } },
+        body,
+        headers: csrfHeaders(),
+        signal,
+      }),
+    ),
   learningMetadata: async (versionId: string, signal: AbortSignal) =>
     unwrap(
       await api.GET('/api/v1/admin/problem-versions/{version_id}/learning-metadata', {

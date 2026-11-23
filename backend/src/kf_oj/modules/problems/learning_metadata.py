@@ -1,4 +1,5 @@
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import array
 
 from kf_oj.modules.problems.learning_models import ProblemLearningMetadata
 from kf_oj.modules.problems.models import Problem, ProblemVersion
@@ -7,7 +8,19 @@ from kf_oj.modules.problems.public import LearningCandidate
 
 def query():
     return (
-        select(Problem, ProblemVersion, ProblemLearningMetadata)
+        select(
+            Problem.id.label("problem_id"),
+            Problem.slug,
+            Problem.enabled,
+            Problem.active_version_id,
+            ProblemVersion.id.label("version_id"),
+            ProblemVersion.title,
+            ProblemVersion.published_at,
+            ProblemLearningMetadata.tags,
+            ProblemLearningMetadata.prerequisite_tags,
+            ProblemLearningMetadata.difficulty,
+            ProblemLearningMetadata.revision,
+        )
         .join(ProblemVersion, Problem.id == ProblemVersion.problem_id)
         .outerjoin(
             ProblemLearningMetadata, ProblemLearningMetadata.problem_version_id == ProblemVersion.id
@@ -15,21 +28,24 @@ def query():
     )
 
 
-def project(problem, version, metadata):
+def project(row):
     return LearningCandidate(
-        problem.id,
-        version.id,
-        version.title,
-        tuple(metadata.tags) if metadata else (),
-        metadata.difficulty if metadata else None,
-        metadata.revision if metadata else 0,
-        bool(problem.enabled and version.published_at),
-        problem.slug,
-        problem.active_version_id == version.id,
+        row.problem_id,
+        row.version_id,
+        row.title,
+        tuple(row.tags or ()),
+        row.difficulty,
+        row.revision or 0,
+        bool(row.enabled and row.published_at),
+        row.slug,
+        row.active_version_id == row.version_id,
+        tuple(row.prerequisite_tags or ()),
     )
 
 
-async def candidates(session, *, tags=(), difficulty=None, limit=500):
+async def candidates(
+    session, *, tags=(), difficulty=None, allowed_difficulties=(), match_any_tag=False, limit=500
+):
     if not 1 <= limit <= 500:
         raise ValueError("invalid candidate limit")
     q = (
@@ -42,11 +58,16 @@ async def candidates(session, *, tags=(), difficulty=None, limit=500):
         .order_by(Problem.id)
     )
     if tags:
-        q = q.where(ProblemLearningMetadata.tags.contains(list(tags)))
+        filters = ProblemLearningMetadata.tags
+        q = q.where(
+            filters.has_any(array(list(tags))) if match_any_tag else filters.contains(list(tags))
+        )
     if difficulty is not None:
         q = q.where(ProblemLearningMetadata.difficulty == difficulty)
+    if allowed_difficulties:
+        q = q.where(ProblemLearningMetadata.difficulty.in_(allowed_difficulties))
     rows = await session.execute(q.limit(limit + 1))
-    return tuple(project(*row) for row in rows)
+    return tuple(project(row) for row in rows)
 
 
 async def versions(session, version_ids):
@@ -55,7 +76,7 @@ async def versions(session, version_ids):
     rows = await session.execute(
         query().where(ProblemVersion.id.in_(version_ids), ProblemVersion.published_at.is_not(None))
     )
-    return {row[1].id: project(*row) for row in rows}
+    return {row.version_id: project(row) for row in rows}
 
 
 async def selected(session, version_ids):
@@ -63,8 +84,7 @@ async def selected(session, version_ids):
         raise ValueError("at most ten selected versions")
     if not version_ids:
         return {}
-    # Lock only chosen logical problems against concurrent disable/publication.
-    # Metadata is captured as a revisioned snapshot, not modified by plan creation.
+    # Pin availability and serialize with metadata updates to the chosen versions.
     rows = await session.execute(
         query()
         .where(
@@ -74,6 +94,6 @@ async def selected(session, version_ids):
             ProblemVersion.published_at.is_not(None),
         )
         .order_by(Problem.id)
-        .with_for_update(read=True, of=Problem)
+        .with_for_update(read=True, of=(Problem, ProblemVersion))
     )
-    return {row[1].id: project(*row) for row in rows}
+    return {row.version_id: project(row) for row in rows}

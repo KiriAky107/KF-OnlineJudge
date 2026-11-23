@@ -15,9 +15,11 @@ from kf_oj.contracts.judging import (
     RunLimits,
     TestCase,
     Toolchain,
+    Verdict,
     decode_wire,
 )
 from kf_oj.contracts.problems import (
+    CatalogProblem,
     ProblemDetail,
     ProblemPage,
     ProblemSummary,
@@ -32,6 +34,7 @@ from kf_oj.modules.problems.local_files import LocalImportFiles
 from kf_oj.modules.problems.models import Problem
 from kf_oj.modules.problems.public import JudgingVersion, ProblemUnavailable
 from kf_oj.modules.problems.publication import admit_version, publish_version
+from kf_oj.modules.submissions.public import catalog_statistics
 
 
 class ProblemService:
@@ -126,14 +129,42 @@ class ProblemService:
             languages=tuple(version.languages),
         )
 
-    async def list(self, *, after: str | None = None, limit: int = 20) -> ProblemPage:
+    async def list(
+        self,
+        *,
+        after: str | None = None,
+        limit: int = 20,
+        search: str | None = None,
+        difficulty: str | None = None,
+        tag: str | None = None,
+    ) -> ProblemPage:
         if not 1 <= limit <= 100:
             raise ValueError("invalid page limit")
         async with self.sessions() as session:
-            rows = await repository.list_public(session, after, limit + 1)
+            rows = await repository.list_public(
+                session, after, limit + 1, search=search, difficulty=difficulty, tag=tag
+            )
             visible = rows[:limit]
+            counts = await catalog_statistics(
+                session, tuple(problem.id for problem, _, _ in visible)
+            )
+            items = []
+            for problem, version, metadata in visible:
+                stats = counts.get(problem.id)
+                verdicts = stats.verdict_counts if stats else {}
+                items.append(
+                    CatalogProblem(
+                        **self._summary(problem, version).model_dump(),
+                        difficulty=metadata.difficulty if metadata else None,
+                        tags=tuple(metadata.tags) if metadata else (),
+                        accepted_submissions=verdicts.get(Verdict.ACCEPTED, 0),
+                        judged_submissions=sum(verdicts.values()),
+                        total_submissions=stats.total if stats else 0,
+                        verdict_counts=verdicts,
+                    )
+                )
             return ProblemPage(
-                items=tuple(self._summary(*row) for row in visible),
+                items=tuple(items),
                 next_after=visible[-1][0].slug if len(rows) > limit else None,
             )
 
@@ -143,22 +174,26 @@ class ProblemService:
             if row is None:
                 raise ProblemUnavailable("problem version unavailable")
             version, problem = row
-            return ProblemDetail(
-                **self._summary(problem, version).model_dump(),
-                statement=version.statement,
-                samples=tuple(PublicSample.model_validate(s) for s in version.public_samples),
-                run_limits=(
-                    RunLimits.model_validate(version.run_limits)
-                    if version.judging_schema_version == 1
-                    else None
-                ),
-                language_configurations=tuple(
-                    PublicLanguageConfiguration.from_configuration(
-                        v2.LanguageConfiguration.model_validate(c)
-                    )
-                    for c in version.language_configurations or ()
-                ),
-            )
+            return self._detail(problem, version)
+
+    @classmethod
+    def _detail(cls, problem, version):
+        return ProblemDetail(
+            **cls._summary(problem, version).model_dump(),
+            statement=version.statement,
+            samples=tuple(PublicSample.model_validate(s) for s in version.public_samples),
+            run_limits=(
+                RunLimits.model_validate(version.run_limits)
+                if version.judging_schema_version == 1
+                else None
+            ),
+            language_configurations=tuple(
+                PublicLanguageConfiguration.from_configuration(
+                    v2.LanguageConfiguration.model_validate(c)
+                )
+                for c in version.language_configurations or ()
+            ),
+        )
 
     async def for_submission(self, session, version_id: UUID) -> JudgingVersion:
         if self.artifacts is None:
@@ -176,7 +211,8 @@ class ProblemService:
         row = await repository.published_version(session, version_id, admission=not accepted)
         return await self._judging_version(session, row, include_cases=False)
 
-    async def _judging_version(self, session, row, *, include_cases=True):
+    @staticmethod
+    async def _judging_version(session, row, *, include_cases=True):
         if row is None:
             raise ProblemUnavailable("problem version unavailable")
         version, problem = row

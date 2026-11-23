@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from kf_oj.contracts.agent_learning import TrainingCandidatesArguments
 from kf_oj.contracts.learning import LearningParameters
 from kf_oj.modules.learning.service import rank_candidates, summarize
 from kf_oj.modules.problems.public import LearningCandidate
@@ -119,6 +120,30 @@ def test_matching_filters_missing_metadata_and_unavailable_then_stable_dedup():
     assert x.items == y.items
     assert len(x.items) == 2
     assert x.gaps
+
+
+def test_goal_coverage_can_choose_two_narrower_problems_over_one_broad_problem():
+    broad = candidate(1, tags=("A", "B", "C", "D"))
+    left = candidate(2, tags=("A", "B", "E"))
+    right = candidate(3, tags=("C", "D", "F"))
+    goals = ("A", "B", "C", "D", "E", "F")
+    strict = LearningParameters(tags=goals, count=2)
+    legacy = '{"tags":["A","B","C","D","E","F"],"difficulty":null,"count":2}'
+    assert strict.model_dump_json() == legacy
+    assert not TrainingCandidatesArguments.model_validate_json(
+        legacy, strict=True
+    ).allowed_difficulties
+    pool = (right, broad, left)
+    history = LearningHistory((), False)
+    assert not rank_candidates(pool, strict, history, {}, set(), NOW).items
+
+    cover = strict.model_copy(update={"cover_each_goal": True})
+    result = rank_candidates(pool, cover, history, {}, set(), NOW)
+    assert [item.problem_id for item in result.items] == [left.problem_id, right.problem_id]
+    assert result.goal_coverage.covered == goals and not result.goal_coverage.missing
+    fewer = rank_candidates(pool, cover.model_copy(update={"count": 1}), history, {}, set(), NOW)
+    assert fewer.items[0].problem_id == broad.problem_id
+    assert fewer.goal_coverage.missing == ("E", "F")
 
 
 def test_plan_projection_preserves_snapshot_and_version_progress():

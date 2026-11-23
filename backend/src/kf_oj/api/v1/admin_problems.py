@@ -16,7 +16,9 @@ from kf_oj.contracts.problem_maintenance import (
     MaintainedVersionPage,
     MaintenanceAuditPage,
     MaintenanceReceipt,
+    ProblemEditor,
     PublishCandidate,
+    ReviseProblem,
 )
 from kf_oj.infra.artifacts.store import ArtifactError
 from kf_oj.modules.identity.public import MaintenanceDenied, Principal
@@ -94,6 +96,23 @@ async def versions(
     return await operation(
         service(request).versions(principal, problem_id, before=before, limit=limit)
     )
+
+
+@router.get("/problems/{problem_id}/editor", response_model=ProblemEditor)
+async def editor(
+    problem_id: UUID, request: Request, principal: Annotated[Principal, Depends(maintenance_reader)]
+):
+    return await operation(service(request).editor(principal, problem_id))
+
+
+@router.post("/problems/{problem_id}/revisions", response_model=MaintenanceReceipt, status_code=201)
+async def revise(
+    problem_id: UUID,
+    body: ReviseProblem,
+    request: Request,
+    principal: Annotated[Principal, Depends(maintenance_writer)],
+):
+    return await operation(service(request).revise(principal, problem_id, body))
 
 
 @router.get("/problem-maintenance/{operation_id}", response_model=MaintenanceReceipt)

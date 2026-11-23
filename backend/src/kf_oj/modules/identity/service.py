@@ -5,7 +5,7 @@ import re
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
@@ -20,6 +20,8 @@ from kf_oj.modules.identity.passwords import (
     verify_password,
 )
 from kf_oj.modules.identity.public import (
+    AcceptedSession,
+    AdministrationDenied,
     AuthenticationFailed,
     LoginThrottled,
     MaintenanceDenied,
@@ -144,12 +146,20 @@ class IdentityService:
     async def require_problem_maintenance(self, session, principal: Principal) -> None:
         if not session.in_transaction():
             raise ValueError("maintenance authorization requires an active write transaction")
+        try:
+            await self.require_administrator(session, principal)
+        except AdministrationDenied:
+            raise MaintenanceDenied("problem maintenance required") from None
+
+    async def require_administrator(self, session, principal: Principal) -> None:
+        if not session.in_transaction():
+            raise ValueError("administrator authorization requires an active transaction")
         if (
             not principal.can_maintain_problems
             or principal.session_token_hash is None
             or not TOKEN.fullmatch(principal.session_token_hash)
         ):
-            raise MaintenanceDenied("problem maintenance required")
+            raise AdministrationDenied("administrator required")
         # Account first, then session: authority changes use that same lock order.
         # SHARE locks last until the caller commits/rolls back; a stale principal,
         # explicit logout, revocation or expired session cannot authorize a write.
@@ -160,12 +170,29 @@ class IdentityService:
             or not account.is_administrator
             or account.authorization_version != principal.authorization_version
         ):
-            raise MaintenanceDenied("problem maintenance required")
+            raise AdministrationDenied("administrator required")
         row = await repository.current_session(
             session, principal.session_token_hash, lock_session=True
         )
         if row is None or row[1].id != account.id:
-            raise MaintenanceDenied("problem maintenance required")
+            raise AdministrationDenied("administrator required")
+
+    async def require_active_session(self, session, principal: Principal) -> None:
+        if not session.in_transaction():
+            raise ValueError("session authorization requires an active transaction")
+        token_hash = principal.session_token_hash
+        if token_hash is None or not TOKEN.fullmatch(token_hash):
+            raise AuthenticationFailed("invalid session")
+        account = await repository.lock_authority(session, principal.account_id)
+        if (
+            account is None
+            or not account.enabled
+            or account.authorization_version != principal.authorization_version
+        ):
+            raise AuthenticationFailed("invalid session")
+        row = await repository.current_session(session, token_hash, lock_session=True)
+        if row is None or row[1].id != account.id:
+            raise AuthenticationFailed("invalid session")
 
     async def logout(self, token: str, csrf_token: str) -> None:
         await self.authenticate(token, csrf_token=csrf_token)
@@ -188,3 +215,30 @@ class ReservedMaintenance:
             if getattr(error.orig, "sqlstate", None) == "42501":
                 raise MaintenanceDenied("problem maintenance revoked") from None
             raise
+
+
+class AcceptedSessionAccess:
+    """Verify a queued job's proof without reading the browser session secret."""
+
+    def __init__(self, owner_id: UUID, receipt: AcceptedSession) -> None:
+        self._owner_id = owner_id
+        self._receipt = receipt
+
+    async def require_active_session(self, session, principal: Principal) -> None:
+        if not session.in_transaction():
+            raise ValueError("job authorization requires an active transaction")
+        if (
+            principal.account_id != self._owner_id
+            or principal.authorization_version != self._receipt.authorization_version
+        ):
+            raise AuthenticationFailed("learning authorization unavailable")
+        allowed = await session.scalar(
+            text("SELECT public.kf_lock_agent_session(:owner, :epoch, :proof)"),
+            {
+                "owner": self._owner_id,
+                "epoch": self._receipt.authorization_version,
+                "proof": self._receipt.session_proof,
+            },
+        )
+        if not allowed:
+            raise AuthenticationFailed("learning authorization unavailable")

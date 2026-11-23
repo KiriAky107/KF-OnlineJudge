@@ -53,7 +53,7 @@ onUnmounted(() => {
           ><span class="brand-mark">KF.</span
           ><span class="brand-name">管理控制台<small>ADMIN CONSOLE</small></span></a
         >
-        <span class="admin-app-label">题目维护 · 服务端权限验证</span>
+        <span class="admin-app-label">管理权限由服务端核验</span>
         <button v-if="session.user.value" class="admin-signout" @click="logout">
           退出 {{ session.user.value.username }}
         </button>
@@ -66,9 +66,7 @@ onUnmounted(() => {
           :to="section.id === 'overview' ? '/' : '/' + section.id"
           :aria-label="section.title"
           :class="{
-            active:
-              (route.path === '/problems' ? 'problems' : route.params.section || 'overview') ===
-              section.id,
+            active: (route.path.split('/')[1] || 'overview') === section.id,
           }"
           ><UiIcon :name="section.icon" /><span>{{ section.title }}</span></RouterLink
         >
@@ -80,7 +78,7 @@ onUnmounted(() => {
         /></RouterView>
       </main>
       <footer class="admin-app-footer">
-        KF OnlineJudge / 管理控制台<span>题目维护已接通 · 其他业务区为明确预览</span>
+        KF OnlineJudge / 管理控制台<span>已接通题目维护和技能审核</span>
       </footer>
     </div>
   </el-config-provider>

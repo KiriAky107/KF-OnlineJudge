@@ -11,11 +11,14 @@ from kf_oj.api.body_limits import BodyLimitMiddleware
 from kf_oj.api.dependency_errors import install_handlers
 from kf_oj.api.v1.admin_imports import router as import_router
 from kf_oj.api.v1.admin_problems import router as maintenance_router
+from kf_oj.api.v1.agent_learning import router as agent_learning_router
 from kf_oj.api.v1.identity import router as identity_router
 from kf_oj.api.v1.learning import router as learning_router
 from kf_oj.api.v1.problems import router as problems_router
 from kf_oj.api.v1.router import router
 from kf_oj.api.v1.self_tests import router as self_test_router
+from kf_oj.api.v1.skill_drafts import router as skill_draft_router
+from kf_oj.api.v1.skill_publications import router as skill_publication_router
 from kf_oj.api.v1.submissions import router as submission_router
 from kf_oj.api.v1.worker_artifacts import router as worker_router
 from kf_oj.core.logging import configure_logging
@@ -26,12 +29,15 @@ from kf_oj.infra.artifacts.store import ArtifactStore
 from kf_oj.infra.coordinator import CoordinatorControl
 from kf_oj.infra.db.session import build_engine, build_session_factory
 from kf_oj.modules.identity.service import IdentityService
+from kf_oj.modules.learning.agent_application import AgentLearning
+from kf_oj.modules.learning.public import AGENT_TOOL_SCOPES
 from kf_oj.modules.learning.service import LearningService
 from kf_oj.modules.operations.queries import MaintenanceAuditQueries
 from kf_oj.modules.operations.service import MaintenanceAudit
 from kf_oj.modules.problems.imports import ProblemImports
 from kf_oj.modules.problems.maintenance import ProblemMaintenance
 from kf_oj.modules.problems.service import ProblemService
+from kf_oj.modules.skills.public import SkillDrafts, SkillPublications, SkillReports
 from kf_oj.modules.submissions.performance import SubmissionPerformanceQueries
 from kf_oj.modules.submissions.queries import SubmissionQueries
 from kf_oj.modules.submissions.self_tests import SelfTestService
@@ -59,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
                 app.state.submission_performance = SubmissionPerformanceQueries(app.state.sessions)
                 app.state.learning = LearningService(app.state.sessions)
+                source_reader = None
                 artifacts = None
                 if settings.artifact_root is not None:
                     store = ArtifactStore(
@@ -109,11 +116,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         if settings.coordinator_url and settings.coordinator_token
                         else None
                     )
-                    app.state.submission_queries = SubmissionQueries(
-                        app.state.sessions, artifacts, cancellation
-                    )
+                    source_reader = SubmissionQueries(app.state.sessions, artifacts, cancellation)
+                    app.state.submission_queries = source_reader
+                app.state.agent_learning = AgentLearning(
+                    app.state.sessions, app.state.identity, source_reader=source_reader
+                )
+                app.state.skill_drafts = SkillDrafts(
+                    app.state.sessions,
+                    app.state.identity,
+                    app.state.agent_learning.catalog,
+                    AGENT_TOOL_SCOPES,
+                )
+                app.state.skill_publications = SkillPublications(
+                    app.state.sessions, app.state.identity
+                )
+                app.state.skill_reports = SkillReports(app.state.sessions, app.state.identity)
             yield
         finally:
+            app.state.skill_reports = None
+            app.state.skill_publications = None
+            app.state.skill_drafts = None
+            app.state.agent_learning = None
             app.state.learning = None
             app.state.identity = None
             app.state.problems = None
@@ -172,6 +195,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(router, prefix="/api/v1")
     app.include_router(identity_router, prefix="/api/v1")
     app.include_router(learning_router, prefix="/api/v1")
+    app.include_router(agent_learning_router, prefix="/api/v1")
+    app.include_router(skill_draft_router, prefix="/api/v1")
+    app.include_router(skill_publication_router, prefix="/api/v1")
     app.include_router(problems_router, prefix="/api/v1")
     app.include_router(worker_router, prefix="/api/v1")
     app.include_router(submission_router, prefix="/api/v1")

@@ -26,6 +26,21 @@ export const router = createRouter({
       component: () => import('../views/TrainingsView.vue'),
     },
     {
+      path: '/trainings/assistant',
+      meta: { title: '学习助手' },
+      component: () => import('../views/LearningAgentView.vue'),
+    },
+    {
+      path: '/trainings/skill-drafts',
+      meta: { title: '技能草稿' },
+      component: () => import('../views/SkillDraftsView.vue'),
+    },
+    {
+      path: '/trainings/skill-library',
+      meta: { title: '技能目录' },
+      component: () => import('../views/SkillLibraryView.vue'),
+    },
+    {
       path: '/trainings/:id',
       meta: { title: '训练详情' },
       component: () => import('../views/TrainingDetailView.vue'),

@@ -25,6 +25,333 @@
         "title": "AccountCapabilities",
         "type": "object"
       },
+      "AgentHistoryItem": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/AgentPurpose"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "skill_version_id": {
+            "format": "uuid",
+            "title": "Skill Version Id",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RunState"
+          }
+        },
+        "required": [
+          "run_id",
+          "session_id",
+          "skill_version_id",
+          "purpose",
+          "state",
+          "created_at"
+        ],
+        "title": "AgentHistoryItem",
+        "type": "object"
+      },
+      "AgentHistoryPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentHistoryItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "truncated"
+        ],
+        "title": "AgentHistoryPage",
+        "type": "object"
+      },
+      "AgentPurpose": {
+        "enum": [
+          "submission_review",
+          "guided_help",
+          "focused_training",
+          "periodic_review"
+        ],
+        "title": "AgentPurpose",
+        "type": "string"
+      },
+      "AgentRunTrace": {
+        "additionalProperties": false,
+        "properties": {
+          "attempts": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "finished_tool_calls": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Finished Tool Calls",
+            "type": "integer"
+          },
+          "model_elapsed_ms": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Elapsed Ms"
+          },
+          "model_usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelTokenUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "queue_ms": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Ms"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/AgentTraceStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "tool_calls": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Tool Calls",
+            "type": "integer"
+          },
+          "tool_elapsed_ms": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Tool Elapsed Ms",
+            "type": "integer"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "run_id",
+          "attempts",
+          "queue_ms",
+          "duration_ms",
+          "tool_calls",
+          "finished_tool_calls",
+          "tool_elapsed_ms",
+          "steps",
+          "truncated"
+        ],
+        "title": "AgentRunTrace",
+        "type": "object"
+      },
+      "AgentRunView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunFeedback"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "focused_training": "#/components/schemas/FocusedTrainingResult",
+                    "guided_help": "#/components/schemas/GuidedHelpResult",
+                    "periodic_review": "#/components/schemas/PeriodicReviewResult",
+                    "submission_review": "#/components/schemas/SubmissionReviewResult"
+                  },
+                  "propertyName": "purpose"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SubmissionReviewResult"
+                  },
+                  {
+                    "$ref": "#/components/schemas/GuidedHelpResult"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FocusedTrainingResult"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PeriodicReviewResult"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "skill_version_id": {
+            "format": "uuid",
+            "title": "Skill Version Id",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RunState"
+          }
+        },
+        "required": [
+          "run_id",
+          "session_id",
+          "skill_version_id",
+          "state",
+          "created_at"
+        ],
+        "title": "AgentRunView",
+        "type": "object"
+      },
+      "AgentTraceStep": {
+        "additionalProperties": false,
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "invocation_version": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "title": "Invocation Version",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "model",
+              "tool"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "kind",
+          "invocation_version",
+          "state",
+          "error_code"
+        ],
+        "title": "AgentTraceStep",
+        "type": "object"
+      },
       "ArtifactReference": {
         "additionalProperties": false,
         "properties": {
@@ -164,6 +491,104 @@
         "title": "CandidatePreview",
         "type": "object"
       },
+      "CatalogProblem": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_submissions": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Accepted Submissions",
+            "type": "integer"
+          },
+          "difficulty": {
+            "anyOf": [
+              {
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "judged_submissions": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Judged Submissions",
+            "type": "integer"
+          },
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "slug": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "title": "Slug",
+            "type": "string"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "total_submissions": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Total Submissions",
+            "type": "integer"
+          },
+          "verdict_counts": {
+            "additionalProperties": {
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/Verdict"
+            },
+            "title": "Verdict Counts",
+            "type": "object"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "version_id",
+          "revision",
+          "title",
+          "languages"
+        ],
+        "title": "CatalogProblem",
+        "type": "object"
+      },
       "ChangeProblemAvailability": {
         "additionalProperties": false,
         "properties": {
@@ -196,6 +621,275 @@
         "title": "ChangeProblemAvailability",
         "type": "object"
       },
+      "ChangeSkillFavorite": {
+        "additionalProperties": false,
+        "properties": {
+          "favorited": {
+            "title": "Favorited",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "favorited"
+        ],
+        "title": "ChangeSkillFavorite",
+        "type": "object"
+      },
+      "ChangeSkillRating": {
+        "additionalProperties": false,
+        "properties": {
+          "score": {
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Score",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "score"
+        ],
+        "title": "ChangeSkillRating",
+        "type": "object"
+      },
+      "CodeBoundaryChange": {
+        "additionalProperties": false,
+        "properties": {
+          "after_line": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "After Line",
+            "type": "integer"
+          },
+          "after_operator": {
+            "enum": [
+              "<",
+              "<=",
+              ">",
+              ">=",
+              "==",
+              "!="
+            ],
+            "title": "After Operator",
+            "type": "string"
+          },
+          "before_line": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Before Line",
+            "type": "integer"
+          },
+          "before_operator": {
+            "enum": [
+              "<",
+              "<=",
+              ">",
+              ">=",
+              "==",
+              "!="
+            ],
+            "title": "Before Operator",
+            "type": "string"
+          },
+          "changed_cases": {
+            "default": [],
+            "items": {
+              "enum": [
+                "less",
+                "equal",
+                "greater"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Changed Cases",
+            "type": "array"
+          }
+        },
+        "required": [
+          "before_line",
+          "after_line",
+          "before_operator",
+          "after_operator"
+        ],
+        "title": "CodeBoundaryChange",
+        "type": "object"
+      },
+      "CodeControlFlowCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "branch_keywords": {
+            "maximum": 16384.0,
+            "minimum": 0.0,
+            "title": "Branch Keywords",
+            "type": "integer"
+          },
+          "loop_keywords": {
+            "maximum": 16384.0,
+            "minimum": 0.0,
+            "title": "Loop Keywords",
+            "type": "integer"
+          },
+          "return_keywords": {
+            "maximum": 16384.0,
+            "minimum": 0.0,
+            "title": "Return Keywords",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "branch_keywords",
+          "loop_keywords",
+          "return_keywords"
+        ],
+        "title": "CodeControlFlowCounts",
+        "type": "object"
+      },
+      "CodeControlFlowDiff": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/CodeControlFlowCounts"
+          },
+          "before": {
+            "$ref": "#/components/schemas/CodeControlFlowCounts"
+          },
+          "method": {
+            "const": "control-keywords-v1",
+            "default": "control-keywords-v1",
+            "title": "Method",
+            "type": "string"
+          }
+        },
+        "required": [
+          "before",
+          "after"
+        ],
+        "title": "CodeControlFlowDiff",
+        "type": "object"
+      },
+      "CodeDiffEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "boundary_changes": {
+            "items": {
+              "$ref": "#/components/schemas/CodeBoundaryChange"
+            },
+            "maxItems": 8,
+            "title": "Boundary Changes",
+            "type": "array"
+          },
+          "control_flow": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodeControlFlowDiff"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "earlier": {
+            "$ref": "#/components/schemas/CodeSubmissionRef"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/CodeDiffRegion"
+            },
+            "maxItems": 16,
+            "title": "Regions",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "earlier",
+          "regions",
+          "truncated"
+        ],
+        "title": "CodeDiffEvidence",
+        "type": "object"
+      },
+      "CodeDiffRegion": {
+        "additionalProperties": false,
+        "properties": {
+          "after_count": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "After Count",
+            "type": "integer"
+          },
+          "after_line": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "After Line",
+            "type": "integer"
+          },
+          "before_count": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Before Count",
+            "type": "integer"
+          },
+          "before_line": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Before Line",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "replace",
+              "insert",
+              "delete"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "before_line",
+          "before_count",
+          "after_line",
+          "after_count"
+        ],
+        "title": "CodeDiffRegion",
+        "type": "object"
+      },
+      "CodeSubmissionRef": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluation_id": {
+            "format": "uuid",
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "language": {
+            "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "evaluation_id",
+          "problem_version_id",
+          "language"
+        ],
+        "title": "CodeSubmissionRef",
+        "type": "object"
+      },
       "CompilationStatus": {
         "enum": [
           "succeeded",
@@ -206,6 +900,114 @@
         ],
         "title": "CompilationStatus",
         "type": "string"
+      },
+      "CompilerCorrection": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "missing_semicolon",
+              "missing_colon",
+              "expected_indented_block",
+              "unclosed_parenthesis"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/CompilerLocation"
+          }
+        },
+        "required": [
+          "location",
+          "kind"
+        ],
+        "title": "CompilerCorrection",
+        "type": "object"
+      },
+      "CompilerLocation": {
+        "additionalProperties": false,
+        "properties": {
+          "column": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "kind": {
+            "enum": [
+              "error",
+              "warning",
+              "note",
+              "location"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Line",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "line",
+          "kind"
+        ],
+        "title": "CompilerLocation",
+        "type": "object"
+      },
+      "ConfigureSkill": {
+        "additionalProperties": false,
+        "properties": {
+          "authorized_tools": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SkillToolView"
+            },
+            "maxItems": 8,
+            "title": "Authorized Tools",
+            "type": "array"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "maxProperties": 16,
+            "title": "Parameters",
+            "type": "object"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "ConfigureSkill",
+        "type": "object"
+      },
+      "CreateLearningSession": {
+        "additionalProperties": false,
+        "properties": {
+          "purpose": {
+            "$ref": "#/components/schemas/AgentPurpose"
+          }
+        },
+        "required": [
+          "purpose"
+        ],
+        "title": "CreateLearningSession",
+        "type": "object"
       },
       "CreateProblemImport": {
         "additionalProperties": false,
@@ -281,6 +1083,59 @@
         "title": "CreateSelfTest",
         "type": "object"
       },
+      "CreateSkillDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "document": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SkillDraftDocument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "source_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Version Id"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "title": "CreateSkillDraft",
+        "type": "object"
+      },
+      "CreateSkillTrial": {
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision"
+        ],
+        "title": "CreateSkillTrial",
+        "type": "object"
+      },
       "CreateSubmission": {
         "additionalProperties": false,
         "properties": {
@@ -323,6 +1178,11 @@
             "title": "Count",
             "type": "integer"
           },
+          "cover_each_goal": {
+            "default": false,
+            "title": "Cover Each Goal",
+            "type": "boolean"
+          },
           "difficulty": {
             "anyOf": [
               {
@@ -343,6 +1203,21 @@
             "format": "uuid",
             "title": "Idempotency Key",
             "type": "string"
+          },
+          "ranking_profile": {
+            "anyOf": [
+              {
+                "enum": [
+                  "feedback_first",
+                  "unresolved_first"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ranking Profile"
           },
           "tags": {
             "default": [],
@@ -369,6 +1244,60 @@
         "title": "CreateTraining",
         "type": "object"
       },
+      "CreateTrainingFollowUp": {
+        "additionalProperties": false,
+        "properties": {
+          "cycle_days": {
+            "anyOf": [
+              {
+                "maximum": 90.0,
+                "minimum": 7.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cycle Days"
+          },
+          "daily_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 5.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Minutes"
+          },
+          "idempotency_key": {
+            "format": "uuid",
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "sessions_per_week": {
+            "anyOf": [
+              {
+                "maximum": 7.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions Per Week"
+          }
+        },
+        "required": [
+          "idempotency_key"
+        ],
+        "title": "CreateTrainingFollowUp",
+        "type": "object"
+      },
       "CurrentUser": {
         "additionalProperties": false,
         "properties": {
@@ -392,6 +1321,22 @@
         "title": "CurrentUser",
         "type": "object"
       },
+      "DisableSkillVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "DisableSkillVersion",
+        "type": "object"
+      },
       "FailureCode": {
         "enum": [
           "artifact_unavailable",
@@ -404,6 +1349,275 @@
         ],
         "title": "FailureCode",
         "type": "string"
+      },
+      "FocusedTrainingResult": {
+        "additionalProperties": false,
+        "properties": {
+          "daily_minutes": {
+            "title": "Daily Minutes",
+            "type": "integer"
+          },
+          "evidence_as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence As Of"
+          },
+          "gaps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "goal": {
+            "title": "Goal",
+            "type": "string"
+          },
+          "goal_coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingGoalCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProposedExercise"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "model_hint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelHint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "generated",
+                  "unavailable",
+                  "uncertain",
+                  "budget_exhausted",
+                  "insufficient_evidence",
+                  "source_model_unavailable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Status"
+          },
+          "purpose": {
+            "const": "focused_training",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "ranking_profile": {
+            "anyOf": [
+              {
+                "enum": [
+                  "feedback_first",
+                  "unresolved_first"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ranking Profile"
+          }
+        },
+        "required": [
+          "purpose",
+          "goal",
+          "daily_minutes",
+          "items",
+          "gaps"
+        ],
+        "title": "FocusedTrainingResult",
+        "type": "object"
+      },
+      "FocusedTrainingSchedule": {
+        "additionalProperties": false,
+        "properties": {
+          "daily_minutes": {
+            "maximum": 180.0,
+            "minimum": 5.0,
+            "title": "Daily Minutes",
+            "type": "integer"
+          },
+          "goal": {
+            "maxLength": 200,
+            "title": "Goal",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "focused_training",
+            "default": "focused_training",
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "goal",
+          "daily_minutes"
+        ],
+        "title": "FocusedTrainingSchedule",
+        "type": "object"
+      },
+      "GuidedHelpResult": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubmissionCodeEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delivered_level": {
+            "default": "concept",
+            "enum": [
+              "concept",
+              "location",
+              "local_change"
+            ],
+            "title": "Delivered Level",
+            "type": "string"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearningEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence As Of"
+          },
+          "gaps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "hint": {
+            "title": "Hint",
+            "type": "string"
+          },
+          "hint_example": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint Example"
+          },
+          "model_hint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelHint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model_hint_basis": {
+            "anyOf": [
+              {
+                "const": "topic_and_verdict",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Hint Basis"
+          },
+          "model_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "generated",
+                  "unavailable",
+                  "uncertain",
+                  "budget_exhausted",
+                  "insufficient_evidence",
+                  "source_model_unavailable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Status"
+          },
+          "purpose": {
+            "const": "guided_help",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "requested_level": {
+            "enum": [
+              "concept",
+              "location",
+              "local_change"
+            ],
+            "title": "Requested Level",
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "requested_level",
+          "hint",
+          "evidence",
+          "gaps"
+        ],
+        "title": "GuidedHelpResult",
+        "type": "object"
       },
       "HTTPValidationError": {
         "properties": {
@@ -563,6 +1777,7 @@
         "title": "JobManifest",
         "type": "object"
       },
+      "JsonValue": {},
       "Language-Input": {
         "enum": [
           "c17",
@@ -629,6 +1844,11 @@
         "title": "LearningEvidence",
         "type": "object"
       },
+      "LearningLabel": {
+        "maxLength": 40,
+        "minLength": 1,
+        "type": "string"
+      },
       "LearningMetadataUpdate": {
         "additionalProperties": false,
         "properties": {
@@ -648,11 +1868,19 @@
             ],
             "title": "Difficulty"
           },
+          "prerequisite_tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrerequisiteTags"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "tags": {
             "items": {
-              "maxLength": 40,
-              "minLength": 1,
-              "type": "string"
+              "$ref": "#/components/schemas/LearningLabel"
             },
             "maxItems": 16,
             "title": "Tags",
@@ -685,6 +1913,10 @@
             ],
             "title": "Difficulty"
           },
+          "prerequisite_tags": {
+            "$ref": "#/components/schemas/PrerequisiteTags",
+            "default": []
+          },
           "problem_version_id": {
             "format": "uuid",
             "title": "Problem Version Id",
@@ -697,9 +1929,7 @@
           },
           "tags": {
             "items": {
-              "maxLength": 40,
-              "minLength": 1,
-              "type": "string"
+              "$ref": "#/components/schemas/LearningLabel"
             },
             "maxItems": 16,
             "title": "Tags",
@@ -850,6 +2080,11 @@
             "title": "Count",
             "type": "integer"
           },
+          "cover_each_goal": {
+            "default": false,
+            "title": "Cover Each Goal",
+            "type": "boolean"
+          },
           "difficulty": {
             "anyOf": [
               {
@@ -865,6 +2100,21 @@
               }
             ],
             "title": "Difficulty"
+          },
+          "ranking_profile": {
+            "anyOf": [
+              {
+                "enum": [
+                  "feedback_first",
+                  "unresolved_first"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ranking Profile"
           },
           "tags": {
             "default": [],
@@ -906,6 +2156,16 @@
             "title": "Generated At",
             "type": "string"
           },
+          "goal_coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingGoalCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/RecommendedProblem"
@@ -915,6 +2175,16 @@
           },
           "parameters": {
             "$ref": "#/components/schemas/LearningParameters"
+          },
+          "prerequisite_gap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrerequisiteGap"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "rule_version": {
             "title": "Rule Version",
@@ -929,6 +2199,31 @@
           "gaps"
         ],
         "title": "LearningRecommendations",
+        "type": "object"
+      },
+      "LearningSessionView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/AgentPurpose"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "session_id",
+          "created_at"
+        ],
+        "title": "LearningSessionView",
         "type": "object"
       },
       "LegacyImportBudget": {
@@ -1401,6 +2696,130 @@
         "title": "MaintenanceReceipt",
         "type": "object"
       },
+      "ModelHint": {
+        "additionalProperties": false,
+        "properties": {
+          "latency_ms": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "model": {
+            "maxLength": 96,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.:-]+$",
+            "title": "Model",
+            "type": "string"
+          },
+          "response_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.:-]+$",
+            "title": "Response Id",
+            "type": "string"
+          },
+          "review_comparison_case": {
+            "anyOf": [
+              {
+                "enum": [
+                  "less",
+                  "equal",
+                  "greater"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Comparison Case"
+          },
+          "review_focus": {
+            "anyOf": [
+              {
+                "enum": [
+                  "wrong_answer",
+                  "compilation_error",
+                  "later_accepted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Focus"
+          },
+          "source_line": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Line"
+          },
+          "text": {
+            "maxLength": 1800,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelTokenUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "text",
+          "model",
+          "response_id",
+          "latency_ms"
+        ],
+        "title": "ModelHint",
+        "type": "object"
+      },
+      "ModelTokenUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "input_tokens": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "input_tokens",
+          "output_tokens",
+          "total_tokens"
+        ],
+        "title": "ModelTokenUsage",
+        "type": "object"
+      },
       "PerformanceBucket": {
         "additionalProperties": false,
         "properties": {
@@ -1556,6 +2975,151 @@
         "title": "PerformanceMetric",
         "type": "object"
       },
+      "PeriodicReviewResult": {
+        "additionalProperties": false,
+        "properties": {
+          "cycle_days": {
+            "title": "Cycle Days",
+            "type": "integer"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/LearningEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "evidence_as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence As Of"
+          },
+          "gaps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "goal": {
+            "title": "Goal",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProposedExercise"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "model_hint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelHint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "generated",
+                  "unavailable",
+                  "uncertain",
+                  "budget_exhausted",
+                  "insufficient_evidence",
+                  "source_model_unavailable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Status"
+          },
+          "purpose": {
+            "const": "periodic_review",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "ranking_profile": {
+            "anyOf": [
+              {
+                "enum": [
+                  "feedback_first",
+                  "unresolved_first"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ranking Profile"
+          },
+          "sessions_per_week": {
+            "title": "Sessions Per Week",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "purpose",
+          "goal",
+          "cycle_days",
+          "sessions_per_week",
+          "evidence",
+          "items",
+          "gaps"
+        ],
+        "title": "PeriodicReviewResult",
+        "type": "object"
+      },
+      "PeriodicReviewSchedule": {
+        "additionalProperties": false,
+        "properties": {
+          "cycle_days": {
+            "maximum": 90.0,
+            "minimum": 7.0,
+            "title": "Cycle Days",
+            "type": "integer"
+          },
+          "goal": {
+            "maxLength": 200,
+            "title": "Goal",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "periodic_review",
+            "default": "periodic_review",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "sessions_per_week": {
+            "maximum": 7.0,
+            "minimum": 1.0,
+            "title": "Sessions Per Week",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "goal",
+          "cycle_days",
+          "sessions_per_week"
+        ],
+        "title": "PeriodicReviewSchedule",
+        "type": "object"
+      },
       "PreparationKind": {
         "enum": [
           "compile",
@@ -1564,9 +3128,61 @@
         "title": "PreparationKind",
         "type": "string"
       },
+      "PrerequisiteGap": {
+        "additionalProperties": false,
+        "properties": {
+          "affected_candidates": {
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Affected Candidates",
+            "type": "integer"
+          },
+          "missing_tags": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Missing Tags",
+            "type": "array"
+          },
+          "remaining_tags": {
+            "minimum": 0.0,
+            "title": "Remaining Tags",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "affected_candidates",
+          "missing_tags",
+          "remaining_tags"
+        ],
+        "title": "PrerequisiteGap",
+        "type": "object"
+      },
+      "PrerequisiteTags": {
+        "items": {
+          "$ref": "#/components/schemas/LearningLabel"
+        },
+        "maxItems": 8,
+        "type": "array"
+      },
       "ProblemDetail": {
         "additionalProperties": false,
         "properties": {
+          "execution_available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Available"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -1639,6 +3255,35 @@
           "run_limits"
         ],
         "title": "ProblemDetail",
+        "type": "object"
+      },
+      "ProblemEditor": {
+        "additionalProperties": false,
+        "properties": {
+          "case_count": {
+            "maximum": 256.0,
+            "minimum": 1.0,
+            "title": "Case Count",
+            "type": "integer"
+          },
+          "detail": {
+            "$ref": "#/components/schemas/ProblemDetail"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/LearningMetadataView"
+          }
+        },
+        "required": [
+          "enabled",
+          "detail",
+          "metadata",
+          "case_count"
+        ],
+        "title": "ProblemEditor",
         "type": "object"
       },
       "ProblemImportCapabilities": {
@@ -2066,7 +3711,7 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/ProblemSummary"
+              "$ref": "#/components/schemas/CatalogProblem"
             },
             "title": "Items",
             "type": "array"
@@ -2091,49 +3736,134 @@
         "title": "ProblemPage",
         "type": "object"
       },
-      "ProblemSummary": {
+      "ProblemSubmissionStatus": {
         "additionalProperties": false,
         "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubmissionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "solved": {
+            "title": "Solved",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "solved",
+          "latest"
+        ],
+        "title": "ProblemSubmissionStatus",
+        "type": "object"
+      },
+      "ProposedExercise": {
+        "additionalProperties": false,
+        "properties": {
+          "difficulty": {
+            "anyOf": [
+              {
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "estimated_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Minutes"
+          },
+          "feedback_evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingFeedbackEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "objective": {
+            "title": "Objective",
             "type": "string"
           },
-          "languages": {
-            "items": {
-              "$ref": "#/components/schemas/kf_oj__contracts__judging_v2__Language"
-            },
-            "title": "Languages",
-            "type": "array"
-          },
-          "revision": {
-            "title": "Revision",
+          "position": {
+            "title": "Position",
             "type": "integer"
           },
-          "slug": {
-            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
-            "title": "Slug",
+          "prerequisites": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TrainingPrerequisite"
+            },
+            "maxItems": 8,
+            "title": "Prerequisites",
+            "type": "array"
+          },
+          "problem_id": {
+            "format": "uuid",
+            "title": "Problem Id",
             "type": "string"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "timing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingTiming"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": {
             "title": "Title",
             "type": "string"
-          },
-          "version_id": {
-            "format": "uuid",
-            "title": "Version Id",
-            "type": "string"
           }
         },
         "required": [
-          "id",
-          "slug",
-          "version_id",
-          "revision",
+          "problem_id",
+          "problem_version_id",
           "title",
-          "languages"
+          "difficulty",
+          "tags",
+          "position",
+          "objective"
         ],
-        "title": "ProblemSummary",
+        "title": "ProposedExercise",
         "type": "object"
       },
       "PublicCaseResult": {
@@ -2365,6 +4095,98 @@
         "title": "PublishCandidate",
         "type": "object"
       },
+      "PublishedSkill": {
+        "additionalProperties": false,
+        "properties": {
+          "author": {
+            "title": "Author",
+            "type": "string"
+          },
+          "based_on_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Based On Version Id"
+          },
+          "content_digest": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Digest",
+            "type": "string"
+          },
+          "document": {
+            "$ref": "#/components/schemas/SkillDraftDocument"
+          },
+          "favorited": {
+            "title": "Favorited",
+            "type": "boolean"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "skill_id": {
+            "format": "uuid",
+            "title": "Skill Id",
+            "type": "string"
+          },
+          "version": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "skill_id",
+          "version_id",
+          "version",
+          "based_on_version_id",
+          "author",
+          "content_digest",
+          "document",
+          "published_at",
+          "favorited"
+        ],
+        "title": "PublishedSkill",
+        "type": "object"
+      },
+      "PublishedSkillPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PublishedSkill"
+            },
+            "maxItems": 50,
+            "title": "Items",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "truncated"
+        ],
+        "title": "PublishedSkillPage",
+        "type": "object"
+      },
       "RecommendedProblem": {
         "additionalProperties": false,
         "properties": {
@@ -2384,12 +4206,35 @@
             ],
             "title": "Difficulty"
           },
+          "estimated_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Minutes"
+          },
           "evidence": {
             "items": {
               "$ref": "#/components/schemas/LearningEvidence"
             },
             "title": "Evidence",
             "type": "array"
+          },
+          "feedback_evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingFeedbackEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "metadata_revision": {
             "anyOf": [
@@ -2401,6 +4246,15 @@
               }
             ],
             "title": "Metadata Revision"
+          },
+          "prerequisites": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TrainingPrerequisite"
+            },
+            "maxItems": 8,
+            "title": "Prerequisites",
+            "type": "array"
           },
           "previously_accepted": {
             "title": "Previously Accepted",
@@ -2434,6 +4288,16 @@
             "title": "Tags",
             "type": "array"
           },
+          "timing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingTiming"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -2452,6 +4316,211 @@
           "evidence"
         ],
         "title": "RecommendedProblem",
+        "type": "object"
+      },
+      "ReviewComparison": {
+        "additionalProperties": false,
+        "properties": {
+          "earlier_submission_id": {
+            "format": "uuid",
+            "title": "Earlier Submission Id",
+            "type": "string"
+          },
+          "later_submission_id": {
+            "format": "uuid",
+            "title": "Later Submission Id",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "later_accepted",
+              "later_non_accepted",
+              "other"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "earlier_submission_id",
+          "later_submission_id",
+          "outcome"
+        ],
+        "title": "ReviewComparison",
+        "type": "object"
+      },
+      "ReviewEvidenceFocus": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "enum": [
+              "wrong_answer",
+              "compilation_error",
+              "later_accepted"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/LearningEvidence"
+          }
+        },
+        "required": [
+          "category",
+          "evidence"
+        ],
+        "title": "ReviewEvidenceFocus",
+        "type": "object"
+      },
+      "ReviewSkillReport": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "confirm",
+              "dismiss"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "note"
+        ],
+        "title": "ReviewSkillReport",
+        "type": "object"
+      },
+      "ReviewSkillVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "publish",
+              "reject"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ReviewSkillVersion",
+        "type": "object"
+      },
+      "ReviseProblem": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_active_version_id": {
+            "format": "uuid",
+            "title": "Expected Active Version Id",
+            "type": "string"
+          },
+          "expected_metadata_revision": {
+            "minimum": 0.0,
+            "title": "Expected Metadata Revision",
+            "type": "integer"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/LearningMetadataUpdate"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/PublicSample"
+            },
+            "maxItems": 10,
+            "title": "Samples",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "statement": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Statement",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "expected_active_version_id",
+          "expected_metadata_revision",
+          "title",
+          "statement",
+          "samples",
+          "metadata"
+        ],
+        "title": "ReviseProblem",
+        "type": "object"
+      },
+      "RunFeedback": {
+        "additionalProperties": false,
+        "properties": {
+          "rated_at": {
+            "format": "date-time",
+            "title": "Rated At",
+            "type": "string"
+          },
+          "rating": {
+            "enum": [
+              "helpful",
+              "partly_helpful",
+              "not_helpful"
+            ],
+            "title": "Rating",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unclear_next_step",
+                  "unrelated_hint",
+                  "insufficient_evidence"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "rating",
+          "reason",
+          "rated_at"
+        ],
+        "title": "RunFeedback",
         "type": "object"
       },
       "RunLimits": {
@@ -2532,6 +4601,19 @@
         ],
         "title": "RunLimits",
         "type": "object"
+      },
+      "RunState": {
+        "enum": [
+          "queued",
+          "running",
+          "retry_wait",
+          "cancel_requested",
+          "cancelled",
+          "succeeded",
+          "failed"
+        ],
+        "title": "RunState",
+        "type": "string"
       },
       "SelfTestDetail": {
         "additionalProperties": false,
@@ -2671,6 +4753,1081 @@
           "failure_code"
         ],
         "title": "SelfTestDetail",
+        "type": "object"
+      },
+      "SkillBindingView": {
+        "additionalProperties": false,
+        "properties": {
+          "authorized_tools": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SkillToolView"
+            },
+            "maxItems": 8,
+            "title": "Authorized Tools",
+            "type": "array"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "maxProperties": 16,
+            "title": "Parameters",
+            "type": "object"
+          },
+          "skill_version_id": {
+            "format": "uuid",
+            "title": "Skill Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "skill_version_id"
+        ],
+        "title": "SkillBindingView",
+        "type": "object"
+      },
+      "SkillCatalogView": {
+        "additionalProperties": false,
+        "properties": {
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/SkillVersionView"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "versions"
+        ],
+        "title": "SkillCatalogView",
+        "type": "object"
+      },
+      "SkillDraftDocument": {
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribution"
+          },
+          "description": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "method": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Method",
+            "type": "string"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "maxProperties": 16,
+            "title": "Parameters",
+            "type": "object"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/AgentPurpose"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/SkillReference"
+            },
+            "maxItems": 4,
+            "title": "References",
+            "type": "array"
+          },
+          "requested_tools": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SkillToolView"
+            },
+            "maxItems": 8,
+            "title": "Requested Tools",
+            "type": "array"
+          },
+          "runtime_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Runtime Version",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "title": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "title",
+          "description",
+          "method"
+        ],
+        "title": "SkillDraftDocument",
+        "type": "object"
+      },
+      "SkillDraftPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SkillDraftSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "truncated"
+        ],
+        "title": "SkillDraftPage",
+        "type": "object"
+      },
+      "SkillDraftSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "draft_id": {
+            "format": "uuid",
+            "title": "Draft Id",
+            "type": "string"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/AgentPurpose"
+          },
+          "revision": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "draft_id",
+          "title",
+          "purpose",
+          "revision",
+          "updated_at"
+        ],
+        "title": "SkillDraftSummary",
+        "type": "object"
+      },
+      "SkillDraftView": {
+        "additionalProperties": false,
+        "properties": {
+          "content_digest": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Digest",
+            "type": "string"
+          },
+          "document": {
+            "$ref": "#/components/schemas/SkillDraftDocument"
+          },
+          "draft_id": {
+            "format": "uuid",
+            "title": "Draft Id",
+            "type": "string"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/AgentPurpose"
+          },
+          "revision": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Version Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "draft_id",
+          "title",
+          "purpose",
+          "revision",
+          "updated_at",
+          "source_version_id",
+          "content_digest",
+          "document"
+        ],
+        "title": "SkillDraftView",
+        "type": "object"
+      },
+      "SkillReference": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 3000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "path": {
+            "pattern": "^references/[a-z0-9][a-z0-9_-]{0,59}\\.(md|txt)$",
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "title": "SkillReference",
+        "type": "object"
+      },
+      "SkillReportPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SkillReportView"
+            },
+            "maxItems": 20,
+            "title": "Items",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "truncated"
+        ],
+        "title": "SkillReportPage",
+        "type": "object"
+      },
+      "SkillReportReviewPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SkillReportReviewView"
+            },
+            "maxItems": 50,
+            "title": "Items",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "truncated"
+        ],
+        "title": "SkillReportReviewPage",
+        "type": "object"
+      },
+      "SkillReportReviewView": {
+        "additionalProperties": false,
+        "properties": {
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decision_note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Note"
+          },
+          "details": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Details",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "incorrect_content",
+              "privacy",
+              "licensing",
+              "other"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "release_title": {
+            "title": "Release Title",
+            "type": "string"
+          },
+          "report_id": {
+            "format": "uuid",
+            "title": "Report Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "confirmed",
+              "dismissed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "version": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "report_id",
+          "version_id",
+          "reason",
+          "details",
+          "state",
+          "submitted_at",
+          "decided_at",
+          "decision_note",
+          "release_title",
+          "version"
+        ],
+        "title": "SkillReportReviewView",
+        "type": "object"
+      },
+      "SkillReportView": {
+        "additionalProperties": false,
+        "properties": {
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decision_note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Note"
+          },
+          "details": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Details",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "incorrect_content",
+              "privacy",
+              "licensing",
+              "other"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "report_id": {
+            "format": "uuid",
+            "title": "Report Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "confirmed",
+              "dismissed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "report_id",
+          "version_id",
+          "reason",
+          "details",
+          "state",
+          "submitted_at",
+          "decided_at",
+          "decision_note"
+        ],
+        "title": "SkillReportView",
+        "type": "object"
+      },
+      "SkillToolView": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "title": "SkillToolView",
+        "type": "object"
+      },
+      "SkillTrialView": {
+        "additionalProperties": false,
+        "properties": {
+          "content_digest": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Digest",
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "revision",
+          "content_digest"
+        ],
+        "title": "SkillTrialView",
+        "type": "object"
+      },
+      "SkillVersionRating": {
+        "additionalProperties": false,
+        "properties": {
+          "average": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average"
+          },
+          "count": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "own_score": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Score"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "count",
+          "average",
+          "own_score"
+        ],
+        "title": "SkillVersionRating",
+        "type": "object"
+      },
+      "SkillVersionReview": {
+        "additionalProperties": false,
+        "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "author": {
+            "title": "Author",
+            "type": "string"
+          },
+          "based_on_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Based On Version Id"
+          },
+          "content_digest": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Digest",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "disable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disable Reason"
+          },
+          "disabled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled At"
+          },
+          "document": {
+            "$ref": "#/components/schemas/SkillDraftDocument"
+          },
+          "draft_id": {
+            "format": "uuid",
+            "title": "Draft Id",
+            "type": "string"
+          },
+          "draft_revision": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Draft Revision",
+            "type": "integer"
+          },
+          "review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Note"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "published",
+              "archived",
+              "rejected",
+              "withdrawn",
+              "disabled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "version": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "draft_id",
+          "draft_revision",
+          "version_id",
+          "version",
+          "based_on_version_id",
+          "author",
+          "content_digest",
+          "document",
+          "state",
+          "submitted_at",
+          "decided_at",
+          "review_note"
+        ],
+        "title": "SkillVersionReview",
+        "type": "object"
+      },
+      "SkillVersionReviewPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SkillVersionReview"
+            },
+            "maxItems": 50,
+            "title": "Items",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "truncated"
+        ],
+        "title": "SkillVersionReviewPage",
+        "type": "object"
+      },
+      "SkillVersionView": {
+        "additionalProperties": false,
+        "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "available_tools": {
+            "items": {
+              "$ref": "#/components/schemas/SkillToolView"
+            },
+            "title": "Available Tools",
+            "type": "array"
+          },
+          "binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SkillBindingView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "default_parameters": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Default Parameters",
+            "type": "object"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "builtin",
+              "published",
+              "trial"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/AgentPurpose"
+          },
+          "release": {
+            "title": "Release",
+            "type": "integer"
+          },
+          "slug": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "title": "Slug",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "origin",
+          "slug",
+          "release",
+          "title",
+          "description",
+          "purpose",
+          "default_parameters",
+          "available_tools"
+        ],
+        "title": "SkillVersionView",
+        "type": "object"
+      },
+      "SourceLineRange": {
+        "additionalProperties": false,
+        "properties": {
+          "end_line": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "End Line",
+            "type": "integer"
+          },
+          "start_line": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Start Line",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start_line",
+          "end_line"
+        ],
+        "title": "SourceLineRange",
+        "type": "object"
+      },
+      "StartAgentRun": {
+        "additionalProperties": false,
+        "properties": {
+          "include_model_code_context": {
+            "default": false,
+            "title": "Include Model Code Context",
+            "type": "boolean"
+          },
+          "include_model_comparison_cases": {
+            "title": "Include Model Comparison Cases",
+            "type": "boolean"
+          },
+          "include_model_control_flow": {
+            "title": "Include Model Control Flow",
+            "type": "boolean"
+          },
+          "include_model_evidence_focus": {
+            "title": "Include Model Evidence Focus",
+            "type": "boolean"
+          },
+          "include_model_plan_explanation": {
+            "default": false,
+            "title": "Include Model Plan Explanation",
+            "type": "boolean"
+          },
+          "include_model_review": {
+            "default": false,
+            "title": "Include Model Review",
+            "type": "boolean"
+          },
+          "include_model_verdict": {
+            "title": "Include Model Verdict",
+            "type": "boolean"
+          },
+          "include_source_evidence": {
+            "default": false,
+            "title": "Include Source Evidence",
+            "type": "boolean"
+          },
+          "model_source_excerpt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceLineRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model_topic": {
+            "anyOf": [
+              {
+                "enum": [
+                  "binary_search",
+                  "graph_traversal",
+                  "dynamic_programming"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Topic"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "skill_version_id": {
+            "format": "uuid",
+            "title": "Skill Version Id",
+            "type": "string"
+          },
+          "submission_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submission Id"
+          }
+        },
+        "required": [
+          "request_id",
+          "skill_version_id"
+        ],
+        "title": "StartAgentRun",
+        "type": "object"
+      },
+      "SubmissionCodeEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "comparison": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodeDiffEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "compiler_correction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompilerCorrection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "compiler_locations": {
+            "items": {
+              "$ref": "#/components/schemas/CompilerLocation"
+            },
+            "maxItems": 8,
+            "title": "Compiler Locations",
+            "type": "array"
+          },
+          "diagnostics_truncated": {
+            "title": "Diagnostics Truncated",
+            "type": "boolean"
+          },
+          "line_count": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Count"
+          },
+          "method": {
+            "const": "kf-code-evidence-v1",
+            "default": "kf-code-evidence-v1",
+            "title": "Method",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/CodeSubmissionRef"
+          },
+          "source_available": {
+            "title": "Source Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source",
+          "source_available",
+          "line_count",
+          "compiler_locations",
+          "diagnostics_truncated"
+        ],
+        "title": "SubmissionCodeEvidence",
         "type": "object"
       },
       "SubmissionComparison": {
@@ -2962,6 +6119,147 @@
         "title": "SubmissionPerformance",
         "type": "object"
       },
+      "SubmissionReviewResult": {
+        "additionalProperties": false,
+        "properties": {
+          "anchor_submission_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor Submission Id"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubmissionCodeEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "comparisons": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewComparison"
+            },
+            "title": "Comparisons",
+            "type": "array"
+          },
+          "evidence_as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence As Of"
+          },
+          "gaps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "model_focus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewEvidenceFocus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model_hint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelHint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model_review_basis": {
+            "anyOf": [
+              {
+                "enum": [
+                  "evaluations",
+                  "evaluations_and_code_counts",
+                  "evaluations_and_control_flow",
+                  "evaluations_and_comparison_cases",
+                  "source_excerpt"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Review Basis"
+          },
+          "model_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "generated",
+                  "unavailable",
+                  "uncertain",
+                  "budget_exhausted",
+                  "insufficient_evidence",
+                  "source_model_unavailable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Status"
+          },
+          "purpose": {
+            "const": "submission_review",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/LearningEvidence"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "since": {
+            "format": "date-time",
+            "title": "Since",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "purpose",
+          "since",
+          "truncated",
+          "records",
+          "comparisons",
+          "gaps"
+        ],
+        "title": "SubmissionReviewResult",
+        "type": "object"
+      },
       "SubmissionSource": {
         "additionalProperties": false,
         "properties": {
@@ -2985,6 +6283,39 @@
           "source"
         ],
         "title": "SubmissionSource",
+        "type": "object"
+      },
+      "SubmissionSourceExcerpt": {
+        "additionalProperties": false,
+        "properties": {
+          "end_line": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "End Line",
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/CodeSubmissionRef"
+          },
+          "start_line": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Start Line",
+            "type": "integer"
+          },
+          "text": {
+            "maxLength": 2048,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_line",
+          "end_line",
+          "source",
+          "text"
+        ],
+        "title": "SubmissionSourceExcerpt",
         "type": "object"
       },
       "SubmissionSummary": {
@@ -3070,6 +6401,60 @@
           "failure_code"
         ],
         "title": "SubmissionSummary",
+        "type": "object"
+      },
+      "SubmitSkillReport": {
+        "additionalProperties": false,
+        "properties": {
+          "details": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Details",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "incorrect_content",
+              "privacy",
+              "licensing",
+              "other"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "reason",
+          "details"
+        ],
+        "title": "SubmitSkillReport",
+        "type": "object"
+      },
+      "SubmitSkillVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmed_public": {
+            "title": "Confirmed Public",
+            "type": "boolean"
+          },
+          "revision": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision",
+          "confirmed_public"
+        ],
+        "title": "SubmitSkillVersion",
         "type": "object"
       },
       "TagStatistic": {
@@ -3172,6 +6557,16 @@
             "title": "Created At",
             "type": "string"
           },
+          "goal_coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingGoalCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -3191,9 +6586,46 @@
           "parameters": {
             "$ref": "#/components/schemas/LearningParameters"
           },
+          "previous_plan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Plan Id"
+          },
           "rule_version": {
             "title": "Rule Version",
             "type": "string"
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "focused_training": "#/components/schemas/FocusedTrainingSchedule",
+                    "periodic_review": "#/components/schemas/PeriodicReviewSchedule"
+                  },
+                  "propertyName": "purpose"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/FocusedTrainingSchedule"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PeriodicReviewSchedule"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule"
           },
           "title": {
             "title": "Title",
@@ -3211,6 +6643,115 @@
           "items"
         ],
         "title": "TrainingDetail",
+        "type": "object"
+      },
+      "TrainingFeedback": {
+        "additionalProperties": false,
+        "properties": {
+          "rated_at": {
+            "format": "date-time",
+            "title": "Rated At",
+            "type": "string"
+          },
+          "rating": {
+            "enum": [
+              "too_easy",
+              "appropriate",
+              "too_hard"
+            ],
+            "title": "Rating",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rating",
+          "rated_at"
+        ],
+        "title": "TrainingFeedback",
+        "type": "object"
+      },
+      "TrainingFeedbackEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "preferred_difficulty": {
+            "enum": [
+              "easy",
+              "medium",
+              "hard"
+            ],
+            "title": "Preferred Difficulty",
+            "type": "string"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "rated_at": {
+            "format": "date-time",
+            "title": "Rated At",
+            "type": "string"
+          },
+          "rating": {
+            "enum": [
+              "too_easy",
+              "appropriate",
+              "too_hard"
+            ],
+            "title": "Rating",
+            "type": "string"
+          },
+          "training_id": {
+            "format": "uuid",
+            "title": "Training Id",
+            "type": "string"
+          },
+          "training_item_id": {
+            "format": "uuid",
+            "title": "Training Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rating",
+          "rated_at",
+          "training_id",
+          "training_item_id",
+          "problem_version_id",
+          "preferred_difficulty"
+        ],
+        "title": "TrainingFeedbackEvidence",
+        "type": "object"
+      },
+      "TrainingGoalCoverage": {
+        "additionalProperties": false,
+        "properties": {
+          "covered": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Covered",
+            "type": "array"
+          },
+          "missing": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Missing",
+            "type": "array"
+          }
+        },
+        "required": [
+          "covered",
+          "missing"
+        ],
+        "title": "TrainingGoalCoverage",
         "type": "object"
       },
       "TrainingItem": {
@@ -3236,12 +6777,45 @@
             ],
             "title": "Difficulty"
           },
+          "estimated_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Minutes"
+          },
           "evidence": {
             "items": {
               "$ref": "#/components/schemas/LearningEvidence"
             },
             "title": "Evidence",
             "type": "array"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingFeedback"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "feedback_evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingFeedbackEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "format": "uuid",
@@ -3270,6 +6844,15 @@
           "position": {
             "title": "Position",
             "type": "integer"
+          },
+          "prerequisites": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TrainingPrerequisite"
+            },
+            "maxItems": 8,
+            "title": "Prerequisites",
+            "type": "array"
           },
           "previously_accepted": {
             "title": "Previously Accepted",
@@ -3318,6 +6901,16 @@
             },
             "title": "Tags",
             "type": "array"
+          },
+          "timing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingTiming"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": {
             "title": "Title",
@@ -3373,6 +6966,31 @@
         "title": "TrainingPage",
         "type": "object"
       },
+      "TrainingPrerequisite": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "$ref": "#/components/schemas/LearningEvidence"
+          },
+          "metadata_revision": {
+            "title": "Metadata Revision",
+            "type": "integer"
+          },
+          "tag": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "evidence",
+          "metadata_revision"
+        ],
+        "title": "TrainingPrerequisite",
+        "type": "object"
+      },
       "TrainingSummary": {
         "additionalProperties": false,
         "properties": {
@@ -3412,6 +7030,163 @@
           "completed_count"
         ],
         "title": "TrainingSummary",
+        "type": "object"
+      },
+      "TrainingTiming": {
+        "additionalProperties": false,
+        "properties": {
+          "last_accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Accepted At"
+          },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
+          "last_planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Planned At"
+          },
+          "review_due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Due At"
+          },
+          "status": {
+            "enum": [
+              "review_due",
+              "practice",
+              "review_later",
+              "recent_attempt",
+              "recent_plan"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "TrainingTiming",
+        "type": "object"
+      },
+      "UpdateRunFeedback": {
+        "additionalProperties": false,
+        "properties": {
+          "rating": {
+            "anyOf": [
+              {
+                "enum": [
+                  "helpful",
+                  "partly_helpful",
+                  "not_helpful"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unclear_next_step",
+                  "unrelated_hint",
+                  "insufficient_evidence"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "rating"
+        ],
+        "title": "UpdateRunFeedback",
+        "type": "object"
+      },
+      "UpdateSkillDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/SkillDraftDocument"
+          },
+          "revision": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision",
+          "document"
+        ],
+        "title": "UpdateSkillDraft",
+        "type": "object"
+      },
+      "UpdateTrainingFeedback": {
+        "additionalProperties": false,
+        "properties": {
+          "rating": {
+            "anyOf": [
+              {
+                "enum": [
+                  "too_easy",
+                  "appropriate",
+                  "too_hard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          }
+        },
+        "required": [
+          "rating"
+        ],
+        "title": "UpdateTrainingFeedback",
         "type": "object"
       },
       "UpdateTrainingNote": {
@@ -4268,6 +8043,49 @@
         ]
       }
     },
+    "/api/v1/admin/problems/{problem_id}/editor": {
+      "get": {
+        "operationId": "editor_api_v1_admin_problems__problem_id__editor_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Problem Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemEditor"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Editor",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
     "/api/v1/admin/problems/{problem_id}/restore": {
       "post": {
         "operationId": "restore_api_v1_admin_problems__problem_id__restore_post",
@@ -4316,6 +8134,59 @@
           }
         },
         "summary": "Restore",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
+    "/api/v1/admin/problems/{problem_id}/revisions": {
+      "post": {
+        "operationId": "revise_api_v1_admin_problems__problem_id__revisions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Problem Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviseProblem"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revise",
         "tags": [
           "problem-maintenance"
         ]
@@ -4390,6 +8261,264 @@
         "summary": "Versions",
         "tags": [
           "problem-maintenance"
+        ]
+      }
+    },
+    "/api/v1/admin/skill-reports": {
+      "get": {
+        "operationId": "skill_report_reviews_api_v1_admin_skill_reports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "enum": [
+                "pending",
+                "confirmed",
+                "dismissed"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillReportReviewPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Skill Report Reviews",
+        "tags": [
+          "skill-publications"
+        ]
+      }
+    },
+    "/api/v1/admin/skill-reports/{report_id}": {
+      "post": {
+        "operationId": "decide_skill_report_api_v1_admin_skill_reports__report_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Report Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewSkillReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillReportReviewView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide Skill Report",
+        "tags": [
+          "skill-publications"
+        ]
+      }
+    },
+    "/api/v1/admin/skill-reviews": {
+      "get": {
+        "operationId": "review_queue_api_v1_admin_skill_reviews_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "enum": [
+                "pending",
+                "published",
+                "archived",
+                "rejected",
+                "withdrawn",
+                "disabled"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillVersionReviewPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Review Queue",
+        "tags": [
+          "skill-publications"
+        ]
+      }
+    },
+    "/api/v1/admin/skill-reviews/{version_id}": {
+      "post": {
+        "operationId": "decide_version_api_v1_admin_skill_reviews__version_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewSkillVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillVersionReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide Version",
+        "tags": [
+          "skill-publications"
+        ]
+      }
+    },
+    "/api/v1/admin/skill-reviews/{version_id}/disable": {
+      "post": {
+        "operationId": "disable_skill_version_api_v1_admin_skill_reviews__version_id__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisableSkillVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillVersionReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disable Skill Version",
+        "tags": [
+          "skill-publications"
         ]
       }
     },
@@ -4657,6 +8786,1231 @@
         ]
       }
     },
+    "/api/v1/learning/agent/runs": {
+      "get": {
+        "operationId": "run_history_api_v1_learning_agent_runs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentHistoryPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Run History",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/runs/{run_id}": {
+      "get": {
+        "operationId": "read_run_api_v1_learning_agent_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Run",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/runs/{run_id}/cancel": {
+      "post": {
+        "operationId": "cancel_run_api_v1_learning_agent_runs__run_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Run",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/runs/{run_id}/feedback": {
+      "put": {
+        "operationId": "save_feedback_api_v1_learning_agent_runs__run_id__feedback_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRunFeedback"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Feedback",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/runs/{run_id}/trace": {
+      "get": {
+        "operationId": "run_trace_api_v1_learning_agent_runs__run_id__trace_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunTrace"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Trace",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/runs/{run_id}/training": {
+      "post": {
+        "operationId": "save_training_api_v1_learning_agent_runs__run_id__training_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Training",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/sessions": {
+      "post": {
+        "operationId": "new_session_api_v1_learning_agent_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLearningSession"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningSessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "New Session",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/sessions/{session_id}/runs": {
+      "post": {
+        "operationId": "start_run_api_v1_learning_agent_sessions__session_id__runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartAgentRun"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Run",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skill-drafts": {
+      "get": {
+        "operationId": "list_drafts_api_v1_learning_agent_skill_drafts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDraftPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Drafts",
+        "tags": [
+          "skill-drafts"
+        ]
+      },
+      "post": {
+        "operationId": "create_draft_api_v1_learning_agent_skill_drafts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillDraft"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDraftView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Draft",
+        "tags": [
+          "skill-drafts"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skill-drafts/{draft_id}": {
+      "get": {
+        "operationId": "read_draft_api_v1_learning_agent_skill_drafts__draft_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDraftView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Draft",
+        "tags": [
+          "skill-drafts"
+        ]
+      },
+      "put": {
+        "operationId": "update_draft_api_v1_learning_agent_skill_drafts__draft_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSkillDraft"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDraftView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Draft",
+        "tags": [
+          "skill-drafts"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skill-drafts/{draft_id}/releases": {
+      "get": {
+        "operationId": "author_versions_api_v1_learning_agent_skill_drafts__draft_id__releases_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillVersionReviewPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Author Versions",
+        "tags": [
+          "skill-publications"
+        ]
+      },
+      "post": {
+        "operationId": "submit_version_api_v1_learning_agent_skill_drafts__draft_id__releases_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitSkillVersion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillVersionReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Version",
+        "tags": [
+          "skill-publications"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skill-drafts/{draft_id}/trials": {
+      "post": {
+        "operationId": "create_trial_api_v1_learning_agent_skill_drafts__draft_id__trials_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillTrial"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillTrialView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Trial",
+        "tags": [
+          "skill-drafts"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skill-library": {
+      "get": {
+        "operationId": "discover_skills_api_v1_learning_agent_skill_library_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 80,
+              "title": "Search",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "purpose",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AgentPurpose"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Purpose"
+            }
+          },
+          {
+            "in": "query",
+            "name": "favorites_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Favorites Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedSkillPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discover Skills",
+        "tags": [
+          "skill-publications"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skill-library/{skill_id}/favorite": {
+      "put": {
+        "operationId": "change_favorite_api_v1_learning_agent_skill_library__skill_id__favorite_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeSkillFavorite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSkillFavorite"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change Favorite",
+        "tags": [
+          "skill-publications"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skill-library/{version_id}": {
+      "get": {
+        "operationId": "published_skill_api_v1_learning_agent_skill_library__version_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedSkill"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Published Skill",
+        "tags": [
+          "skill-publications"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skill-library/{version_id}/rating": {
+      "delete": {
+        "operationId": "retract_rating_api_v1_learning_agent_skill_library__version_id__rating_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillVersionRating"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retract Rating",
+        "tags": [
+          "skill-publications"
+        ]
+      },
+      "get": {
+        "operationId": "version_rating_api_v1_learning_agent_skill_library__version_id__rating_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillVersionRating"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Version Rating",
+        "tags": [
+          "skill-publications"
+        ]
+      },
+      "put": {
+        "operationId": "rate_version_api_v1_learning_agent_skill_library__version_id__rating_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeSkillRating"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillVersionRating"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rate Version",
+        "tags": [
+          "skill-publications"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skill-library/{version_id}/reports": {
+      "get": {
+        "operationId": "own_skill_reports_api_v1_learning_agent_skill_library__version_id__reports_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillReportPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Own Skill Reports",
+        "tags": [
+          "skill-publications"
+        ]
+      },
+      "post": {
+        "operationId": "submit_skill_report_api_v1_learning_agent_skill_library__version_id__reports_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitSkillReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillReportView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Skill Report",
+        "tags": [
+          "skill-publications"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skill-versions/{version_id}/archive": {
+      "post": {
+        "operationId": "archive_version_api_v1_learning_agent_skill_versions__version_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillVersionReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Archive Version",
+        "tags": [
+          "skill-publications"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skill-versions/{version_id}/withdraw": {
+      "post": {
+        "operationId": "withdraw_version_api_v1_learning_agent_skill_versions__version_id__withdraw_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillVersionReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Withdraw Version",
+        "tags": [
+          "skill-publications"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skills": {
+      "get": {
+        "operationId": "skills_api_v1_learning_agent_skills_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "version_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillCatalogView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Skills",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/skills/{version_id}": {
+      "put": {
+        "operationId": "configure_skill_api_v1_learning_agent_skills__version_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigureSkill"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillBindingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Configure Skill",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
     "/api/v1/learning/overview": {
       "get": {
         "operationId": "overview_api_v1_learning_overview_get",
@@ -4750,6 +10104,63 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "difficulty",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "easy",
+                    "medium",
+                    "hard"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Difficulty"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag"
             }
           }
         ],
@@ -5042,6 +10453,49 @@
         ]
       }
     },
+    "/api/v1/submissions/problem-status/{problem_version_id}": {
+      "get": {
+        "operationId": "problem_status_api_v1_submissions_problem_status__problem_version_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Problem Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemSubmissionStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Problem Status",
+        "tags": [
+          "submissions"
+        ]
+      }
+    },
     "/api/v1/submissions/{submission_id}": {
       "get": {
         "operationId": "detail_api_v1_submissions__submission_id__get",
@@ -5267,6 +10721,71 @@
         ]
       }
     },
+    "/api/v1/submissions/{submission_id}/source-excerpt": {
+      "get": {
+        "operationId": "excerpt_api_v1_submissions__submission_id__source_excerpt_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Submission Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_line",
+            "required": true,
+            "schema": {
+              "maximum": 262145,
+              "minimum": 1,
+              "title": "Start Line",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_line",
+            "required": true,
+            "schema": {
+              "maximum": 262145,
+              "minimum": 1,
+              "title": "End Line",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionSourceExcerpt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Excerpt",
+        "tags": [
+          "submissions"
+        ]
+      }
+    },
     "/api/v1/trainings": {
       "get": {
         "operationId": "trainings_api_v1_trainings_get",
@@ -5370,6 +10889,59 @@
         ]
       }
     },
+    "/api/v1/trainings/{training_id}/follow-ups": {
+      "post": {
+        "operationId": "create_follow_up_api_v1_trainings__training_id__follow_ups_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "training_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTrainingFollowUp"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Follow Up",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
     "/api/v1/trainings/{training_id}/items/{item_id}": {
       "patch": {
         "operationId": "update_note_api_v1_trainings__training_id__items__item_id__patch",
@@ -5428,6 +11000,69 @@
           }
         },
         "summary": "Update Note",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/trainings/{training_id}/items/{item_id}/feedback": {
+      "put": {
+        "operationId": "update_feedback_api_v1_trainings__training_id__items__item_id__feedback_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "training_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTrainingFeedback"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Feedback",
         "tags": [
           "learning"
         ]

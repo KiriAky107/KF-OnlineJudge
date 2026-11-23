@@ -1,13 +1,15 @@
 """Bounded administrator projections and immutable operation receipts, separate from judging."""
 
+import base64
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import Field, StrictBool
+from pydantic import Field, StrictBool, model_validator
 
 from kf_oj.contracts.admin_problems import CandidatePreview
 from kf_oj.contracts.judging import Identifier, Label, Version, WireModel
-from kf_oj.contracts.problems import ProblemSummary
+from kf_oj.contracts.problem_learning import LearningMetadataUpdate, LearningMetadataView
+from kf_oj.contracts.problems import ProblemDetail, ProblemSummary, PublicSample
 
 MaintenanceAction = Literal["publish", "disable", "restore"]
 AuditAction = Literal[
@@ -62,6 +64,40 @@ class PublishCandidate(WireModel):
     import_operation_id: Identifier
     candidate_id: Identifier
     expected_active_version_id: Identifier | None
+
+
+class ProblemEditor(WireModel):
+    enabled: StrictBool
+    detail: ProblemDetail
+    metadata: LearningMetadataView
+    case_count: Annotated[int, Field(ge=1, le=256)]
+
+
+class ReviseProblem(WireModel):
+    schema_version: Version = 1
+    operation_id: Identifier
+    expected_active_version_id: Identifier
+    expected_metadata_revision: Annotated[int, Field(strict=True, ge=0)]
+    title: Annotated[str, Field(min_length=1, max_length=160)]
+    statement: Annotated[str, Field(min_length=1, max_length=262144)]
+    samples: Annotated[tuple[PublicSample, ...], Field(max_length=10)]
+    metadata: LearningMetadataUpdate
+
+    @model_validator(mode="after")
+    def bounded_content(self):
+        if (
+            not self.title.strip()
+            or not self.statement.strip()
+            or "\x00" in self.title + self.statement
+            or len(self.statement.encode("utf-8")) > 262144
+        ):
+            raise ValueError("invalid public text")
+        for sample in self.samples:
+            for encoded in (sample.input, sample.output):
+                raw = base64.b64decode(encoded, validate=True)
+                if len(raw) > 65536 or base64.b64encode(raw).decode("ascii") != encoded:
+                    raise ValueError("invalid public sample")
+        return self
 
 
 class ChangeProblemAvailability(WireModel):

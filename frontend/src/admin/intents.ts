@@ -1,3 +1,5 @@
+import { newRequestId } from '../lib/requestCrypto.ts'
+
 // Persist UUID receipts, never file bytes, passwords, roles or session tokens.
 export type ImportIntent = {
   owner: string
@@ -19,7 +21,7 @@ export function importIntent(
   digest: string,
   bytes: number,
   now = Date.now(),
-  makeId = () => crypto.randomUUID(),
+  makeId = newRequestId,
 ): ImportIntent {
   if (!/^[0-9a-f]{64}$/.test(digest) || !Number.isInteger(bytes) || bytes < 1 || bytes > 67108864)
     throw new Error('请选择 1 字节至 64 MiB 的 ZIP 题包。')
@@ -46,7 +48,7 @@ export function mutationIntent(
   owner: string,
   fingerprint: string,
   now = Date.now(),
-  makeId = () => crypto.randomUUID(),
+  makeId = newRequestId,
 ): MutationIntent {
   if (
     previous &&
@@ -60,7 +62,8 @@ export function mutationIntent(
   return { owner, operation_id: makeId(), fingerprint, created: now }
 }
 const prefix = 'kf-admin-receipt-v1-'
-export function loadIntent<T>(kind: 'import' | 'mutation'): T | null {
+type IntentKind = 'import' | 'mutation' | 'revision'
+export function loadIntent<T>(kind: IntentKind): T | null {
   try {
     const value = localStorage.getItem(prefix + kind)
     return value && value.length <= 2048 ? (JSON.parse(value) as T) : null
@@ -68,10 +71,7 @@ export function loadIntent<T>(kind: 'import' | 'mutation'): T | null {
     return null
   }
 }
-export function saveIntent(
-  kind: 'import' | 'mutation',
-  value: ImportIntent | MutationIntent | null,
-) {
+export function saveIntent(kind: IntentKind, value: ImportIntent | MutationIntent | null) {
   try {
     if (value) localStorage.setItem(prefix + kind, JSON.stringify(value))
     else localStorage.removeItem(prefix + kind)
@@ -82,6 +82,7 @@ export function saveIntent(
 export function clearIntents() {
   saveIntent('import', null)
   saveIntent('mutation', null)
+  saveIntent('revision', null)
 }
 export function hasMaintenance(
   user: { capabilities?: { problem_maintenance: boolean } } | null,

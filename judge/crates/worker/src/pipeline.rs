@@ -22,7 +22,7 @@ pub(crate) fn read_compile_diagnostics(
 ) -> io::Result<(String, bool)> {
     let mut raw = Vec::new();
     reader.take(65537).read_to_end(&mut raw)?;
-    let mut text = String::from_utf8_lossy(&raw).into_owned();
+    let mut text = String::from_utf8_lossy(&raw).replace('\0', "�");
     let mut truncated = sandbox_truncated || text.len() > 65536;
     if text.len() > 65536 {
         let mut end = 65536;
@@ -548,6 +548,10 @@ mod tests {
         let (text, truncated) = read_compile_diagnostics(raw.as_bytes(), false).unwrap();
         assert!(truncated);
         assert_eq!(text.len(), 65535);
+        assert_eq!(
+            read_compile_diagnostics(b"error\0".as_slice(), false).unwrap(),
+            ("error�".to_owned(), false)
+        );
     }
 
     #[test]

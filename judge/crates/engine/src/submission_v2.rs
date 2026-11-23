@@ -416,14 +416,14 @@ mod tests {
             m.cases.truncate(1);
             m.cases[0].case_id = m.submission_id;
             m.cases[0].expected.bytes = 0;
-            p.observations[0].stdout = b"arbitrary output".to_vec();
+            p.observations[0].stdout = b"arbitrary\0output".to_vec();
+            p.observations[0].stderr = b"diagnostic\0".to_vec();
             let r = judge_submission(&mut p, &m, b, d.clone()).unwrap();
             assert_eq!(p.expected_reads, 0);
             assert_eq!(r.report.verdict, Verdict::Accepted);
-            assert_eq!(
-                r.report.self_test_output.as_ref().unwrap().stdout,
-                "arbitrary output"
-            );
+            let output = r.report.self_test_output.as_ref().unwrap();
+            assert_eq!(output.stdout, "arbitrary�output");
+            assert_eq!(output.stderr, "diagnostic�");
             m.self_test = false;
             assert!(r.report.validate_for_manifest(&m, &d).is_err());
         }

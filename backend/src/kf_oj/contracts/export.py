@@ -19,6 +19,7 @@ from kf_oj.contracts.problem_maintenance import (
     MaintenanceAuditPage,
     MaintenanceReceipt,
     PublishCandidate,
+    ReviseProblem,
 )
 from kf_oj.contracts.restore_io import RestoreIOReply, RestoreIORequest
 from kf_oj.contracts.submission_performance import SubmissionPerformance
@@ -61,6 +62,7 @@ def main() -> None:
         "restore-io-request": RestoreIORequest,
         "restore-io-reply": RestoreIOReply,
         "problem-publish": PublishCandidate,
+        "problem-revise": ReviseProblem,
         "problem-availability": ChangeProblemAvailability,
         "problem-maintenance": MaintenanceReceipt,
         "problem-maintenance-audit": MaintenanceAuditPage,

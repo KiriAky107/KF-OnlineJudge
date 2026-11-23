@@ -56,6 +56,10 @@ export function boundedPoll<T>(options: {
       deadline = Date.now() + (options.maxTime ?? 600000)
       void tick()
     },
+    pause() {
+      active = false
+      stop()
+    },
     visible(value: boolean) {
       if (disposed || visible === value) return
       visible = value

@@ -14,6 +14,13 @@ import SubmissionReview from './SubmissionReview.vue'
 import { preparationName } from '../composables/judgingLanguage'
 import { displayTime } from '../lib/presentation'
 const props = defineProps<{ submissionId: string; embedded?: boolean }>()
+const compilationLabels: Record<components['schemas']['CompilationStatus'], string> = {
+  succeeded: '成功',
+  compilation_error: '失败',
+  compilation_limit: '资源超限',
+  cancelled: '已取消',
+  system_error: '系统错误',
+}
 const route = useRoute()
 const id = computed(() => props.submissionId)
 const session = useSession()
@@ -136,13 +143,29 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <PageHeading title="提交详情" description="个人提交的持久化评测状态"
-    ><JudgementStatus
+  <PageHeading title="提交详情" description="个人提交的持久化评测状态">
+    <JudgementStatus
       v-if="submission"
       :state="submission.state"
       :verdict="submission.verdict"
       :language="submission.language"
-  /></PageHeading>
+    />
+    <RouterLink
+      v-if="submission && !embedded"
+      class="el-button"
+      :to="{ path: '/trainings/assistant', query: { submission: id } }"
+      >针对这次提交答疑</RouterLink
+    >
+    <RouterLink
+      v-if="submission && !embedded"
+      class="el-button"
+      :to="{
+        path: '/trainings/assistant',
+        query: { submission: id, purpose: 'submission_review' },
+      }"
+      >复盘这次提交</RouterLink
+    >
+  </PageHeading>
   <p v-if="error" role="alert">
     {{ error }}
     <RouterLink :to="{ path: '/login', query: { next: route.fullPath } }">重新登录</RouterLink>
@@ -194,13 +217,13 @@ onBeforeUnmount(() => {
         >
       </div>
     </div>
-    <SubmissionPerformance v-if="terminal" :submission-id="id" />
-    <SubmissionReview :submission="submission" />
     <PanelCard title="评测详情" icon="submissions">
       <p v-if="submission.failure_code" role="alert">系统原因：{{ submission.failure_code }}</p>
       <template v-if="submission.result">
         <p>
-          {{ preparationName(submission.language) }}状态：{{ submission.result.compilation_status }}
+          {{ preparationName(submission.language) }}状态：{{
+            compilationLabels[submission.result.compilation_status]
+          }}
         </p>
         <pre
           v-if="submission.result.diagnostics"
@@ -216,7 +239,15 @@ onBeforeUnmount(() => {
         <el-table :data="submission.result.cases" empty-text="没有运行测试点"
           ><el-table-column label="测试点"
             ><template #default="{ row }">{{ row.position + 1 }}</template></el-table-column
-          ><el-table-column prop="verdict" label="结果" /><el-table-column label="CPU ms"
+          ><el-table-column label="结果">
+            <template #default="{ row }">
+              <JudgementStatus
+                state="finished"
+                :verdict="row.verdict"
+                :language="submission.language"
+              />
+            </template> </el-table-column
+          ><el-table-column label="CPU ms"
             ><template #default="{ row }">{{
               row.cpu_time_us == null ? '—' : row.cpu_time_us / 1000
             }}</template></el-table-column
@@ -234,6 +265,8 @@ onBeforeUnmount(() => {
       <p v-if="sourceError" role="alert">{{ sourceError }}</p>
       <pre v-if="source !== null" class="sample-block">{{ source }}</pre>
     </PanelCard>
+    <SubmissionPerformance v-if="terminal" :submission-id="id" />
+    <SubmissionReview :submission="submission" />
   </template>
   <p v-else-if="!error">正在读取提交…</p>
 </template>

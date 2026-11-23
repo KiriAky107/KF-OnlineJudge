@@ -1360,10 +1360,10 @@ def test_proxy_cache_locations_preserve_their_own_security_headers():
     ).decode()
     # Nginx's default inheritance stops at a location containing add_header.
     # Inspect each cache-owning location independently, including both SPAs,
-    # assets and all three API boundaries; a server-only header cannot pass.
+    # assets and all API boundaries; a server-only header cannot pass.
     blocks = re.findall(r"^        location ([^\n]+) \{\n(.*?)^        \}", contents, re.M | re.S)
     cached = [(location, body) for location, body in blocks if "add_header Cache-Control" in body]
-    assert len(cached) == 6
+    assert len(cached) == 10
     assert {
         location for location, _ in cached if location.startswith("/admin/") or location == "/"
     } == {
@@ -1377,6 +1377,70 @@ def test_proxy_cache_locations_preserve_their_own_security_headers():
     assert "add_header X-Content-Type-Options nosniff always;" in inherited
     assert "add_header X-Frame-Options DENY always;" in inherited
     assert "add_header_inherit" not in contents  # No dependency on Nginx 1.29.3.
+
+    api_routes = [(location, body) for location, body in cached if "proxy_pass " in body]
+
+    def forwarded(path):
+        for location, _ in api_routes:
+            if location.startswith("= ") and location[2:] == path:
+                return True
+            if location.startswith("~ ") and re.search(location[2:].strip('"'), path):
+                return True
+        return False
+
+    test_id = "12345678-1234-4234-8234-123456789abc"
+    revision_path = f"/api/v1/admin/problems/{test_id}/revisions"
+    revision_limits = [
+        body
+        for location, body in api_routes
+        if location.startswith('~ "') and re.fullmatch(location[3:-1], revision_path)
+    ]
+    assert len(revision_limits) == 1
+    assert "client_max_body_size 4m;" in revision_limits[0]
+    assert "limit_except POST { deny all; }" in revision_limits[0]
+    for path in (
+        "/api/v1/self-tests",
+        f"/api/v1/self-tests/{test_id}",
+        "/api/v1/learning/overview",
+        "/api/v1/learning/recommendations",
+        "/api/v1/learning/agent/skills",
+        "/api/v1/learning/agent/skill-drafts",
+        f"/api/v1/learning/agent/skill-drafts/{test_id}",
+        f"/api/v1/learning/agent/skill-drafts/{test_id}/releases",
+        f"/api/v1/learning/agent/skill-drafts/{test_id}/trials",
+        f"/api/v1/learning/agent/skill-versions/{test_id}/withdraw",
+        "/api/v1/learning/agent/skill-library",
+        f"/api/v1/learning/agent/skill-library/{test_id}",
+        f"/api/v1/learning/agent/skill-library/{test_id}/favorite",
+        f"/api/v1/learning/agent/skill-library/{test_id}/rating",
+        f"/api/v1/learning/agent/skill-library/{test_id}/reports",
+        f"/api/v1/admin/skill-reports/{test_id}",
+        f"/api/v1/admin/skill-reviews/{test_id}",
+        f"/api/v1/admin/skill-reviews/{test_id}/disable",
+        f"/api/v1/learning/agent/skills/{test_id}",
+        "/api/v1/learning/agent/sessions",
+        f"/api/v1/learning/agent/sessions/{test_id}/runs",
+        "/api/v1/learning/agent/runs",
+        f"/api/v1/learning/agent/runs/{test_id}",
+        f"/api/v1/learning/agent/runs/{test_id}/cancel",
+        f"/api/v1/learning/agent/runs/{test_id}/training",
+        f"/api/v1/learning/agent/runs/{test_id}/trace",
+        f"/api/v1/learning/agent/runs/{test_id}/feedback",
+        "/api/v1/trainings",
+        f"/api/v1/trainings/{test_id}",
+        f"/api/v1/trainings/{test_id}/items/{test_id}",
+        f"/api/v1/trainings/{test_id}/items/{test_id}/feedback",
+    ):
+        assert forwarded(path), path
+    for path in (
+        "/api/v1/self-tests/internal",
+        "/api/v1/learning/internal",
+        "/api/v1/learning/agent/internal",
+        f"/api/v1/learning/agent/runs/{test_id}/internal",
+        "/api/v1/trainings/internal",
+        "/api/v1/internal",
+    ):
+        assert not forwarded(path), path
 
 
 def test_all_enabled_nginx_temporary_paths_use_only_the_bounded_proxy_volume():

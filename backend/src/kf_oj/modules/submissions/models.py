@@ -39,6 +39,7 @@ class Submission(CreatedAt, Base):
             ["source_digest", "artifact_state"], ["artifacts.digest", "artifacts.state"]
         ),
         Index("ix_submissions_account_history", "account_id", "created_at", "id"),
+        Index("ix_submissions_problem_id", "problem_id"),
         Index(
             "ix_submissions_owned_problem_history",
             "account_id",

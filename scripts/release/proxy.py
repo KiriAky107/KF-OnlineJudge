@@ -51,11 +51,21 @@ def render(release_id: str, value: dict) -> bytes:
     if not re.fullmatch(r"sd-[0-9a-f]{12}", release_id):
         raise DeliveryError("invalid proxy release identity")
     host = urlsplit(value["origin"]).hostname
+    uuid = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
     # Only the canonical ZIP route gets the existing 64-MiB upload allowance.
-    upload = (
-        r"^/api/v1/admin/problem-imports/"
-        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/archive$"
+    upload = rf"^/api/v1/admin/problem-imports/{uuid}/archive$"
+    agent = (
+        rf"agent/(skills(/{uuid})?|skill-drafts(/{uuid}(/(releases|trials))?)?"
+        rf"|skill-library(/{uuid}(/(favorite|rating|reports))?)?|skill-versions/{uuid}/withdraw"
+        rf"|sessions(/{uuid}/runs)?"
+        rf"|runs(/{uuid}(/(cancel|training|trace|feedback))?)?)"
     )
+    learning = (
+        rf"^/api/v1/(learning/(overview|recommendations|{agent})"
+        rf"|trainings(/{uuid}(/items/{uuid}(/feedback)?)?)?)$"
+    )
+    self_test_detail = rf"^/api/v1/self-tests/{uuid}$"
+    problem_revision = rf"^/api/v1/admin/problems/{uuid}/revisions$"
     proxy = """
             proxy_pass http://127.0.0.1:8000;
             proxy_http_version 1.1;
@@ -136,6 +146,22 @@ http {
             limit_except PUT { deny all; }
             PROXY
         }
+        location = /api/v1/self-tests {
+            # The application enforces the exact JSON budget for source and stdin.
+            client_max_body_size 2m;
+            PROXY
+        }
+        location ~ "SELF_TEST_DETAIL" {
+            PROXY
+        }
+        location ~ "PROBLEM_REVISION" {
+            client_max_body_size 4m;
+            limit_except POST { deny all; }
+            PROXY
+        }
+        location ~ "LEARNING" {
+            PROXY
+        }
         location ~ ^/api/v1/(auth|problems|submissions|admin)(/|$) {
             PROXY
         }
@@ -165,6 +191,9 @@ http {
 """.replace("HOST", host)
         .replace("RELEASE", release_id)
         .replace("UPLOAD", upload)
+        .replace("SELF_TEST_DETAIL", self_test_detail)
+        .replace("PROBLEM_REVISION", problem_revision)
+        .replace("LEARNING", learning)
         .replace("PROXY", proxy)
     ).encode()
 

@@ -4,11 +4,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from kf_oj.api.dependencies import current_principal, unsafe_principal
+from kf_oj.contracts.judging import MAX_SOURCE_BYTES
 from kf_oj.contracts.judging_v2 import Language
+from kf_oj.contracts.submission_evidence import SubmissionSourceExcerpt
 from kf_oj.contracts.submission_performance import SubmissionPerformance
 from kf_oj.contracts.submissions import (
     CancellationAccepted,
     CreateSubmission,
+    ProblemSubmissionStatus,
     SubmissionComparison,
     SubmissionCreated,
     SubmissionDetail,
@@ -77,6 +80,15 @@ async def history(
         raise HTTPException(422, "invalid history request") from None
 
 
+@router.get("/problem-status/{problem_version_id}", response_model=ProblemSubmissionStatus)
+async def problem_status(
+    problem_version_id: UUID,
+    request: Request,
+    principal: Annotated[Principal, Depends(current_principal)],
+):
+    return await queries(request).problem_status(principal, problem_version_id)
+
+
 @router.get("/{submission_id}", response_model=SubmissionDetail)
 async def detail(
     submission_id: UUID,
@@ -140,6 +152,26 @@ async def source(
         raise HTTPException(404, "submission unavailable") from None
     except ValueError:
         raise HTTPException(503, "stored source unavailable") from None
+
+
+@router.get("/{submission_id}/source-excerpt", response_model=SubmissionSourceExcerpt)
+async def excerpt(
+    submission_id: UUID,
+    request: Request,
+    principal: Annotated[Principal, Depends(current_principal)],
+    start_line: Annotated[int, Query(ge=1, le=MAX_SOURCE_BYTES + 1)],
+    end_line: Annotated[int, Query(ge=1, le=MAX_SOURCE_BYTES + 1)],
+):
+    try:
+        return await queries(request).owned_source_excerpt(
+            principal, submission_id, start_line, end_line
+        )
+    except SubmissionUnavailable:
+        raise HTTPException(404, "submission source unavailable") from None
+    except UnicodeDecodeError:
+        raise HTTPException(503, "stored source unavailable") from None
+    except ValueError:
+        raise HTTPException(422, "source excerpt outside selection limits") from None
 
 
 @router.post("/{submission_id}/cancel", status_code=202, response_model=CancellationAccepted)

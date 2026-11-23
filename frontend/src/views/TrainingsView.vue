@@ -5,11 +5,16 @@ import { useRouter } from 'vue-router'
 import { api } from '../api/client'
 import { csrfHeaders, errorText, unwrap } from '../api/transport'
 import { trainingIntent } from '../api/trainingIntent'
+import { trainingRankingLabels, type TrainingRankingProfile } from '../api/trainingRanking'
 import type { components } from '../api/generated/schema'
 import { useSession } from '../composables/useSession'
 import { displayTime } from '../lib/presentation'
 import PageHeading from '../components/PageHeading.vue'
 import PanelCard from '../components/PanelCard.vue'
+import TrainingFeedbackSource from '../components/TrainingFeedbackSource.vue'
+import TrainingGoalCoverage from '../components/TrainingGoalCoverage.vue'
+import TrainingPrerequisites from '../components/TrainingPrerequisites.vue'
+import TrainingTimingSource from '../components/TrainingTimingSource.vue'
 const { user, refresh } = useSession()
 const router = useRouter()
 const overview = ref<components['schemas']['LearningOverview'] | null>(null)
@@ -17,7 +22,9 @@ const page = ref<components['schemas']['TrainingPage'] | null>(null)
 const recommendations = ref<components['schemas']['LearningRecommendations'] | null>(null)
 const title = ref('个人训练计划')
 const tags = ref('')
+const coverEachGoal = ref(false)
 const difficulty = ref<'' | 'easy' | 'medium' | 'hard'>('')
+const rankingProfile = ref<'' | TrainingRankingProfile>('')
 const count = ref(5)
 const parameters = computed(() => ({
   tags: [
@@ -30,6 +37,8 @@ const parameters = computed(() => ({
   ],
   difficulty: difficulty.value || null,
   count: count.value,
+  cover_each_goal: coverEachGoal.value,
+  ranking_profile: rankingProfile.value || null,
 }))
 const error = ref('')
 const loading = ref(false)
@@ -123,7 +132,9 @@ watch(
   () => user.value?.id,
   () => {
     tags.value = ''
+    coverEachGoal.value = false
     difficulty.value = ''
+    rankingProfile.value = ''
     title.value = '个人训练计划'
     void load()
   },
@@ -145,7 +156,9 @@ onBeforeUnmount(clear)
     title="训练计划"
     eyebrow="TRAINING"
     description="从自己的真实提交记录出发，按目标安排练习。"
-  />
+  >
+    <RouterLink class="el-button el-button--primary" to="/trainings/assistant">学习助手</RouterLink>
+  </PageHeading>
   <p v-if="error" role="alert">{{ error }}</p>
   <p v-if="!user">
     <RouterLink to="/login?next=/trainings">登录</RouterLink>后查看本人的学习记录与训练计划。
@@ -209,6 +222,10 @@ onBeforeUnmount(clear)
         <el-form-item label="目标知识点（逗号分隔，最多 10 个；可留空）"
           ><el-input v-model="tags"
         /></el-form-item>
+        <label class="small">
+          <input v-model="coverEachGoal" type="checkbox" :disabled="busy" />
+          用不同题目覆盖各知识点
+        </label>
         <div class="filters">
           <el-select v-model="difficulty" aria-label="目标难度"
             ><el-option label="不限难度" value="" /><el-option
@@ -218,6 +235,17 @@ onBeforeUnmount(clear)
               value="hard" /></el-select
           ><el-input-number v-model="count" :min="1" :max="10" aria-label="题目数量" />
         </div>
+        <el-form-item label="排序侧重">
+          <el-select v-model="rankingProfile" aria-label="排序侧重">
+            <el-option label="常规排序" value="" />
+            <el-option
+              v-for="(label, profile) in trainingRankingLabels"
+              :key="profile"
+              :label="label"
+              :value="profile"
+            />
+          </el-select>
+        </el-form-item>
         <el-button :loading="busy" @click="recommend">查看推荐候选</el-button>
       </el-form>
       <template v-if="recommendations">
@@ -226,6 +254,10 @@ onBeforeUnmount(clear)
             recommendations.candidates_truncated ? '候选已截断，可缩小目标范围后重试。' : ''
           }}
         </p>
+        <TrainingGoalCoverage
+          v-if="recommendations.goal_coverage"
+          :coverage="recommendations.goal_coverage"
+        />
         <p v-for="gap in recommendations.gaps" :key="gap" role="status">{{ gap }}</p>
         <el-empty
           v-if="!recommendations.items.length"
@@ -235,6 +267,13 @@ onBeforeUnmount(clear)
           <li v-for="item in recommendations.items" :key="item.problem_version_id">
             <RouterLink :to="'/problems/' + item.problem_version_id">{{ item.title }}</RouterLink>
             <p>{{ item.reasons.join('；') }}</p>
+            <TrainingTimingSource v-if="item.timing" :timing="item.timing" />
+            <TrainingPrerequisites v-if="item.prerequisites?.length" :proofs="item.prerequisites" />
+            <TrainingFeedbackSource
+              v-if="item.feedback_evidence"
+              :evidence="item.feedback_evidence"
+              compact
+            />
             <span class="small muted"
               >{{ item.tags.join(' / ') || '未标注知识点' }} ·
               {{ item.difficulty || '未标注难度' }}</span

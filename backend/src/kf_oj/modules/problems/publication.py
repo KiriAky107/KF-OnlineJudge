@@ -26,7 +26,12 @@ def admit_version(policy, manifest, version_id, problem_id, cases):
         manifest.schema_version,
         () if legacy else manifest.language_configurations,
     )
-    for language in manifest.languages:
+    admit_judging_version(policy, projection)
+    return projection
+
+
+def admit_judging_version(policy, projection):
+    for language in projection.languages:
         v2.admit_manifest(
             policy,
             projection.manifest(
@@ -37,18 +42,14 @@ def admit_version(policy, manifest, version_id, problem_id, cases):
             ),
             1,
         )
-    return projection
 
 
 async def publish_version(session, problem, manifest, preview, version_id, cases):
     """Caller holds the logical slug/row locks and has made all artifacts durable."""
-    if not problem.enabled:
-        raise ProblemUnavailable("problem disabled")
     legacy = isinstance(manifest, ProblemImport)
     version = ProblemVersion(
         id=version_id,
         problem_id=problem.id,
-        revision=await repository.next_revision(session, problem.id),
         title=manifest.title,
         statement=preview.statement,
         languages=[lang.value for lang in manifest.languages],
@@ -63,13 +64,20 @@ async def publish_version(session, problem, manifest, preview, version_id, cases
         comparison=manifest.comparison,
         public_samples=[s.model_dump(mode="json") for s in preview.samples],
     )
+    return await persist_published_version(session, problem, version, cases)
+
+
+async def persist_published_version(session, problem, version, cases):
+    if not problem.enabled:
+        raise ProblemUnavailable("problem disabled")
+    version.revision = await repository.next_revision(session, problem.id)
     session.add(version)
     await session.flush()
     for position, case in enumerate(cases):
         session.add(
             ProblemCase(
                 id=case.case_id,
-                version_id=version_id,
+                version_id=version.id,
                 position=position,
                 input_digest=case.input.digest,
                 expected_digest=case.expected.digest,
@@ -77,6 +85,6 @@ async def publish_version(session, problem, manifest, preview, version_id, cases
         )
     await session.flush()
     version.published_at = await session.scalar(select(func.now()))
-    problem.active_version_id = version_id
+    problem.active_version_id = version.id
     await session.flush()
     return version

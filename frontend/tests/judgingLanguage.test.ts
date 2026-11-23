@@ -96,10 +96,10 @@ test('managed language with absent or invalid fixed entry capability cannot inhe
 })
 
 test('Python preparation is displayed as syntax checking while Java and old C/C++ compile', () => {
-  assert.equal(preparingStatus('python313'), '正在检查语法')
+  assert.equal(preparingStatus('python313'), 'Checking Syntax')
   assert.equal(preparationName('python313'), '语法检查')
   for (const language of ['c17', 'cpp20', 'java21'] as const) {
-    assert.equal(preparingStatus(language), '正在编译')
+    assert.equal(preparingStatus(language), 'Compiling')
     assert.equal(preparationName(language), '编译')
   }
 })

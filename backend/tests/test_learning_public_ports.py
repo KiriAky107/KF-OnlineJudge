@@ -14,13 +14,25 @@ from kf_oj.modules.submissions.public import accepted_versions, learning_progres
 
 
 def test_metadata_is_optional_and_old_version_remains_accessible():
-    version = SimpleNamespace(id=uuid4(), title="题目", published_at=datetime.now(UTC))
-    problem = SimpleNamespace(id=uuid4(), slug="test", enabled=True, active_version_id=uuid4())
-    item = project(problem, version, None)
+    row = SimpleNamespace(
+        problem_id=uuid4(),
+        version_id=uuid4(),
+        title="题目",
+        published_at=datetime.now(UTC),
+        slug="test",
+        enabled=True,
+        active_version_id=uuid4(),
+        tags=None,
+        prerequisite_tags=None,
+        difficulty=None,
+        revision=None,
+    )
+    item = project(row)
     assert item.available and not item.is_current_version
     assert item.tags == () and item.difficulty is None and item.metadata_revision == 0
-    problem.enabled = False
-    assert not project(problem, version, None).available
+    assert item.prerequisite_tags == ()
+    row.enabled = False
+    assert not project(row).available
 
 
 def test_metadata_labels_are_real_unique_labels():
@@ -82,6 +94,7 @@ async def check_candidate_queries():
     assert "LIMIT" in sql[0] and "FOR SHARE" not in sql[0]
     assert list(session.queries[0].compile().params.values()).count(["dp", "graph"]) == 1
     assert "@>" in sql[0] and "difficulty =" in sql[0]
-    assert "FOR SHARE OF problems" in sql[1] and "problem_versions.id IN" in sql[1]
+    assert "FOR SHARE OF problems, problem_versions" in sql[1]
+    assert "problem_versions.id IN" in sql[1]
     with pytest.raises(ValueError):
         await learning_selected(session, {uuid4() for _ in range(11)})

@@ -2,7 +2,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
-from kf_oj.contracts.judging import Identifier, Label, RunLimits, WireModel
+from kf_oj.contracts.judging import Identifier, Label, RunLimits, Verdict, WireModel
 from kf_oj.contracts.judging_v2 import Language, PreparationKind, runtime_contract
 
 
@@ -19,6 +19,18 @@ class ProblemSummary(WireModel):
     revision: int
     title: str
     languages: tuple[Language, ...]
+
+
+ProblemDifficulty = Literal["easy", "medium", "hard"]
+
+
+class CatalogProblem(ProblemSummary):
+    difficulty: ProblemDifficulty | None = None
+    tags: tuple[str, ...] = ()
+    accepted_submissions: Annotated[int, Field(ge=0)] = 0
+    judged_submissions: Annotated[int, Field(ge=0)] = 0
+    total_submissions: Annotated[int, Field(ge=0)] = 0
+    verdict_counts: dict[Verdict, Annotated[int, Field(ge=0)]] = Field(default_factory=dict)
 
 
 class PublicLanguageConfiguration(WireModel):
@@ -51,8 +63,9 @@ class ProblemDetail(ProblemSummary):
     samples: tuple[PublicSample, ...]
     run_limits: RunLimits | None
     language_configurations: tuple[PublicLanguageConfiguration, ...] = ()
+    execution_available: bool | None = None
 
 
 class ProblemPage(WireModel):
-    items: tuple[ProblemSummary, ...]
+    items: tuple[CatalogProblem, ...]
     next_after: Label | None

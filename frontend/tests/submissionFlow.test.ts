@@ -200,7 +200,7 @@ test('terminal response stops polling; failure stops until manual retry; request
   poll.dispose()
 })
 
-test('hidden and unmounted requests abort; stale responses cannot replace current route data', async () => {
+test('hidden, paused and unmounted requests abort without replacing current data', async () => {
   const pending: { signal: AbortSignal; done: (v: string) => void }[] = []
   const results: string[] = []
   const poll = boundedPoll({
@@ -224,9 +224,17 @@ test('hidden and unmounted requests abort; stale responses cannot replace curren
   await flush()
   assert.deepEqual(results, ['current'])
   poll.start()
-  poll.dispose()
+  poll.pause()
   assert.equal(pending[2]!.signal.aborted, true)
-  pending[2]!.done('unmounted')
+  pending[2]!.done('before mutation')
+  poll.visible(false)
+  poll.visible(true)
+  await flush()
+  assert.equal(pending.length, 3)
+  poll.start()
+  poll.dispose()
+  assert.equal(pending[3]!.signal.aborted, true)
+  pending[3]!.done('unmounted')
   await flush()
   assert.deepEqual(results, ['current'])
 })

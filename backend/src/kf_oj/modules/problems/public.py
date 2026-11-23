@@ -103,14 +103,22 @@ class LearningCandidate:
     available: bool
     slug: str
     is_current_version: bool
+    prerequisite_tags: tuple[str, ...] = ()
 
 
 async def learning_candidates(
-    session, *, tags=(), difficulty=None, limit=500
+    session, *, tags=(), difficulty=None, allowed_difficulties=(), match_any_tag=False, limit=500
 ) -> tuple[LearningCandidate, ...]:
     from .learning_metadata import candidates
 
-    return await candidates(session, tags=tags, difficulty=difficulty, limit=limit)
+    return await candidates(
+        session,
+        tags=tags,
+        difficulty=difficulty,
+        allowed_difficulties=allowed_difficulties,
+        match_any_tag=match_any_tag,
+        limit=limit,
+    )
 
 
 async def learning_versions(session, version_ids: set[UUID]) -> dict[UUID, LearningCandidate]:

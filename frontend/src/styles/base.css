@@ -39,6 +39,38 @@ button {
 button:disabled {
   cursor: not-allowed;
 }
+.native-form :where(input:not([type='checkbox']), select, textarea) {
+  min-width: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--el-border-color);
+  border-radius: var(--el-border-radius-base);
+  color: var(--el-text-color-primary);
+  background: var(--el-bg-color);
+  font: inherit;
+}
+.native-form :where(input:not([type='checkbox']), select, textarea):focus,
+.native-form input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+.native-form :where(input:not([type='checkbox']), select, textarea):disabled {
+  color: var(--el-text-color-placeholder);
+  background: var(--el-fill-color-light);
+  cursor: not-allowed;
+}
+.native-form input[type='checkbox'] {
+  accent-color: var(--el-color-primary);
+}
+.native-form input[type='file']::file-selector-button {
+  margin-inline-end: 0.5rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--el-border-color);
+  border-radius: var(--el-border-radius-base);
+  color: inherit;
+  background: var(--el-fill-color-light);
+  font: inherit;
+  cursor: pointer;
+}
 h1,
 h2,
 h3,
@@ -329,27 +361,29 @@ p {
   padding: 4px 8px;
   border-radius: 4px;
   white-space: nowrap;
+  color: var(--verdict-text, inherit);
+  background-color: var(--verdict-background, transparent);
 }
 .verdict-ac {
-  color: #22a278;
-  background: #edf9f4;
+  --verdict-text: #18694f;
+  --verdict-background: #edf9f4;
 }
 .verdict-wa,
 .verdict-re {
-  color: #dd7184;
-  background: #fff0f3;
+  --verdict-text: #9f354b;
+  --verdict-background: #fff0f3;
 }
 .verdict-tle {
-  color: #c39737;
-  background: #fff8e7;
+  --verdict-text: #785310;
+  --verdict-background: #fff8e7;
 }
 .verdict-ce {
-  color: #9879cc;
-  background: #f6f0fc;
+  --verdict-text: #674590;
+  --verdict-background: #f6f0fc;
 }
 .verdict-pending {
-  color: #8897ac;
-  background: #f0f4f9;
+  --verdict-text: #526479;
+  --verdict-background: #f0f4f9;
 }
 .filters {
   display: flex;
@@ -627,11 +661,11 @@ p {
 }
 .notice-strip {
   padding: 12px 16px;
-  background: #f5f9ff;
+  background: var(--verdict-background, #f5f9ff);
   border: 1px solid #e6f0fc;
   border-radius: 5px;
   font-size: 12px;
-  color: #7b94b2;
+  color: var(--verdict-text, #7b94b2);
   margin-bottom: 20px;
   line-height: 1.7;
 }
