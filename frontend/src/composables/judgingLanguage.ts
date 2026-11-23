@@ -48,5 +48,5 @@ export function preparationName(language?: WireLanguage) {
 }
 
 export function preparingStatus(language?: WireLanguage) {
-  return language === 'python313' ? '正在检查语法' : '正在编译'
+  return language === 'python313' ? 'Checking Syntax' : 'Compiling'
 }

@@ -17,6 +17,8 @@ export const adminRouter = createRouter({
       component: () => import('./AdminUnavailable.vue'),
       meta: { public: true },
     },
+    { path: '/skill-reviews', component: () => import('./AdminSkillReviews.vue') },
+    { path: '/skill-reports', component: () => import('./AdminSkillReports.vue') },
     { path: '/problems', component: () => import('./AdminProblems.vue') },
     { path: '/:section?', component: () => import('./AdminView.vue') },
   ],
@@ -32,6 +34,7 @@ adminRouter.beforeEach(async (to) => {
   }
 })
 adminRouter.afterEach((to) => {
-  const section = adminSections.find((item) => item.id === (to.params.section || 'overview'))
-  document.title = `${to.path === '/problems' ? '题目维护' : (section?.title ?? '管理员身份')} · KF 管理控制台`
+  const section = adminSections.find((item) => item.id === (to.path.slice(1) || 'overview'))
+  const title = to.path === '/problems' ? '题目维护' : (section?.title ?? '管理员身份')
+  document.title = `${title} · KF 管理控制台`
 })

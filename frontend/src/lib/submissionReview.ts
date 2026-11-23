@@ -27,3 +27,8 @@ export function reviewNotice(sameVersion: boolean, sameLanguage: boolean): strin
     .filter(Boolean)
     .join(' ')
 }
+export const comparisonCaseLabels = {
+  less: '左侧小于右侧',
+  equal: '左右相等',
+  greater: '左侧大于右侧',
+} as const

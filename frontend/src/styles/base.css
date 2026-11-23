@@ -39,6 +39,38 @@ button {
 button:disabled {
   cursor: not-allowed;
 }
+.native-form :where(input:not([type='checkbox']), select, textarea) {
+  min-width: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--el-border-color);
+  border-radius: var(--el-border-radius-base);
+  color: var(--el-text-color-primary);
+  background: var(--el-bg-color);
+  font: inherit;
+}
+.native-form :where(input:not([type='checkbox']), select, textarea):focus,
+.native-form input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+.native-form :where(input:not([type='checkbox']), select, textarea):disabled {
+  color: var(--el-text-color-placeholder);
+  background: var(--el-fill-color-light);
+  cursor: not-allowed;
+}
+.native-form input[type='checkbox'] {
+  accent-color: var(--el-color-primary);
+}
+.native-form input[type='file']::file-selector-button {
+  margin-inline-end: 0.5rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--el-border-color);
+  border-radius: var(--el-border-radius-base);
+  color: inherit;
+  background: var(--el-fill-color-light);
+  font: inherit;
+  cursor: pointer;
+}
 h1,
 h2,
 h3,
