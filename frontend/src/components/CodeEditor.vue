@@ -20,6 +20,7 @@ const props = defineProps<{
   language: string
   theme: EditorTheme
   fontSize: number
+  readOnly?: boolean
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const container = ref<HTMLDivElement>()
@@ -43,15 +44,19 @@ onMounted(async () => {
     scrollBeyondLastLine: false,
     padding: { top: 18 },
     tabSize: 4,
-    ariaLabel: '代码编辑器',
+    ariaLabel: props.readOnly ? '提交源码' : '代码编辑器',
+    readOnly: props.readOnly,
+    domReadOnly: props.readOnly,
     lineNumbersMinChars: 3,
     wordWrap: 'on',
     renderLineHighlight: 'line',
     contextmenu: true,
   })
-  subscription = editor.onDidChangeModelContent(() => {
-    emit('update:modelValue', editor!.getValue())
-  })
+  if (!props.readOnly) {
+    subscription = editor.onDidChangeModelContent(() => {
+      emit('update:modelValue', editor!.getValue())
+    })
+  }
   try {
     await initializeEditorHighlighting()
     if (!alive) return

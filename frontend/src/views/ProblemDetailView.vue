@@ -3,6 +3,7 @@ import { sample } from '../lib/publicSample'
 import { displayRuntimeVersion } from '../lib/presentation'
 import {
   editorThemePresets,
+  savedEditorTheme,
   type EditorAppearance,
   type EditorThemePreset,
 } from '../lib/editorHighlighting'
@@ -12,7 +13,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api/client'
 import { csrfHeaders, errorText, unwrap } from '../api/transport'
 import { submissionIntent, type SubmissionInput } from '../api/submissionIntent'
-import { boundedPoll } from '../api/polling'
+import { activeJudgementPolling, boundedPoll } from '../api/polling'
 import type { components } from '../api/generated/schema'
 import { useSession } from '../composables/useSession'
 import { useCodeDraft, codeTemplates, languageLabels } from '../composables/useCodeDraft'
@@ -40,18 +41,10 @@ function selectSubmission(id: string) {
   workbench.value = 'submission'
   void nextTick(() => detailPane.value?.focus())
 }
-const themePreset = ref<EditorThemePreset>('github-classic')
-const appearance = ref<EditorAppearance>('light')
+const preferences = savedEditorTheme()
+const themePreset = ref<EditorThemePreset>(preferences.preset)
+const appearance = ref<EditorAppearance>(preferences.appearance)
 const theme = computed(() => editorThemePresets[themePreset.value][appearance.value])
-try {
-  const stored = localStorage.getItem('kf-editor-theme')?.split(':')
-  if (stored?.[0] && Object.hasOwn(editorThemePresets, stored[0])) {
-    themePreset.value = stored[0] as EditorThemePreset
-    appearance.value = stored[1] === 'dark' ? 'dark' : 'light'
-  }
-} catch {
-  // Editor settings still work when storage is unavailable.
-}
 watch([themePreset, appearance], ([preset, mode]) => {
   try {
     localStorage.setItem('kf-editor-theme', `${preset}:${mode}`)
@@ -69,17 +62,6 @@ const recentSubmission = ref<RecentSubmission | null>(null)
 const solved = ref(false)
 const submissionFinished = (value: RecentSubmission) =>
   ['finished', 'failed', 'cancelled'].includes(value.state)
-const judgementColorClasses: Record<NonNullable<Submission['verdict']>, string> = {
-  accepted: 'verdict-ac',
-  wrong_answer: 'verdict-wa',
-  runtime_error: 'verdict-re',
-  compilation_error: 'verdict-ce',
-  time_limit_exceeded: 'verdict-tle',
-  memory_limit_exceeded: 'verdict-tle',
-  output_limit_exceeded: 'verdict-tle',
-  system_error: 'verdict-re',
-  cancelled: 'verdict-pending',
-}
 const followingSubmission = ref(false)
 const submissionNotice = ref('')
 let submissionPoll: ReturnType<typeof boundedPoll<Submission>> | undefined
@@ -188,8 +170,9 @@ async function copySample(value: string) {
   }
 }
 function submissionVisibility() {
-  submissionPoll?.visible(document.visibilityState === 'visible')
+  submissionPoll?.visible(document.visibilityState === 'visible' && workbench.value === 'editor')
 }
+watch(workbench, submissionVisibility)
 async function restoreSubmissionStatus(versionId: string) {
   statusRequest?.abort()
   const controller = new AbortController()
@@ -219,6 +202,7 @@ function followSubmission(submissionId: string) {
   followingSubmission.value = true
   submissionNotice.value = ''
   submissionPoll = boundedPoll({
+    ...activeJudgementPolling,
     load: async (signal) =>
       unwrap(
         await api.GET('/api/v1/submissions/{submission_id}', {
@@ -543,13 +527,6 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 class="status-tag"
-                :class="
-                  recentSubmission.verdict
-                    ? judgementColorClasses[recentSubmission.verdict]
-                    : recentSubmission.state === 'failed'
-                      ? 'verdict-re'
-                      : 'verdict-pending'
-                "
                 title="查看提交详情和编译器输出"
                 @click="selectSubmission(recentSubmission.submission_id)"
               >
@@ -630,6 +607,7 @@ onBeforeUnmount(() => {
         <SubmissionInspector
           v-if="selectedSubmission"
           :submission-id="selectedSubmission"
+          :theme="theme"
           embedded
         />
         <p v-else>从“本题我的提交”选择一条记录。</p>
@@ -961,8 +939,8 @@ onBeforeUnmount(() => {
   width: auto;
   padding: 5px 9px;
   border-radius: 5px;
-  background: var(--verdict-text);
-  color: #fff;
+  background: var(--verdict-background);
+  color: var(--verdict-text);
   white-space: nowrap;
   font-size: 12px;
   font-weight: 700;
@@ -986,23 +964,14 @@ onBeforeUnmount(() => {
 .status-tag {
   border: 0;
   border-radius: 5px;
-  padding: 4px 8px;
-  color: #fff;
-  background: var(--verdict-text);
-  font-size: 12px;
-  font-weight: 700;
-}
-.status-tag :deep(.verdict) {
   padding: 0;
-  color: inherit;
   background: transparent;
-  font-size: inherit;
 }
 .status-tag:hover {
-  filter: brightness(1.15);
+  filter: brightness(0.96);
 }
 .status-tag:focus-visible {
-  outline: 2px solid var(--verdict-text);
+  outline: 2px solid var(--el-color-primary);
   outline-offset: 2px;
 }
 .status-notice {

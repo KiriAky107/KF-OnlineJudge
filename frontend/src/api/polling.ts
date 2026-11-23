@@ -1,3 +1,5 @@
+export const activeJudgementPolling = { interval: 1000, maxRequests: 480 } as const
+
 export function boundedPoll<T>(options: {
   load: (signal: AbortSignal) => Promise<T>
   terminal: (value: T) => boolean

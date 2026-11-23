@@ -11,6 +11,21 @@ export type EditorThemePreset = keyof typeof editorThemePresets
 export type EditorAppearance = 'light' | 'dark'
 export type EditorTheme = (typeof editorThemePresets)[EditorThemePreset][EditorAppearance]
 
+export function savedEditorTheme(): { preset: EditorThemePreset; appearance: EditorAppearance } {
+  try {
+    const stored = localStorage.getItem('kf-editor-theme')?.split(':')
+    if (stored?.[0] && Object.hasOwn(editorThemePresets, stored[0])) {
+      return {
+        preset: stored[0] as EditorThemePreset,
+        appearance: stored[1] === 'dark' ? 'dark' : 'light',
+      }
+    }
+  } catch {
+    // Storage can be unavailable on this origin.
+  }
+  return { preset: 'github-classic', appearance: 'light' }
+}
+
 // Only ship the grammars and themes offered by the code editor.
 export function createEditorHighlighter() {
   return createHighlighterCore({

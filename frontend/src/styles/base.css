@@ -385,6 +385,10 @@ p {
   --verdict-text: #526479;
   --verdict-background: #f0f4f9;
 }
+.verdict-active {
+  --verdict-text: #2f5d8b;
+  --verdict-background: #edf5ff;
+}
 .filters {
   display: flex;
   flex-wrap: wrap;
