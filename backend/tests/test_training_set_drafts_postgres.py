@@ -5,6 +5,7 @@ import secrets
 from uuid import UUID, uuid4
 
 import httpx
+import pytest
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_problems import import_fixture
@@ -133,6 +134,25 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                 assert reviewed == [selected[0], replacement]
                 assert (await browser.get(original_path)).json() == original
 
+                async def drop_success_response(scope, receive, send):
+                    async def deliver(message):
+                        if message["type"] == "http.response.start" and message["status"] == 200:
+                            raise ConnectionResetError("training confirmation response lost")
+                        await send(message)
+
+                    await app(scope, receive, deliver)
+
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(drop_success_response),
+                    base_url=ORIGIN,
+                    cookies=browser.cookies,
+                    headers=browser.headers,
+                ) as disconnected:
+                    with pytest.raises(ConnectionResetError, match="training confirmation"):
+                        await disconnected.post(f"{changed_path}/training")
+                saved_id = (await browser.get(changed_path)).json()["training_id"]
+                assert saved_id
+
                 first, second = await asyncio.gather(
                     browser.post(f"{changed_path}/training"),
                     browser.post(f"{changed_path}/training"),
@@ -140,10 +160,13 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                 assert first.status_code == second.status_code == 200, (first.text, second.text)
                 assert first.json() == second.json()
                 plan = first.json()
+                assert plan["id"] == saved_id
                 assert plan["title"] == "练习二分"
                 assert [item["problem_version_id"] for item in plan["items"]] == reviewed
                 assert (await browser.get(changed_path)).json()["training_id"] == plan["id"]
                 assert (await browser.get(f"/api/v1/trainings/{plan['id']}")).json() == plan
+                training_page = (await browser.get("/api/v1/trainings")).json()
+                assert [item["id"] for item in training_page["items"]] == [saved_id]
                 saved_skill = next(
                     item
                     for item in (await browser.get(f"{AGENT}/skills")).json()["versions"]
