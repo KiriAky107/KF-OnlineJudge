@@ -67,7 +67,6 @@ const submissionNotice = ref('')
 let submissionPoll: ReturnType<typeof boundedPoll<Submission>> | undefined
 let statusRequest: AbortController | undefined
 const loading = ref(true)
-const selfTestPanel = ref<InstanceType<typeof SelfTestPanel>>()
 const testingOpen = ref(false)
 const settingsOpen = ref(false)
 const split = ref(50)
@@ -239,10 +238,6 @@ watch([() => session.user.value?.id, () => problem.value?.version_id], ([owner, 
   submissionNotice.value = ''
   if (owner && versionId) void restoreSubmissionStatus(versionId)
 })
-function runSelfTest() {
-  testingOpen.value = true
-  void selfTestPanel.value?.run()
-}
 async function submit() {
   if (
     busy.value ||
@@ -477,7 +472,6 @@ onBeforeUnmount(() => {
           <div v-show="testingOpen" id="self-test-panel" class="testing-panel">
             <div class="editor-testing">
               <SelfTestPanel
-                ref="selfTestPanel"
                 :problem="problem"
                 :language="executionUnavailable ? null : wireLanguage"
                 :source="code"
@@ -575,17 +569,9 @@ onBeforeUnmount(() => {
             aria-controls="self-test-panel"
             @click="testingOpen = !testingOpen"
           >
-            {{ testingOpen ? '收起自测' : '展开自测' }}
+            {{ testingOpen ? '收起自测' : '在线自测' }}
           </el-button>
           <el-button
-            size="small"
-            type="success"
-            plain
-            :loading="selfTestPanel?.running"
-            :disabled="executionUnavailable || !supported"
-            @click="runSelfTest"
-            >自测运行</el-button
-          ><el-button
             size="small"
             type="primary"
             :loading="busy"
@@ -800,19 +786,8 @@ onBeforeUnmount(() => {
   background: #f8fafd;
 }
 .editor-testing {
-  display: flex;
-  flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow: auto;
-  padding: 0 18px 12px;
-}
-.editor-testing .el-tabs__header {
-  margin-bottom: 12px;
-}
-.editor-testing .el-tabs__item {
-  font-size: 12px;
-  height: 38px;
 }
 .test-result-placeholder {
   font-size: 12px;
