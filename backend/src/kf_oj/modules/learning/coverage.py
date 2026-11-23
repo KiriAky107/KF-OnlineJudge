@@ -46,9 +46,4 @@ def choose_for_coverage(
 def goal_coverage(
     goals: tuple[str, ...], selected_tags: Iterable[tuple[str, ...]]
 ) -> TrainingGoalCoverage:
-    covered_tags = {tag for tags in selected_tags for tag in tags}
-    targets = dict.fromkeys(goals)
-    return TrainingGoalCoverage(
-        covered=tuple(tag for tag in targets if tag in covered_tags),
-        missing=tuple(tag for tag in targets if tag not in covered_tags),
-    )
+    return TrainingGoalCoverage.from_tags(goals, selected_tags)

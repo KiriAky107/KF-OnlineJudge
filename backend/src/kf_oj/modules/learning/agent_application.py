@@ -18,6 +18,7 @@ from kf_oj.contracts.agent_learning import (
     StoredAgentLearningInput,
     SubmissionReviewParameters,
     SubmissionReviewResult,
+    TrainingSetDraft,
     UpdateRunFeedback,
 )
 from kf_oj.contracts.agent_runtime import AgentPurpose, AgentRun, AgentSession, AgentStep, RunState
@@ -131,6 +132,36 @@ class AgentLearning:
         await self._authenticate(principal)
         return await self._store(principal).create_session(purpose)
 
+    @staticmethod
+    async def _training_source(
+        storage: PostgresAgentStorage,
+        session_id: UUID,
+        skill_version_id: UUID,
+        draft: TrainingSetDraft | None,
+    ) -> FocusedTrainingResult | None:
+        if draft is None or draft.revision is None:
+            return None
+        revision = draft.revision
+        source = await storage.execution_result(revision.run_id)
+        if (
+            source.run.session_id != session_id
+            or source.run.skill_version_id != skill_version_id
+            or source.run.state != RunState.SUCCEEDED
+            or not isinstance(source.result, FocusedTrainingResult)
+            or source.result.training_set is None
+        ):
+            raise AgentRecordUnavailable("training set draft unavailable")
+        ignored = {"title", "revision"}
+        if draft.model_dump(exclude=ignored) != source.result.training_set.model_dump(
+            exclude=ignored
+        ):
+            raise ValueError("training set revisions must keep the original selection conditions")
+        if revision.replace_position is not None and not any(
+            item.position == revision.replace_position for item in source.result.items
+        ):
+            raise ValueError("training set exercise position is unavailable")
+        return source.result
+
     async def prepare(
         self,
         principal: Principal,
@@ -142,6 +173,8 @@ class AgentLearning:
         await self._authenticate(principal)
         storage = self._store(principal)
         session = await storage.get_session(session_id)
+        if body.training_set is not None and session.purpose != AgentPurpose.FOCUSED_TRAINING:
+            raise ValueError("training set drafts require focused training")
         code_purposes = (AgentPurpose.GUIDED_HELP, AgentPurpose.SUBMISSION_REVIEW)
         if body.include_source_evidence and session.purpose not in code_purposes:
             raise ValueError("source evidence is unavailable for this learning purpose")
@@ -203,6 +236,7 @@ class AgentLearning:
                 raise AgentRecordConflict("Agent request already has different inputs")
             return await storage.execution(existing.run_id)
 
+        await self._training_source(storage, session_id, skill_version_id, body.training_set)
         configuration = await self.skills.freeze(
             principal, skill_version_id, purpose=session.purpose
         )
@@ -283,8 +317,16 @@ class AgentLearning:
         return await self._store(principal).trace(run_id)
 
     async def execution(self, principal: Principal, run_id: UUID) -> AgentExecution:
-        await self._authenticate(principal)
-        return await self._store(principal).execution(run_id)
+        async with self._sessions.begin() as db:
+            await self._identity.require_active_session(db, principal)
+            execution = await self._store(principal).execution_in(db, run_id)
+            if (
+                isinstance(execution.result, FocusedTrainingResult)
+                and execution.result.training_set
+            ):
+                saved = await LearningService.saved_agent_plan_id(db, principal, run_id)
+                return execution.model_copy(update={"training_id": saved})
+            return execution
 
     async def cancel(self, principal: Principal, run_id: UUID) -> AgentExecution:
         async with self._sessions.begin() as db:
@@ -510,7 +552,18 @@ class AgentLearning:
                 principal, running.skill_version_id, running.configuration_digest
             )
             workflow = LearningWorkflow(invoke)
-            result = await workflow.run(config.parameters, body, review_anchor=body.review_anchor)
+            try:
+                training_source = await self._training_source(
+                    storage, running.session_id, running.skill_version_id, body.training_set
+                )
+            except (AgentRecordUnavailable, ValueError) as error:
+                raise LearningEvidenceUnavailable("training set draft unavailable") from error
+            result = await workflow.run(
+                config.parameters,
+                body,
+                review_anchor=body.review_anchor,
+                training_source=training_source,
+            )
             if body.model_topic is not None and isinstance(result, GuidedHelpResult):
                 content = (
                     guided_help_model_facts(body.model_topic, result.evidence)

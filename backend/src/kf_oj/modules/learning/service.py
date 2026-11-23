@@ -341,6 +341,7 @@ class LearningService:
         parameters,
         *,
         allowed_difficulties: tuple[Difficulty, ...] = (),
+        exclude_problem_ids: tuple[UUID, ...] = (),
         as_of: datetime | None = None,
     ):
         now = as_of or datetime.now(UTC)
@@ -353,7 +354,10 @@ class LearningService:
             limit=500,
         )
         truncated = len(candidates) > 500
-        candidates = candidates[:500]
+        excluded = set(exclude_problem_ids)
+        candidates = [
+            candidate for candidate in candidates[:500] if candidate.problem_id not in excluded
+        ]
         history = await records.learning_records(
             session, principal, since=now - timedelta(days=90), as_of=now, limit=500
         )
@@ -401,6 +405,7 @@ class LearningService:
         parameters,
         *,
         allowed_difficulties: tuple[Difficulty, ...] = (),
+        exclude_problem_ids: tuple[UUID, ...] = (),
         as_of: datetime | None = None,
     ):
         async with self.sessions() as session:
@@ -409,6 +414,7 @@ class LearningService:
                 principal,
                 parameters,
                 allowed_difficulties=allowed_difficulties,
+                exclude_problem_ids=exclude_problem_ids,
                 as_of=as_of,
             )
 
@@ -572,11 +578,17 @@ class LearningService:
             )
         await session.flush()
 
+    @staticmethod
+    async def saved_agent_plan_id(session, principal, run_id):
+        return await session.scalar(
+            select(AgentPlanLinkRow.plan_id)
+            .join(LearningPlan, LearningPlan.id == AgentPlanLinkRow.plan_id)
+            .where(AgentPlanLinkRow.run_id == run_id, LearningPlan.owner_id == principal.account_id)
+        )
+
     async def saved_agent_plan(self, session, principal, run_id):
-        link = await session.get(AgentPlanLinkRow, run_id)
-        if link is not None:
-            return await self._detail(session, principal, link.plan_id)
-        return None
+        plan_id = await self.saved_agent_plan_id(session, principal, run_id)
+        return None if plan_id is None else await self._detail(session, principal, plan_id)
 
     async def save_agent_plan(
         self,
@@ -602,6 +614,9 @@ class LearningService:
             config, FocusedTrainingParameters
         ):
             title = "专项训练"
+            if draft.training_set is not None:
+                title = draft.training_set.title.strip()
+                config = draft.training_set.parameters_for(config)
             tags = config.tags
             goals = set(tags)
             cover_each_goal = config.cover_each_goal and bool(goals)

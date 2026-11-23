@@ -285,6 +285,18 @@
           },
           "state": {
             "$ref": "#/components/schemas/RunState"
+          },
+          "training_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Training Id"
           }
         },
         "required": [
@@ -1445,6 +1457,16 @@
               }
             ],
             "title": "Ranking Profile"
+          },
+          "training_set": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingSetDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -5749,6 +5771,16 @@
               }
             ],
             "title": "Submission Id"
+          },
+          "training_set": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingSetDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -6989,6 +7021,114 @@
           "metadata_revision"
         ],
         "title": "TrainingPrerequisite",
+        "type": "object"
+      },
+      "TrainingSetDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "default": 5,
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "cover_each_goal": {
+            "default": false,
+            "title": "Cover Each Goal",
+            "type": "boolean"
+          },
+          "difficulty": {
+            "anyOf": [
+              {
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "ranking_profile": {
+            "anyOf": [
+              {
+                "enum": [
+                  "feedback_first",
+                  "unresolved_first"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ranking Profile"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingSetRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "TrainingSetDraft",
+        "type": "object"
+      },
+      "TrainingSetRevision": {
+        "additionalProperties": false,
+        "properties": {
+          "replace_position": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replace Position"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "TrainingSetRevision",
         "type": "object"
       },
       "TrainingSummary": {

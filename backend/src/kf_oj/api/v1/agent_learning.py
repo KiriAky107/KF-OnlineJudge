@@ -92,6 +92,7 @@ def _run(execution: AgentExecution) -> AgentRunView:
         result=execution.result,
         failure_code=execution.failure_code,
         feedback=execution.feedback,
+        training_id=execution.training_id,
     )
 
 
@@ -182,6 +183,7 @@ async def start_run(
                         include_model_evidence_focus=body.include_model_evidence_focus,
                         include_model_plan_explanation=body.include_model_plan_explanation,
                         model_source_excerpt=body.model_source_excerpt,
+                        training_set=body.training_set,
                     ),
                 )
             )

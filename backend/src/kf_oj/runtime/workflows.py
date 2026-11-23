@@ -25,6 +25,7 @@ from kf_oj.contracts.agent_learning import (
     TrainingCandidate,
     TrainingCandidatesArguments,
     TrainingCandidatesResult,
+    TrainingSetDraft,
 )
 from kf_oj.contracts.agent_runtime import AgentPurpose
 from kf_oj.contracts.learning import (
@@ -32,6 +33,7 @@ from kf_oj.contracts.learning import (
     Difficulty,
     LearningEvidence,
     LearningParameters,
+    TrainingGoalCoverage,
     feedback_priority,
     focused_exercise_count,
     practice_priority,
@@ -171,7 +173,12 @@ class LearningWorkflow:
         return evidence.evidence
 
     async def run(
-        self, parameters: BaseModel, body: AgentLearningInput, *, review_anchor: UUID | None = None
+        self,
+        parameters: BaseModel,
+        body: AgentLearningInput,
+        *,
+        review_anchor: UUID | None = None,
+        training_source: FocusedTrainingResult | None = None,
     ) -> AgentLearningResult:
         if isinstance(parameters, SubmissionReviewParameters):
             records = await self._call(
@@ -206,7 +213,9 @@ class LearningWorkflow:
         if isinstance(parameters, GuidedHelpParameters):
             return await self._guided_help(parameters, body)
         if isinstance(parameters, FocusedTrainingParameters):
-            return await self._focused_training(parameters)
+            if body.training_set is not None and training_source is not None:
+                return await self._revise_training(parameters, body.training_set, training_source)
+            return await self._focused_training(parameters, body.training_set)
         if isinstance(parameters, PeriodicReviewParameters):
             return await self._periodic_review(parameters)
         raise ValueError("unsupported learning workflow")
@@ -301,10 +310,67 @@ class LearningWorkflow:
             gaps=tuple(gaps),
         )
 
-    async def _focused_training(
-        self, parameters: FocusedTrainingParameters
+    async def _revise_training(
+        self,
+        defaults: FocusedTrainingParameters,
+        draft: TrainingSetDraft,
+        source: FocusedTrainingResult,
     ) -> FocusedTrainingResult:
-        count = focused_exercise_count(parameters.daily_minutes)
+        assert draft.revision is not None
+        position = draft.revision.replace_position
+        changes = {
+            "goal": draft.title,
+            "training_set": draft,
+            "model_hint": None,
+            "model_status": None,
+        }
+        if position is None:
+            return source.model_copy(update=changes)
+
+        parameters = draft.parameters_for(defaults)
+        current = next(item for item in source.items if item.position == position)
+        retained = tuple(item for item in source.items if item.position != position)
+        loss = TrainingGoalCoverage.from_tags(
+            parameters.tags, (item.tags for item in retained)
+        ).missing
+        needed = tuple(tag for tag in loss if tag in current.tags)
+        allowed = _LEVELS[
+            _LEVELS.index(parameters.minimum_difficulty) : _LEVELS.index(
+                parameters.maximum_difficulty
+            )
+            + 1
+        ]
+        cover_each_goal = parameters.cover_each_goal and bool(parameters.tags)
+        choices = await self._call(
+            TRAINING_CANDIDATES,
+            TrainingCandidatesArguments(
+                tags=(needed or parameters.tags) if cover_each_goal else parameters.tags,
+                count=1,
+                cover_each_goal=cover_each_goal and not needed,
+                allowed_difficulties=allowed,
+                ranking_profile=parameters.ranking_profile,
+                exclude_problem_ids=tuple(item.problem_id for item in source.items),
+            ),
+            TrainingCandidatesResult,
+        )
+        if not choices.items:
+            changes["gaps"] = (*source.gaps, "当前条件下没有可替换的题目，保留原题单。")
+            return source.model_copy(update=changes)
+        replacement = _exercise(choices.items[0], position, current.estimated_minutes)
+        items = tuple(replacement if item.position == position else item for item in source.items)
+        changes["items"] = items
+        if cover_each_goal:
+            changes["goal_coverage"] = TrainingGoalCoverage.from_tags(
+                parameters.tags, (item.tags for item in items)
+            )
+        return source.model_copy(update=changes)
+
+    async def _focused_training(
+        self, parameters: FocusedTrainingParameters, draft: TrainingSetDraft | None = None
+    ) -> FocusedTrainingResult:
+        count = draft.count if draft else focused_exercise_count(parameters.daily_minutes)
+        if draft:
+            parameters = draft.parameters_for(parameters)
         levels = _LEVELS[
             _LEVELS.index(parameters.minimum_difficulty) : _LEVELS.index(
                 parameters.maximum_difficulty
@@ -326,7 +392,7 @@ class LearningWorkflow:
                     ranking_profile=parameters.ranking_profile,
                 ),
             )
-            if cover_each_goal or parameters.ranking_profile is not None
+            if draft or cover_each_goal or parameters.ranking_profile is not None
             else tuple(
                 LearningParameters(tags=parameters.tags, difficulty=difficulty, count=count)
                 for difficulty in levels
@@ -343,7 +409,7 @@ class LearningWorkflow:
             if result.prerequisite_gap is not None:
                 prerequisites[result.prerequisite_gap.message()] = None
             goal_coverage = result.goal_coverage
-        if not cover_each_goal and parameters.ranking_profile is None:
+        if draft is None and not cover_each_goal and parameters.ranking_profile is None:
             choices.sort(
                 key=lambda candidate: (
                     practice_priority(candidate.previously_accepted, candidate.timing),
@@ -364,12 +430,13 @@ class LearningWorkflow:
             goal=parameters.goal,
             daily_minutes=parameters.daily_minutes,
             items=tuple(
-                _exercise(candidate, i, parameters.daily_minutes // len(selected))
+                _exercise(candidate, i, max(1, parameters.daily_minutes // len(selected)))
                 for i, candidate in enumerate(selected, start=1)
             ),
             gaps=tuple(gaps),
             goal_coverage=goal_coverage,
             ranking_profile=parameters.ranking_profile,
+            training_set=draft,
         )
 
     async def _periodic_review(self, parameters: PeriodicReviewParameters) -> PeriodicReviewResult:

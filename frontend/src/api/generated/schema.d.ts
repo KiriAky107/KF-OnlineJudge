@@ -1288,6 +1288,8 @@ export interface components {
              */
             skill_version_id: string;
             state: components["schemas"]["RunState"];
+            /** Training Id */
+            training_id?: string | null;
         };
         /** AgentTraceStep */
         AgentTraceStep: {
@@ -1733,6 +1735,7 @@ export interface components {
             purpose: "focused_training";
             /** Ranking Profile */
             ranking_profile?: ("feedback_first" | "unresolved_first") | null;
+            training_set?: components["schemas"]["TrainingSetDraft"] | null;
         };
         /** FocusedTrainingSchedule */
         FocusedTrainingSchedule: {
@@ -3369,6 +3372,7 @@ export interface components {
             skill_version_id: string;
             /** Submission Id */
             submission_id?: string | null;
+            training_set?: components["schemas"]["TrainingSetDraft"] | null;
         };
         /** SubmissionCodeEvidence */
         SubmissionCodeEvidence: {
@@ -3834,6 +3838,41 @@ export interface components {
             metadata_revision: number;
             /** Tag */
             tag: string;
+        };
+        /** TrainingSetDraft */
+        TrainingSetDraft: {
+            /**
+             * Count
+             * @default 5
+             */
+            count: number;
+            /**
+             * Cover Each Goal
+             * @default false
+             */
+            cover_each_goal: boolean;
+            /** Difficulty */
+            difficulty?: ("easy" | "medium" | "hard") | null;
+            /** Ranking Profile */
+            ranking_profile?: ("feedback_first" | "unresolved_first") | null;
+            revision?: components["schemas"]["TrainingSetRevision"] | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            /** Title */
+            title: string;
+        };
+        /** TrainingSetRevision */
+        TrainingSetRevision: {
+            /** Replace Position */
+            replace_position?: number | null;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
         };
         /** TrainingSummary */
         TrainingSummary: {

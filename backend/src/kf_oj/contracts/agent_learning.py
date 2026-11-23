@@ -23,6 +23,7 @@ from kf_oj.contracts.learning import (
     TrainingPrerequisite,
     TrainingRankingProfile,
     TrainingTiming,
+    TrainingTitle,
     WeeklyTrainingSessions,
 )
 from kf_oj.contracts.learning_model import (
@@ -104,6 +105,9 @@ class TrainingCandidate(WireModel):
 
 class TrainingCandidatesArguments(LearningParameters):
     allowed_difficulties: Annotated[tuple[Difficulty, ...], Field(max_length=3)] = ()
+    exclude_problem_ids: Annotated[tuple[Identifier, ...], Field(max_length=10)] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
 
 
 class TrainingCandidatesResult(WireModel):
@@ -112,6 +116,36 @@ class TrainingCandidatesResult(WireModel):
     candidates_truncated: bool
     prerequisite_gap: PrerequisiteGap | None = None
     goal_coverage: TrainingGoalCoverage | None = None
+
+
+class TrainingSetRevision(WireModel):
+    run_id: Identifier
+    replace_position: Annotated[int, Field(ge=1, le=10)] | None = None
+
+
+class TrainingSetDraft(LearningParameters):
+    title: TrainingTitle
+    revision: TrainingSetRevision | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def named(self) -> Self:
+        if not self.title.strip():
+            raise ValueError("training set title cannot be blank")
+        return self
+
+    def parameters_for(self, defaults: FocusedTrainingParameters) -> FocusedTrainingParameters:
+        return defaults.model_copy(
+            update={
+                "goal": self.title,
+                "tags": self.tags,
+                "minimum_difficulty": self.difficulty or defaults.minimum_difficulty,
+                "maximum_difficulty": self.difficulty or defaults.maximum_difficulty,
+                "cover_each_goal": self.cover_each_goal,
+                "ranking_profile": self.ranking_profile,
+            }
+        )
 
 
 class AgentLearningInput(WireModel):
@@ -136,6 +170,9 @@ class AgentLearningInput(WireModel):
         default=False, exclude_if=lambda value: not value
     )
     model_source_excerpt: SourceLineRange | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    training_set: TrainingSetDraft | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
 
@@ -234,6 +271,9 @@ class FocusedTrainingResult(LearningResult):
     ranking_profile: TrainingRankingProfile | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    training_set: TrainingSetDraft | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class PeriodicReviewResult(LearningResult):
@@ -285,3 +325,4 @@ class AgentExecution(WireModel):
     result: AgentLearningResult | None = None
     failure_code: Label | None = None
     feedback: RunFeedback | None = Field(default=None, exclude_if=lambda value: value is None)
+    training_id: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)

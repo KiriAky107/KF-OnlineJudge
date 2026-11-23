@@ -66,6 +66,7 @@ class AgentRunView(WireModel):
     result: AgentLearningResult | None = None
     failure_code: Label | None = None
     feedback: RunFeedback | None = Field(default=None, exclude_if=lambda value: value is None)
+    training_id: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class AgentHistoryItem(WireModel):

@@ -382,6 +382,23 @@ class PostgresAgentStorage:
         async with self._sessions() as db:
             return await self.execution_in(db, run_id)
 
+    async def execution_result(self, run_id: UUID) -> AgentExecution:
+        async with self._sessions() as db:
+            query = (
+                self._owned_runs()
+                .add_columns(AgentWorkflowRow.result)
+                .join(AgentWorkflowRow, AgentWorkflowRow.run_id == AgentRunRow.id)
+                .where(AgentRunRow.id == run_id)
+            )
+            found = (await db.execute(query)).one_or_none()
+            if found is None:
+                raise AgentRecordUnavailable("Agent workflow unavailable")
+            run, result = found
+            return AgentExecution(
+                run=_run_record(run),
+                result=None if result is None else LEARNING_RESULT.validate_python(result),
+            )
+
     async def execution_in(
         self, db: AsyncSession, run_id: UUID, *, lock: bool = False
     ) -> AgentExecution:

@@ -77,7 +77,11 @@ def _scoped_agent_tools(
 
     async def candidates(arguments: TrainingCandidatesArguments) -> TrainingCandidatesResult:
         result = await service.recommend(
-            principal, arguments, allowed_difficulties=arguments.allowed_difficulties, as_of=as_of
+            principal,
+            arguments,
+            allowed_difficulties=arguments.allowed_difficulties,
+            exclude_problem_ids=arguments.exclude_problem_ids,
+            as_of=as_of,
         )
         return TrainingCandidatesResult(
             items=tuple(

@@ -1,5 +1,6 @@
 """Deterministic learning evidence and personal plans; no inferred mastery scores."""
 
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -13,6 +14,7 @@ TrainingRankingProfile = Literal["feedback_first", "unresolved_first"]
 TrainingRating = Literal["too_easy", "appropriate", "too_hard"]
 Tag = Annotated[str, Field(min_length=1, max_length=64)]
 TrainingGoal = Annotated[str, Field(max_length=200)]
+TrainingTitle = Annotated[str, Field(min_length=1, max_length=120)]
 DailyTrainingMinutes = Annotated[int, Field(ge=5, le=180)]
 ReviewCycleDays = Annotated[int, Field(ge=7, le=90)]
 WeeklyTrainingSessions = Annotated[int, Field(ge=1, le=7)]
@@ -95,6 +97,17 @@ class PrerequisiteGap(WireModel):
 class TrainingGoalCoverage(WireModel):
     covered: Annotated[tuple[Tag, ...], Field(max_length=10)]
     missing: Annotated[tuple[Tag, ...], Field(max_length=10)]
+
+    @classmethod
+    def from_tags(
+        cls, goals: tuple[str, ...], selected_tags: Iterable[tuple[str, ...]]
+    ) -> "TrainingGoalCoverage":
+        covered = {tag for tags in selected_tags for tag in tags}
+        targets = dict.fromkeys(goals)
+        return cls(
+            covered=tuple(tag for tag in targets if tag in covered),
+            missing=tuple(tag for tag in targets if tag not in covered),
+        )
 
 
 class TagStatistic(WireModel):
@@ -210,7 +223,7 @@ class LearningRecommendations(WireModel):
 
 class CreateTraining(LearningParameters):
     idempotency_key: UUID
-    title: Annotated[str, Field(min_length=1, max_length=120)] = "个人训练计划"
+    title: TrainingTitle = "个人训练计划"
 
 
 class CreateTrainingFollowUp(WireModel):
