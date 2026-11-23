@@ -2,10 +2,40 @@ import type { components } from '../api/generated/schema'
 
 export type TrainingSetDraft = components['schemas']['TrainingSetDraft']
 export type TrainingSetConditions = Omit<TrainingSetDraft, 'revision'>
+type Skill = components['schemas']['SkillVersionView']
 
 type ActiveDraft = { runId: string; options: TrainingSetConditions }
 type TrainingTurn =
   { draft: TrainingSetDraft } | { reply: string; awaitingTopic?: TrainingSetConditions }
+
+export const trainingCandidateTool = (skill: Skill) =>
+  skill.available_tools.find(({ name }) => name === 'training_candidates')
+
+export function hasTrainingCandidateAccess(skill: Skill) {
+  const candidate = trainingCandidateTool(skill)
+  return Boolean(
+    candidate &&
+    skill.binding?.enabled &&
+    skill.binding.authorized_tools.some(
+      ({ name, version }) => name === candidate.name && version === candidate.version,
+    ),
+  )
+}
+
+export function trainingChatSkill(skills: Skill[], draftVersion?: string) {
+  const compatible = skills.filter(
+    (skill) => skill.purpose === 'focused_training' && trainingCandidateTool(skill),
+  )
+  if (draftVersion) {
+    return compatible.find((skill) => skill.version_id === draftVersion && skill.binding)
+  }
+  return (
+    compatible.find(hasTrainingCandidateAccess) ??
+    compatible.find((skill) => skill.binding?.enabled) ??
+    compatible.find((skill) => skill.origin === 'builtin' && skill.binding) ??
+    compatible.find((skill) => skill.origin === 'builtin')
+  )
+}
 
 const numbers = '零一二三四五六七八九十'
 function number(text: string) {

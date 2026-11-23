@@ -8,7 +8,13 @@ import { boundedPoll } from '../api/polling'
 import { csrfHeaders, errorText, unwrap } from '../api/transport'
 import PageHeading from '../components/PageHeading.vue'
 import { useSession } from '../composables/useSession'
-import { trainingTurn, type TrainingSetConditions } from '../lib/trainingSetChat'
+import {
+  hasTrainingCandidateAccess,
+  trainingCandidateTool,
+  trainingChatSkill,
+  trainingTurn,
+  type TrainingSetConditions,
+} from '../lib/trainingSetChat'
 
 type Run = components['schemas']['AgentRunView']
 type Skill = components['schemas']['SkillVersionView']
@@ -26,19 +32,8 @@ const error = ref('')
 const notice = ref('')
 let request = new AbortController()
 
-const skill = computed(() => {
-  const focused = skills.value.filter((item) => item.purpose === 'focused_training')
-  return (
-    focused.find((item) => item.version_id === run.value?.skill_version_id) ??
-    focused.find((item) => item.binding?.enabled) ??
-    focused.find((item) => item.origin === 'builtin')
-  )
-})
-const authorized = computed(
-  () =>
-    skill.value?.binding?.enabled &&
-    skill.value.binding.authorized_tools.some((tool) => tool.name === 'training_candidates'),
-)
+const skill = computed(() => trainingChatSkill(skills.value, run.value?.skill_version_id))
+const authorized = computed(() => !!skill.value && hasTrainingCandidateAccess(skill.value))
 const draft = computed(() =>
   run.value?.result?.purpose === 'focused_training' ? run.value.result : undefined,
 )
@@ -128,7 +123,7 @@ onBeforeUnmount(() => {
 function enable() {
   const selected = skill.value
   if (!selected) return
-  const candidate = selected.available_tools.find((tool) => tool.name === 'training_candidates')
+  const candidate = trainingCandidateTool(selected)
   if (!candidate) return
   const tools = selected.binding?.authorized_tools ?? []
   const granted = tools.some(
@@ -272,9 +267,13 @@ function save() {
     >后可创建训练集。
   </p>
   <div v-else class="training-chat">
-    <p v-if="skill && !authorized">
+    <p v-if="!pending && skill && !authorized">
       创建训练集需要启用专项训练的题库查询。
       <el-button :disabled="busy" @click="enable">启用题库查询</el-button>
+    </p>
+    <p v-else-if="run && !pending && !skill">
+      继续修改这份草案需要原技能版本。
+      <RouterLink to="/trainings/assistant">管理学习技能</RouterLink>
     </p>
     <div class="message-list" aria-label="训练集对话">
       <div

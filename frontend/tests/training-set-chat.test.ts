@@ -1,6 +1,63 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { trainingTurn } from '../src/lib/trainingSetChat.ts'
+import type { components } from '../src/api/generated/schema'
+import {
+  hasTrainingCandidateAccess,
+  trainingChatSkill,
+  trainingTurn,
+} from '../src/lib/trainingSetChat.ts'
+
+type Skill = components['schemas']['SkillVersionView']
+const candidates = { name: 'training_candidates', version: 1 }
+
+test('chat chooses a compatible skill and keeps a draft bound to its original version', () => {
+  const latest: Skill = {
+    version_id: 'latest',
+    origin: 'builtin',
+    slug: 'focused-training',
+    title: '专项训练',
+    description: '',
+    release: 2,
+    purpose: 'focused_training',
+    default_parameters: {},
+    available_tools: [candidates],
+  }
+  const older: Skill = {
+    ...latest,
+    version_id: 'older',
+    release: 1,
+    binding: {
+      skill_version_id: 'older',
+      enabled: false,
+      parameters: { daily_minutes: 25 },
+      authorized_tools: [candidates],
+    },
+  }
+  const draftSkill: Skill = {
+    ...latest,
+    origin: 'trial',
+    version_id: 'private',
+    available_tools: [],
+    binding: { skill_version_id: 'private', enabled: true, parameters: {}, authorized_tools: [] },
+  }
+  const authorized: Skill = {
+    ...draftSkill,
+    version_id: 'other',
+    available_tools: [candidates],
+    binding: { ...draftSkill.binding!, skill_version_id: 'other', authorized_tools: [candidates] },
+  }
+  assert.equal(trainingChatSkill([latest, draftSkill]), latest)
+  assert.equal(trainingChatSkill([latest, older, draftSkill]), older)
+  assert.equal(trainingChatSkill([latest, older, draftSkill, authorized]), authorized)
+  assert.equal(trainingChatSkill([latest, older, authorized], 'older'), older)
+  assert.equal(trainingChatSkill([latest, authorized], 'older'), undefined)
+  assert.equal(trainingChatSkill([latest, authorized], 'latest'), undefined)
+  assert.equal(trainingChatSkill([latest, draftSkill], 'private'), undefined)
+  assert.equal(
+    hasTrainingCandidateAccess({ ...authorized, available_tools: [{ ...candidates, version: 2 }] }),
+    false,
+  )
+})
 
 test('a named training request keeps explicit tags, count and difficulty', () => {
   const turn = trainingTurn('建一套二分查找训练集，四道入门题')
