@@ -5,6 +5,7 @@ import { errorText, unwrap } from '../api/transport'
 import { useSession } from '../composables/useSession'
 import type { components } from '../api/generated/schema'
 import { chartPosition, formatMeasurement } from '../lib/performance'
+import { displayTime } from '../lib/presentation'
 import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{ submissionId: string }>()
@@ -22,15 +23,36 @@ const selected = computed(() =>
   active.value === null ? undefined : summary.value?.buckets[active.value],
 )
 const end = computed(() => summary.value?.buckets.at(-1)?.end ?? '1')
-const ceiling = computed(() => Math.max(1, ...(summary.value?.buckets.map((b) => b.count) ?? [])))
+const metrics = {
+  cpu: { label: '运行 CPU 时间', icon: 'clock', unit: 'ms', rawUnit: 'cpu_microseconds' },
+  memory: { label: '运行内存峰值', icon: 'monitor', unit: 'MiB', rawUnit: 'bytes' },
+} as const
+type PerformanceMetric = components['schemas']['PerformanceMetric']
+const ceiling = computed(() => {
+  const value = summary.value
+  if (!value?.available) return 100
+  const peak = Math.max(...value.buckets.map((bucket) => bucket.count))
+  return Math.max(5, Math.ceil((peak / value.sample_count) * 20) * 5)
+})
+const verticalTicks = computed(() => [0, ceiling.value / 2, ceiling.value])
+const horizontalTicks = computed(() => [
+  ...new Set([0n, 1n, 2n, 3n, 4n].map((point) => String((BigInt(end.value) * point) / 4n))),
+])
+const marker = computed(() => 54 + chartPosition(summary.value?.current ?? '0', end.value) * 548)
 const reasons = {
   not_accepted: '本次没有最终通过成绩，无法比较。',
   measurement_missing: '本次缺少该指标的可信测量。',
   environment_unverified: '这条历史成绩未绑定可验证的测量环境。',
   insufficient_samples: '同组其他有效通过记录不足 5 条。',
 }
-function format(value: string | null) {
-  return formatMeasurement(value, metric.value === 'cpu' ? 'cpu_microseconds' : 'bytes')
+function format(value: string | null, key = metric.value) {
+  return formatMeasurement(value, metrics[key].rawUnit)
+}
+function betterThan(value: PerformanceMetric) {
+  return ((value.strictly_slower_count! / value.sample_count) * 100).toFixed(1)
+}
+function barHeight(count: number, sampleCount: number) {
+  return ((count * 100) / (sampleCount * ceiling.value)) * 152
 }
 async function load() {
   if (busy.value || !session.user.value) return
@@ -77,139 +99,227 @@ onBeforeUnmount(() => {
 <template>
   <section
     class="performance-distribution"
-    aria-label="答题表现分布"
+    aria-label="运行表现排行"
     data-testid="submission-performance"
   >
     <header class="performance-heading">
       <div>
-        <h2><UiIcon name="rankings" />答题表现分布</h2>
-        <p>同题目版本、语言、工具链与测量环境的通过记录</p>
+        <h2><UiIcon name="rankings" />运行表现排行</h2>
+        <p>与同题目版本、语言、工具链和测量环境的有效通过记录比较</p>
       </div>
-      <el-button :loading="busy" @click="load">刷新表现</el-button>
+      <el-button size="small" :loading="busy" @click="load">刷新排行</el-button>
     </header>
     <p v-if="error" role="alert">{{ error }}</p>
-    <p v-else-if="busy" role="status">正在读取真实评测统计…</p>
+    <p v-else-if="busy" role="status">正在读取评测统计…</p>
     <template v-if="data && summary">
-      <div class="performance-metrics" aria-label="选择分布指标">
+      <div class="performance-metrics" role="group" aria-label="选择分布指标">
         <button
-          v-for="(title, key) in { cpu: '运行 CPU 时间', memory: '运行内存峰值' }"
+          v-for="(item, key) in metrics"
           :key="key"
+          type="button"
           :aria-pressed="metric === key"
           @click="metric = key"
         >
-          {{ title }}
+          <span class="metric-label"><UiIcon :name="item.icon" />{{ item.label }}</span>
+          <strong
+            :data-testid="metric === key ? 'performance-current' : undefined"
+            :data-raw-value="data[key].current"
+          >
+            {{ format(data[key].current, key) }}
+            <small v-if="data[key].current !== null">{{ item.unit }}</small>
+          </strong>
+          <span
+            v-if="data[key].available"
+            class="metric-percentile"
+            :data-testid="metric === key ? 'performance-summary' : undefined"
+            :data-sample-count="data[key].sample_count"
+            :data-greater="data[key].strictly_slower_count"
+            :data-tied="data[key].tied_count"
+          >
+            优于 {{ betterThan(data[key]) }}% 的记录
+          </span>
+          <span v-else class="metric-unavailable">暂无可比排行</span>
         </button>
       </div>
-      <p data-testid="performance-current" :data-raw-value="summary.current">
-        本次：{{ format(summary.current) }} {{ unit }}
+      <p v-if="!summary.available" class="performance-unavailable" role="status">
+        {{ reasons[summary.reason!] }}
       </p>
-      <p v-if="!summary.available" role="status">{{ reasons[summary.reason!] }}</p>
       <template v-else>
-        <p
-          data-testid="performance-summary"
-          :data-sample-count="summary.sample_count"
-          :data-greater="summary.strictly_slower_count"
-          :data-tied="summary.tied_count"
-        >
-          优于 {{ ((summary.strictly_slower_count! / summary.sample_count) * 100).toFixed(1) }}%
-          的比较记录； 同值 {{ summary.tied_count }} 条（不计优于）。
-        </p>
-        <svg
-          viewBox="0 0 640 250"
-          role="img"
-          :aria-label="`${metric === 'cpu' ? 'CPU 时间' : '内存'}分布，${summary.sample_count} 条记录`"
-        >
-          <line x1="40" y1="214" x2="620" y2="214" stroke="currentColor" />
-          <rect
-            v-for="(bucket, index) in summary.buckets"
-            :key="index"
-            tabindex="0"
-            :x="40 + chartPosition(bucket.start, end) * 580"
-            :width="
-              Math.max(
-                1,
-                (chartPosition(bucket.end, end) - chartPosition(bucket.start, end)) * 580 - 2,
-              )
-            "
-            :y="214 - (bucket.count / ceiling) * 170"
-            :height="(bucket.count / ceiling) * 170"
-            fill="var(--el-color-primary)"
-            @mouseenter="active = index"
-            @focus="active = index"
-          >
-            <title>
-              {{ format(bucket.start) }}–{{ format(bucket.end) }} {{ unit }}，{{ bucket.count }} 条
-            </title>
-          </rect>
-          <line
-            :x1="40 + chartPosition(summary.current!, end) * 580"
-            :x2="40 + chartPosition(summary.current!, end) * 580"
-            y1="30"
-            y2="220"
-            stroke="var(--el-color-danger)"
-            stroke-width="2"
-          />
-          <text x="40" y="245">0</text>
-          <text x="620" y="245" text-anchor="end">{{ format(end) }} {{ unit }}</text>
-        </svg>
-        <p v-if="selected" role="status">
-          {{ format(selected.start) }}–{{ format(selected.end) }} {{ unit }} （上界{{
-            selected.upper_inclusive ? '包含' : '不含'
-          }}）：{{ selected.count }} 条
-        </p>
+        <div class="performance-chart">
+          <svg viewBox="0 0 640 216" role="group" :aria-label="metrics[metric].label + '分布'">
+            <g v-for="(tick, index) in verticalTicks" :key="tick" aria-hidden="true">
+              <line
+                x1="54"
+                x2="602"
+                :y1="178 - index * 76"
+                :y2="178 - index * 76"
+                class="chart-gridline"
+              />
+              <text x="45" :y="182 - index * 76" text-anchor="end">{{ tick }}%</text>
+            </g>
+            <template v-for="(bucket, index) in summary.buckets" :key="index">
+              <rect
+                v-if="bucket.count"
+                tabindex="0"
+                class="chart-bucket"
+                :class="{ 'chart-bucket--active': index === active }"
+                :x="54 + chartPosition(bucket.start, end) * 548"
+                :width="
+                  Math.max(
+                    1,
+                    (chartPosition(bucket.end, end) - chartPosition(bucket.start, end)) * 548 - 2,
+                  )
+                "
+                :y="178 - barHeight(bucket.count, summary.sample_count)"
+                :height="barHeight(bucket.count, summary.sample_count)"
+                @mouseenter="active = index"
+                @focus="active = index"
+              >
+                <title>
+                  {{ format(bucket.start) }}–{{ format(bucket.end) }} {{ unit }}，{{ bucket.count }}
+                  条
+                </title>
+              </rect>
+            </template>
+            <line :x1="marker" :x2="marker" y1="22" y2="181" class="chart-marker" />
+            <circle :cx="marker" cy="20" r="4" class="chart-marker-dot" />
+            <text
+              v-for="tick in horizontalTicks"
+              :key="tick"
+              :x="54 + chartPosition(tick, end) * 548"
+              y="200"
+              :text-anchor="tick === '0' ? 'start' : tick === end ? 'end' : 'middle'"
+            >
+              {{ format(tick) }} {{ unit }}
+            </text>
+          </svg>
+          <p class="chart-caption" role="status">
+            <template v-if="selected">
+              {{ format(selected.start) }}–{{ format(selected.end) }} {{ unit }}（上界{{
+                selected.upper_inclusive ? '包含' : '不含'
+              }}） · {{ selected.count }} 条 ·
+              {{ ((selected.count / summary.sample_count) * 100).toFixed(1) }}%
+            </template>
+            <template v-else
+              ><span class="current-dot"></span> 本次提交 · {{ format(summary.current) }}
+              {{ unit }}</template
+            >
+          </p>
+        </div>
       </template>
-      <p class="small muted">
-        比较 {{ summary.sample_count }} 条其他有效 AC，按记录数计，不按人数计。 最近最多
-        {{ data.window_limit }} 条{{ summary.window_truncated ? '（已截断）' : '' }}； 快照
-        {{ data.as_of
-        }}<template v-if="summary.oldest_sample_at">，最早 {{ summary.oldest_sample_at }}</template
-        >。
+      <p class="small muted comparison-note">
+        参与比较 {{ summary.sample_count }} 条记录<template v-if="summary.available"
+          >，其中 {{ summary.tied_count }} 条与本次相同</template
+        >。 最近最多 {{ data.window_limit }} 条{{ summary.window_truncated ? '（已截断）' : '' }}。
+        快照 {{ displayTime(data.as_of) }}。
       </p>
     </template>
   </section>
 </template>
 <style scoped>
 .performance-distribution {
-  padding: 20px;
+  padding: clamp(14px, 2.4vw, 22px);
   border: 1px solid var(--el-border-color);
   border-radius: 14px;
-  margin: 20px 0;
+  background: var(--el-bg-color, #fff);
 }
 .performance-heading {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   flex-wrap: wrap;
 }
-.performance-heading h2 {
+.performance-heading h2,
+.metric-label {
   display: flex;
   gap: 8px;
   align-items: center;
 }
+.performance-heading h2 {
+  font-size: 17px;
+}
+.performance-heading p {
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+}
 .performance-metrics {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
+  gap: 10px;
+  margin-top: 14px;
 }
 .performance-metrics button {
-  padding: 10px 14px;
+  display: grid;
+  gap: 5px;
+  text-align: start;
+  padding: 11px 14px;
   border: 1px solid var(--el-border-color);
   border-radius: 10px;
-  background: var(--el-bg-color);
+  background: var(--el-fill-color-lighter);
   color: var(--el-text-color-primary);
-  cursor: pointer;
 }
 .performance-metrics button[aria-pressed='true'] {
-  border-color: var(--el-color-primary);
-  color: var(--el-color-primary);
+  border-color: #87b5e0;
+  background: #edf5ff;
 }
-svg {
-  width: 100%;
-  max-height: 290px;
+.performance-metrics button strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
 }
-svg text {
-  fill: var(--el-text-color-secondary);
+.metric-label,
+.metric-percentile,
+.metric-unavailable,
+.chart-caption {
   font-size: 12px;
+}
+.metric-percentile {
+  color: #166348;
+  font-weight: 650;
+}
+.metric-unavailable {
+  color: var(--el-text-color-regular);
+}
+.performance-chart,
+.performance-unavailable {
+  margin-top: 12px;
+}
+.performance-chart svg {
+  display: block;
+  width: 100%;
+  max-height: 248px;
+}
+.performance-chart text {
+  fill: var(--el-text-color-regular);
+  font-size: 12px;
+}
+.chart-gridline {
+  stroke: var(--el-border-color);
+}
+.chart-bucket {
+  fill: var(--el-color-primary);
+}
+.chart-bucket--active {
+  fill: #2467ac;
+}
+.chart-marker {
+  stroke: #137355;
+  stroke-dasharray: 4 3;
+  stroke-width: 2;
+  pointer-events: none;
+}
+.chart-marker-dot,
+.current-dot {
+  fill: #137355;
+  background: #137355;
+}
+.current-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.comparison-note {
+  margin-top: 7px;
 }
 </style>

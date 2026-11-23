@@ -92,6 +92,9 @@ pub fn read_spec(path: &Path) -> io::Result<ExecutionSpec> {
         .map_err(|_| invalid("invalid execution JSON"))
 }
 pub fn load_config(path: &Path) -> io::Result<ValidatedRuntimeConfig> {
+    load_config_snapshot(path).map(|(config, _)| config)
+}
+pub(crate) fn load_config_snapshot(path: &Path) -> io::Result<(ValidatedRuntimeConfig, String)> {
     let parent = crate::isolation::root::open_directory(
         path.parent().ok_or_else(|| invalid("config parent"))?,
     )?;
@@ -106,16 +109,20 @@ pub fn load_config(path: &Path) -> io::Result<ValidatedRuntimeConfig> {
     if st.st_uid != 0 || st.st_gid != 0 || st.st_mode & 0o7022 != 0 {
         return Err(invalid("untrusted configuration owner/mode"));
     }
+    let bytes = read_pinned(fd, crate::runtime::MAX_CONFIG_BYTES)?;
     let config: RuntimeConfig =
-        serde_json::from_slice(&read_pinned(fd, crate::runtime::MAX_CONFIG_BYTES)?)
-            .map_err(|_| invalid("invalid runtime JSON"))?;
-    config
+        serde_json::from_slice(&bytes).map_err(|_| invalid("invalid runtime JSON"))?;
+    let config = config
         .validate()
-        .map_err(|_| invalid("invalid runtime policy"))
+        .map_err(|_| invalid("invalid runtime policy"))?;
+    Ok((
+        config,
+        crate::image::catalog_digest(&bytes).as_str().to_owned(),
+    ))
 }
 /// These checks do not certify namespace visibility. Each task must still
 /// pass every actual namespace/root/identity/seccomp/exec acknowledgement.
-pub(crate) fn authorize(config: &ValidatedRuntimeConfig) -> io::Result<()> {
+fn authorize_supervisor(config: &ValidatedRuntimeConfig) -> io::Result<()> {
     crate::launcher::entry::ensure_single_threaded()?;
     if !rustix::process::getuid().is_root()
         || !rustix::process::geteuid().is_root()
@@ -138,32 +145,8 @@ pub(crate) fn authorize(config: &ValidatedRuntimeConfig) -> io::Result<()> {
         return Err(invalid("unsupported helper platform/kernel/filter"));
     }
     let c = config.config();
-    for path in [&c.state_root, &c.tasks_root, &c.image_root] {
+    for path in [&c.state_root, &c.tasks_root] {
         crate::isolation::root::open_directory(Path::new(path))?;
-    }
-    // The operator owns the image. An untrusted request cannot change roots,
-    // image revision, delegation, identity pool or helper reservations.
-    let image = crate::isolation::root::open_directory(Path::new(&c.image_root))?;
-    let manifest = rustix::fs::openat(
-        &image,
-        "manifest.json",
-        OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    )?;
-    let st = rustix::fs::fstat(&manifest)?;
-    if st.st_uid != 0 || st.st_gid != 0 || st.st_mode & 0o7022 != 0 {
-        return Err(invalid("image manifest ownership"));
-    }
-    let bytes = read_pinned(manifest, crate::image::MAX_CATALOG_BYTES)?;
-    if let Some(identity) = &c.runtime_identity {
-        crate::image::verify(&image, identity, &bytes)?;
-    } else {
-        let m: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|_| invalid("image manifest JSON"))?;
-        if m != serde_json::json!({"image_kind":"linux_gnu_cxx_x86_64_v1","architecture":"x86_64","revision":1})
-        {
-            return Err(invalid("unsupported image manifest"));
-        }
     }
     let own = std::fs::read_to_string("/proc/self/cgroup")?;
     let path = own
@@ -214,26 +197,89 @@ pub(crate) fn authorize(config: &ValidatedRuntimeConfig) -> io::Result<()> {
     }
     Ok(())
 }
-/// Factory admission proves every advertised image under the same finite
-/// supervisor scope. Per-request authorization still revalidates its image.
-pub(crate) fn authorize_registry(config: &ValidatedRuntimeConfig) -> io::Result<()> {
-    authorize(config)?;
-    for registered in config.registered_configs() {
-        authorize(&registered)?;
+fn verify_image(config: &RuntimeConfig, image: &OwnedFd) -> io::Result<bool> {
+    let manifest = rustix::fs::openat(
+        image,
+        "manifest.json",
+        OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?;
+    let st = rustix::fs::fstat(&manifest)?;
+    if st.st_uid != 0 || st.st_gid != 0 || st.st_mode & 0o7022 != 0 {
+        return Err(invalid("image manifest ownership"));
     }
-    Ok(())
+    let bytes = read_pinned(manifest, crate::image::MAX_CATALOG_BYTES)?;
+    if let Some(identity) = &config.runtime_identity {
+        let mount = crate::image::immutable_mount(image)?;
+        crate::image::verify(image, identity, &bytes, mount)?;
+        return Ok(mount.is_some());
+    }
+    let m: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| invalid("image manifest JSON"))?;
+    if m != serde_json::json!({"image_kind":"linux_gnu_cxx_x86_64_v1","architecture":"x86_64","revision":1})
+    {
+        return Err(invalid("unsupported image manifest"));
+    }
+    Ok(false)
+}
+
+fn open_image(config: &RuntimeConfig) -> io::Result<OwnedFd> {
+    crate::isolation::root::open_directory(Path::new(&config.image_root))
+}
+
+pub(crate) fn authorize_image(
+    config: &ValidatedRuntimeConfig,
+    admitted: Option<&OwnedFd>,
+) -> io::Result<OwnedFd> {
+    authorize_supervisor(config)?;
+    let image = open_image(config.config())?;
+    if let Some(pinned) = admitted {
+        if !crate::image::same_immutable_root(pinned, &image)? {
+            return Err(invalid("admitted image mount changed"));
+        }
+    } else {
+        verify_image(config.config(), &image)?;
+    }
+    Ok(image)
+}
+
+/// Admit the full registry once. Only a kernel read-only image filesystem
+/// with a verified catalog can transfer that proof to later requests.
+pub(crate) fn authorize_registry(
+    config: &ValidatedRuntimeConfig,
+) -> io::Result<Vec<Option<OwnedFd>>> {
+    authorize_supervisor(config)?;
+    std::iter::once(config.clone())
+        .chain(config.registered_configs())
+        .map(|candidate| {
+            let image = open_image(candidate.config())?;
+            Ok(verify_image(candidate.config(), &image)?.then_some(image))
+        })
+        .collect()
 }
 pub(crate) fn execute(
     config: &ValidatedRuntimeConfig,
     request: ExecutionSpec,
     artifacts: &ArtifactRoot,
     mode: run::MonitorMode<'_>,
+    admitted: &[Option<OwnedFd>],
 ) -> Result<(run::Completed, ValidatedSpec), RunFailure> {
     let selected = config
         .for_request(&request)
         .map_err(|_| refused("invalid_execution_spec", &invalid("request policy")))?;
-    let config = &selected;
-    authorize(config).map_err(|e| refused("runtime_not_ready", &e))?;
+    let original = config.config();
+    let index = std::iter::once(&original.image_root)
+        .chain(
+            original
+                .runtime_images
+                .iter()
+                .map(|image| &image.image_root),
+        )
+        .position(|path| *path == selected.config().image_root)
+        .expect("selected configuration comes from the validated runtime registry");
+    let image = authorize_image(&selected, admitted.get(index).and_then(Option::as_ref))
+        .map_err(|e| refused("runtime_not_ready", &e))?;
+    let config = &selected.with_image(image);
     let spec = request
         .validate(&config.spec_policy())
         .map_err(|_| refused("invalid_execution_spec", &invalid("request policy")))?;
@@ -258,7 +304,6 @@ pub fn run_files(
     output_path: &Path,
 ) -> Result<serde_json::Value, RunFailure> {
     let config = load_config(config_path).map_err(|e| refused("untrusted_runtime_config", &e))?;
-    authorize(&config).map_err(|e| refused("runtime_not_ready", &e))?;
     let request = read_spec(spec_path).map_err(|e| refused("invalid_execution_spec", &e))?;
     let fd = crate::isolation::root::open_directory(artifacts_path)
         .map_err(|e| refused("invalid_artifact_publication", &e))?;
@@ -266,7 +311,7 @@ pub fn run_files(
         .map_err(|e| refused("invalid_artifact_publication", &e))?;
     let output = crate::isolation::root::open_directory(output_path)
         .map_err(|e| refused("invalid_output_publication", &e))?;
-    let (completed, spec) = execute(&config, request, &artifacts, run::MonitorMode::Normal)?;
+    let (completed, spec) = execute(&config, request, &artifacts, run::MonitorMode::Normal, &[])?;
     let outcome = completed
         .report
         .classify(&spec)

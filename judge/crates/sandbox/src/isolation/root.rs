@@ -153,7 +153,10 @@ impl RootLease {
             .validate(&config.spec_policy())
             .map_err(|_| invalid("root request exceeds operator ceiling"))?;
         let budget = RootBudget::for_spec(spec)?;
-        let image = open_directory(Path::new(&config.config().image_root))?;
+        let image = match config.pinned_image() {
+            Some(image) => rustix::io::fcntl_dupfd_cloexec(image, 3)?,
+            None => open_directory(Path::new(&config.config().image_root))?,
+        };
         verify_anchors(&image)?;
         let parent = open_directory(Path::new(&config.config().tasks_root))?;
         let name = format!("kf-{}", spec.spec().run_id);

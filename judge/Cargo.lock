@@ -1345,6 +1345,7 @@ dependencies = [
  "clap",
  "kf-contracts",
  "libc",
+ "ring",
  "rustix 1.1.5",
  "seccompiler",
  "serde",

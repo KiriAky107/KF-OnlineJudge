@@ -120,13 +120,23 @@ fn invalid(field: &'static str, code: &'static str) -> ConfigError {
     ConfigError { field, code }
 }
 
-/// Immutable structural policy; deliberately not an execution permit.
+/// Immutable structural policy; deliberately not an execution permit. The
+/// execution supervisor can additionally pin the authorized image for a task.
 #[derive(Clone, Debug)]
-pub struct ValidatedRuntimeConfig(RuntimeConfig);
+pub struct ValidatedRuntimeConfig(RuntimeConfig, Option<std::sync::Arc<rustix::fd::OwnedFd>>);
 
 impl ValidatedRuntimeConfig {
     pub fn config(&self) -> &RuntimeConfig {
         &self.0
+    }
+
+    pub(crate) fn with_image(mut self, image: rustix::fd::OwnedFd) -> Self {
+        self.1 = Some(std::sync::Arc::new(image));
+        self
+    }
+
+    pub(crate) fn pinned_image(&self) -> Option<&rustix::fd::OwnedFd> {
+        self.1.as_deref()
     }
 
     pub fn spec_policy(&self) -> SpecPolicy {
@@ -297,7 +307,7 @@ impl RuntimeConfig {
             return Err(invalid("aggregate", "exceeds_service_ceiling"));
         }
         registry::validate(&self)?;
-        Ok(ValidatedRuntimeConfig(self))
+        Ok(ValidatedRuntimeConfig(self, None))
     }
 }
 
