@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { sample } from '../lib/publicSample'
 import { displayRuntimeVersion } from '../lib/presentation'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  editorThemePresets,
+  type EditorAppearance,
+  type EditorThemePreset,
+} from '../lib/editorHighlighting'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api/client'
 import { csrfHeaders, errorText, unwrap } from '../api/transport'
 import { submissionIntent, type SubmissionInput } from '../api/submissionIntent'
+import { boundedPoll } from '../api/polling'
 import type { components } from '../api/generated/schema'
 import { useSession } from '../composables/useSession'
 import { useCodeDraft, codeTemplates, languageLabels } from '../composables/useCodeDraft'
@@ -17,6 +23,8 @@ import UiIcon from '../components/UiIcon.vue'
 import ProblemSubmissionList from '../components/ProblemSubmissionList.vue'
 import SubmissionInspector from '../components/SubmissionInspector.vue'
 import SelfTestPanel from '../components/SelfTestPanel.vue'
+import StatementMarkdown from '../components/StatementMarkdown.vue'
+import JudgementStatus from '../components/JudgementStatus.vue'
 const route = useRoute()
 const router = useRouter()
 const id = String(route.params.id)
@@ -26,33 +34,71 @@ const session = useSession()
 const statementTab = ref<'statement' | 'submissions'>('statement')
 const workbench = ref<'editor' | 'submission'>('editor')
 const selectedSubmission = ref<string | null>(null)
+const detailPane = ref<HTMLDivElement>()
 function selectSubmission(id: string) {
   selectedSubmission.value = id
   workbench.value = 'submission'
+  void nextTick(() => detailPane.value?.focus())
 }
-watch(
-  () => session.user.value?.id,
-  () => {
-    selectedSubmission.value = null
-    workbench.value = 'editor'
-  },
-)
-const theme = ref('vs')
+const themePreset = ref<EditorThemePreset>('github-classic')
+const appearance = ref<EditorAppearance>('light')
+const theme = computed(() => editorThemePresets[themePreset.value][appearance.value])
+try {
+  const stored = localStorage.getItem('kf-editor-theme')?.split(':')
+  if (stored?.[0] && Object.hasOwn(editorThemePresets, stored[0])) {
+    themePreset.value = stored[0] as EditorThemePreset
+    appearance.value = stored[1] === 'dark' ? 'dark' : 'light'
+  }
+} catch {
+  // Editor settings still work when storage is unavailable.
+}
+watch([themePreset, appearance], ([preset, mode]) => {
+  try {
+    localStorage.setItem('kf-editor-theme', `${preset}:${mode}`)
+  } catch {
+    // Keep the active selection for this page.
+  }
+})
 const fontSize = ref(14)
 const error = ref('')
 const submitError = ref('')
 const busy = ref(false)
+type Submission = components['schemas']['SubmissionDetail']
+type RecentSubmission = Pick<Submission, 'submission_id' | 'state' | 'language' | 'verdict'>
+const recentSubmission = ref<RecentSubmission | null>(null)
+const solved = ref(false)
+const submissionFinished = (value: RecentSubmission) =>
+  ['finished', 'failed', 'cancelled'].includes(value.state)
+const judgementColorClasses: Record<NonNullable<Submission['verdict']>, string> = {
+  accepted: 'verdict-ac',
+  wrong_answer: 'verdict-wa',
+  runtime_error: 'verdict-re',
+  compilation_error: 'verdict-ce',
+  time_limit_exceeded: 'verdict-tle',
+  memory_limit_exceeded: 'verdict-tle',
+  output_limit_exceeded: 'verdict-tle',
+  system_error: 'verdict-re',
+  cancelled: 'verdict-pending',
+}
+const followingSubmission = ref(false)
+const submissionNotice = ref('')
+let submissionPoll: ReturnType<typeof boundedPoll<Submission>> | undefined
+let statusRequest: AbortController | undefined
 const loading = ref(true)
 const selfTestPanel = ref<InstanceType<typeof SelfTestPanel>>()
+const testingOpen = ref(false)
 const settingsOpen = ref(false)
 const split = ref(50)
+const testingSplit = ref(40)
 const workspace = ref<HTMLDivElement>()
+const editorBody = ref<HTMLDivElement>()
 const request = new AbortController()
 let alive = true
 const intents = new Map<string, ReturnType<typeof submissionIntent>>()
 const capability = computed(() => languageCapability(problem.value, language.value))
 const wireLanguage = computed(() => capability.value?.wire ?? null)
 const supported = computed(() => capability.value !== null)
+const executionUnavailable = computed(() => problem.value?.execution_available === false)
 const runLimits = computed(() => capability.value?.runLimits)
 const draftText = computed(
   () =>
@@ -64,21 +110,32 @@ const draftText = computed(
     })[state.value],
 )
 let stopDrag: (() => void) | undefined
-function beginDrag(event: PointerEvent) {
-  if (!workspace.value || event.button !== 0) return
+function resizeTesting(value: number) {
+  testingSplit.value = Math.max(25, Math.min(75, value))
+}
+function beginDrag(event: PointerEvent, testing = false) {
+  const container = testing ? editorBody.value : workspace.value
+  if (!container || event.button !== 0 || !event.isPrimary) return
   event.preventDefault()
-  const bounds = workspace.value.getBoundingClientRect()
+  const splitter = event.currentTarget as HTMLElement
+  const bounds = container.getBoundingClientRect()
+  const start = testingSplit.value
+  const usableHeight = bounds.height - splitter.offsetHeight
   function move(e: PointerEvent) {
-    split.value = Math.max(30, Math.min(70, ((e.clientX - bounds.left) / bounds.width) * 100))
+    if (testing) resizeTesting(start + ((event.clientY - e.clientY) / usableHeight) * 100)
+    else split.value = Math.max(30, Math.min(70, ((e.clientX - bounds.left) / bounds.width) * 100))
   }
   function stop() {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', stop)
+    splitter.removeEventListener('pointermove', move)
+    splitter.removeEventListener('lostpointercapture', stop)
+    if (splitter.hasPointerCapture(event.pointerId)) splitter.releasePointerCapture(event.pointerId)
     stopDrag = undefined
   }
   stopDrag?.()
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', stop, { once: true })
+  splitter.focus()
+  splitter.setPointerCapture(event.pointerId)
+  splitter.addEventListener('pointermove', move)
+  splitter.addEventListener('lostpointercapture', stop)
   stopDrag = stop
 }
 async function load() {
@@ -130,8 +187,88 @@ async function copySample(value: string) {
     ElMessage.info('请选中样例文本复制')
   }
 }
+function submissionVisibility() {
+  submissionPoll?.visible(document.visibilityState === 'visible')
+}
+async function restoreSubmissionStatus(versionId: string) {
+  statusRequest?.abort()
+  const controller = new AbortController()
+  statusRequest = controller
+  submissionNotice.value = ''
+  try {
+    const status = unwrap(
+      await api.GET('/api/v1/submissions/problem-status/{problem_version_id}', {
+        params: { path: { problem_version_id: versionId } },
+        signal: controller.signal,
+      }),
+    )
+    if (controller.signal.aborted) return
+    solved.value ||= status.solved
+    if (status.latest && !recentSubmission.value) {
+      recentSubmission.value = status.latest
+      if (!submissionFinished(status.latest)) followSubmission(status.latest.submission_id)
+    }
+  } catch (cause) {
+    if (!controller.signal.aborted && !recentSubmission.value) {
+      submissionNotice.value = errorText(cause)
+    }
+  }
+}
+function followSubmission(submissionId: string) {
+  submissionPoll?.dispose()
+  followingSubmission.value = true
+  submissionNotice.value = ''
+  submissionPoll = boundedPoll({
+    load: async (signal) =>
+      unwrap(
+        await api.GET('/api/v1/submissions/{submission_id}', {
+          params: { path: { submission_id: submissionId } },
+          signal,
+        }),
+      ),
+    terminal: submissionFinished,
+    result: (value) => {
+      recentSubmission.value = value
+      solved.value ||= value.state === 'finished' && value.verdict === 'accepted'
+      followingSubmission.value = !submissionFinished(value)
+    },
+    error: (cause) => {
+      followingSubmission.value = false
+      submissionNotice.value = errorText(cause)
+    },
+    exhausted: () => {
+      followingSubmission.value = false
+      submissionNotice.value = '自动查询已停止，可手动刷新。'
+    },
+  })
+  submissionVisibility()
+  submissionPoll.start()
+}
+watch([() => session.user.value?.id, () => problem.value?.version_id], ([owner, versionId]) => {
+  selectedSubmission.value = null
+  workbench.value = 'editor'
+  statusRequest?.abort()
+  submissionPoll?.dispose()
+  recentSubmission.value = null
+  solved.value = false
+  followingSubmission.value = false
+  submissionNotice.value = ''
+  if (owner && versionId) void restoreSubmissionStatus(versionId)
+})
+function runSelfTest() {
+  testingOpen.value = true
+  void selfTestPanel.value?.run()
+}
 async function submit() {
-  if (busy.value || !problem.value || !supported.value || !wireLanguage.value) return
+  if (
+    busy.value ||
+    followingSubmission.value ||
+    executionUnavailable.value ||
+    !problem.value ||
+    !supported.value ||
+    !wireLanguage.value
+  )
+    return
   save()
   busy.value = true
   submitError.value = ''
@@ -163,16 +300,30 @@ async function submit() {
           }),
         ).submission_id,
     )
-    if (alive && session.user.value?.id === owner) await router.push('/submissions/' + submissionId)
+    if (alive && session.user.value?.id === owner) {
+      recentSubmission.value = {
+        submission_id: submissionId,
+        language: input.language,
+        state: 'queued',
+        verdict: null,
+      }
+      followSubmission(submissionId)
+    }
   } catch (cause) {
     if (alive) submitError.value = errorText(cause)
   } finally {
     if (alive) busy.value = false
   }
 }
-onMounted(load)
+onMounted(() => {
+  document.addEventListener('visibilitychange', submissionVisibility)
+  void load()
+})
 onBeforeUnmount(() => {
   alive = false
+  document.removeEventListener('visibilitychange', submissionVisibility)
+  statusRequest?.abort()
+  submissionPoll?.dispose()
   request.abort()
   stopDrag?.()
 })
@@ -222,7 +373,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="detail-prose">
             <h2>题目描述</h2>
-            <pre style="white-space: pre-wrap">{{ problem.statement }}</pre>
+            <StatementMarkdown :source="problem.statement" />
             <div v-for="(item, index) in problem.samples" :key="index" class="sample-grid">
               <div>
                 <h2>
@@ -258,15 +409,15 @@ onBeforeUnmount(() => {
       :aria-valuenow="Math.round(split)"
       aria-valuemin="30"
       aria-valuemax="70"
-      @pointerdown="beginDrag"
+      @pointerdown="beginDrag($event)"
       @keydown.left.prevent="split = Math.max(30, split - 2)"
       @keydown.right.prevent="split = Math.min(70, split + 2)"
     />
     <section class="panel workbench-panel">
       <nav class="workspace-tabs" aria-label="工作台">
-        <el-button :aria-pressed="workbench === 'editor'" @click="workbench = 'editor'"
-          >代码编辑器</el-button
-        >
+        <el-button :aria-pressed="workbench === 'editor'" @click="workbench = 'editor'">
+          {{ workbench === 'editor' ? '代码编辑器' : '返回代码编辑器' }}
+        </el-button>
         <el-button :aria-pressed="workbench === 'submission'" @click="workbench = 'submission'"
           >提交详情</el-button
         >
@@ -286,29 +437,83 @@ onBeforeUnmount(() => {
           ><el-button size="small" aria-label="下载代码" @click="downloadCode"
             ><UiIcon name="document"
           /></el-button>
-          <el-popover v-model:visible="settingsOpen" trigger="click" width="240"
-            ><template #reference
-              ><el-button size="small" aria-label="编辑器设置"><UiIcon name="settings" /></el-button
-            ></template>
+          <el-popover v-model:visible="settingsOpen" trigger="click" width="264">
+            <template #reference>
+              <el-button size="small" aria-label="编辑器设置"><UiIcon name="settings" /></el-button>
+            </template>
             <div class="editor-settings">
-              <label>主题</label
-              ><el-select v-model="theme" aria-label="编辑器主题"
-                ><el-option label="浅色" value="vs" /><el-option
-                  label="深色"
-                  value="vs-dark" /></el-select
-              ><label>字号</label
-              ><el-slider v-model="fontSize" :min="12" :max="22" show-input /></div
-          ></el-popover>
+              <label>主题预设</label>
+              <el-select v-model="themePreset" aria-label="主题预设">
+                <el-option
+                  v-for="(preset, value) in editorThemePresets"
+                  :key="value"
+                  :label="preset.label"
+                  :value="value"
+                />
+              </el-select>
+              <label>主题外观</label>
+              <el-select v-model="appearance" aria-label="主题外观">
+                <el-option label="亮色" value="light" />
+                <el-option label="暗色" value="dark" />
+              </el-select>
+              <label>字号</label>
+              <el-slider v-model="fontSize" :min="12" :max="22" show-input />
+            </div>
+          </el-popover>
         </header>
-        <div class="editor-area">
-          <CodeEditor v-model="code" :language="language" :theme="theme" :font-size="fontSize" />
+        <div
+          ref="editorBody"
+          class="editor-body"
+          :class="{ 'editor-body--collapsed': !testingOpen }"
+          :style="{
+            '--code-size': `${100 - testingSplit}fr`,
+            '--testing-size': `${testingSplit}fr`,
+          }"
+        >
+          <div class="editor-area">
+            <CodeEditor v-model="code" :language="language" :theme="theme" :font-size="fontSize" />
+          </div>
+          <button
+            v-show="testingOpen"
+            class="testing-splitter"
+            type="button"
+            role="separator"
+            aria-label="调整自测与提交区高度"
+            title="上下拖动调整自测与提交区高度"
+            aria-orientation="horizontal"
+            :aria-valuenow="Math.round(testingSplit)"
+            aria-valuemin="25"
+            aria-valuemax="75"
+            @pointerdown="beginDrag($event, true)"
+            @keydown.up.prevent="resizeTesting(testingSplit + 5)"
+            @keydown.down.prevent="resizeTesting(testingSplit - 5)"
+            @keydown.home.prevent="resizeTesting(25)"
+            @keydown.end.prevent="resizeTesting(75)"
+          />
+          <div v-show="testingOpen" id="self-test-panel" class="testing-panel">
+            <div class="editor-testing">
+              <SelfTestPanel
+                ref="selfTestPanel"
+                :problem="problem"
+                :language="executionUnavailable ? null : wireLanguage"
+                :source="code"
+                @run="save"
+              />
+            </div>
+          </div>
         </div>
-        <div class="editor-testing">
+        <div
+          v-if="executionUnavailable || !supported || capability?.configuration || submitError"
+          class="workbench-notes"
+        >
+          <p v-if="executionUnavailable" class="notice-strip" role="status">
+            当前站点未启用自测和提交评测。代码草稿仍可编辑和保存。
+          </p>
           <p v-if="!supported" class="notice-strip">
             当前题目版本不支持此语言，草稿仍会保存。请选择题目公布的可用语言。
           </p>
           <p
-            v-else-if="capability?.configuration"
+            v-else-if="!executionUnavailable && capability?.configuration"
             class="notice-strip"
             data-testid="language-capability"
           >
@@ -330,32 +535,84 @@ onBeforeUnmount(() => {
               >重新登录</RouterLink
             >
           </p>
-          <SelfTestPanel
-            ref="selfTestPanel"
-            :problem="problem"
-            :language="wireLanguage"
-            :source="code"
-            @run="save"
-          />
         </div>
-        <footer class="editor-buttons">
-          <span class="small muted">{{
-            session.user.value ? '提交后评测隐藏测试' : '登录后可提交'
-          }}</span
-          ><el-button size="small" @click="save">保存草稿</el-button
-          ><el-button
+        <footer class="editor-buttons" aria-label="评测状态与操作">
+          <div class="workbench-status">
+            <span v-if="recentSubmission" class="status-label" role="status">
+              状态
+              <button
+                type="button"
+                class="status-tag"
+                :class="
+                  recentSubmission.verdict
+                    ? judgementColorClasses[recentSubmission.verdict]
+                    : recentSubmission.state === 'failed'
+                      ? 'verdict-re'
+                      : 'verdict-pending'
+                "
+                title="查看提交详情和编译器输出"
+                @click="selectSubmission(recentSubmission.submission_id)"
+              >
+                <JudgementStatus
+                  :state="recentSubmission.state"
+                  :verdict="recentSubmission.verdict"
+                  :language="recentSubmission.language"
+                />
+              </button>
+            </span>
+            <span
+              v-if="solved && recentSubmission?.verdict !== 'accepted'"
+              class="solved-badge verdict-ac"
+              role="status"
+            >
+              <span aria-hidden="true">✓</span> 你已通过本题
+            </span>
+            <span v-if="!recentSubmission && !solved && !submissionNotice" class="small muted">{{
+              executionUnavailable
+                ? '仅保存草稿'
+                : session.user.value
+                  ? '提交后评测隐藏测试'
+                  : '登录后可提交'
+            }}</span>
+            <el-button
+              v-if="recentSubmission || submissionNotice"
+              size="small"
+              link
+              :disabled="followingSubmission"
+              @click="
+                recentSubmission
+                  ? followSubmission(recentSubmission.submission_id)
+                  : restoreSubmissionStatus(problem.version_id)
+              "
+            >
+              刷新状态
+            </el-button>
+            <span v-if="submissionNotice" class="status-notice" role="status">{{
+              submissionNotice
+            }}</span>
+          </div>
+          <el-button size="small" @click="save">保存草稿</el-button>
+          <el-button
+            size="small"
+            :aria-expanded="testingOpen"
+            aria-controls="self-test-panel"
+            @click="testingOpen = !testingOpen"
+          >
+            {{ testingOpen ? '收起自测' : '展开自测' }}
+          </el-button>
+          <el-button
             size="small"
             type="success"
             plain
             :loading="selfTestPanel?.running"
-            :disabled="!supported"
-            @click="selfTestPanel?.run()"
+            :disabled="executionUnavailable || !supported"
+            @click="runSelfTest"
             >自测运行</el-button
           ><el-button
             size="small"
             type="primary"
             :loading="busy"
-            :disabled="!supported"
+            :disabled="executionUnavailable || !supported || followingSubmission"
             @click="submit"
             >提交代码</el-button
           >
@@ -363,7 +620,11 @@ onBeforeUnmount(() => {
       </div>
       <div
         v-if="workbench === 'submission'"
+        ref="detailPane"
         class="workbench-detail"
+        aria-label="提交详情"
+        role="region"
+        tabindex="-1"
         data-testid="workbench-detail"
       >
         <SubmissionInspector
@@ -498,6 +759,7 @@ onBeforeUnmount(() => {
 }
 .editor-toolbar {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 8px;
   padding: 12px 18px;
@@ -513,16 +775,59 @@ onBeforeUnmount(() => {
   color: #9aabc0;
   margin-left: auto;
 }
-.editor-area {
+.editor-body {
+  display: grid;
+  grid-template-rows: minmax(140px, var(--code-size)) 20px minmax(115px, var(--testing-size));
   flex: 1;
-  min-height: 320px;
+  min-height: 0;
+}
+.editor-body--collapsed {
+  grid-template-rows: minmax(140px, 1fr);
+}
+.editor-area {
+  min-height: 0;
   overflow: hidden;
 }
-.editor-testing {
-  padding: 6px 18px 15px;
+.testing-splitter {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-block: 1px solid var(--el-border-color);
+  background: #f3f7fc;
+  color: #587799;
+  cursor: row-resize;
+  touch-action: none;
+}
+.testing-splitter::after {
+  content: '';
+  width: 36px;
+  height: 4px;
+  border-radius: 4px;
+  background: currentColor;
+}
+.testing-splitter:hover,
+.testing-splitter:focus-visible {
+  background: #e4effd;
+  color: #35678f;
+}
+.testing-splitter:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: -2px;
+}
+.testing-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   background: #f8fafd;
-  border-top: 1px solid #e4ebf4;
-  min-height: 161px;
+}
+.editor-testing {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 18px 12px;
 }
 .editor-testing .el-tabs__header {
   margin-bottom: 12px;
@@ -540,13 +845,15 @@ onBeforeUnmount(() => {
 .editor-buttons {
   border-top: 1px solid #edf0f5;
   display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   padding: 14px 18px;
   min-height: 55px;
 }
-.editor-buttons > span {
-  margin-right: auto;
+.editor-buttons .el-button + .el-button {
+  margin-inline-start: 0;
 }
 .editor-settings {
   display: flex;
@@ -571,9 +878,6 @@ onBeforeUnmount(() => {
     padding: 10px;
     gap: 5px;
   }
-  .editor-buttons > span {
-    font-size: 10px;
-  }
   .sample-grid {
     grid-template-columns: 1fr;
   }
@@ -595,19 +899,15 @@ onBeforeUnmount(() => {
   .statement-content {
     overflow: visible;
   }
-  .editor-area {
-    height: 470px;
+  .editor-body {
+    height: clamp(36rem, 86dvh, 48rem);
     flex: none;
-  }
-  .editor-panel {
-    min-height: 700px;
   }
   .editor-buttons {
     flex-wrap: wrap;
   }
-  .editor-buttons > span {
+  .editor-buttons > .workbench-status {
     width: 100%;
-    font-size: 11px;
   }
   .sample-grid {
     grid-template-columns: 1fr 1fr;
@@ -644,5 +944,68 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: auto;
   padding: 16px;
+}
+.workbench-notes {
+  flex-shrink: 0;
+  padding: 4px 18px;
+  font-size: 13px;
+}
+.workbench-notes .notice-strip {
+  margin: 0;
+  padding: 5px 10px;
+}
+.solved-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: auto;
+  padding: 5px 9px;
+  border-radius: 5px;
+  background: var(--verdict-text);
+  color: #fff;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+}
+.workbench-status,
+.status-label,
+.status-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.workbench-status {
+  flex-wrap: wrap;
+  margin-inline-end: auto;
+  min-width: 0;
+  font-size: 12px;
+}
+.status-label {
+  font-weight: 600;
+}
+.status-tag {
+  border: 0;
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: #fff;
+  background: var(--verdict-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+.status-tag :deep(.verdict) {
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font-size: inherit;
+}
+.status-tag:hover {
+  filter: brightness(1.15);
+}
+.status-tag:focus-visible {
+  outline: 2px solid var(--verdict-text);
+  outline-offset: 2px;
+}
+.status-notice {
+  flex-basis: 100%;
 }
 </style>

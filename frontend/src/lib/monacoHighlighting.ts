@@ -1,12 +1,21 @@
 import * as monaco from 'monaco-editor/editor/editor.api'
 import { shikiToMonaco } from '@shikijs/monaco'
-import { createEditorHighlighter } from './editorHighlighting'
+import { createEditorHighlighter, editorThemePresets, type EditorTheme } from './editorHighlighting'
 
-// The adapter registers tokenizers and wraps Monaco theme handling globally.
-// Keep it alive across editor mounts, including the plain-text toggle.
+// The adapter changes Monaco theme handling for every editor on the page.
 let ready: Promise<void> | undefined
+let attached = false
+
+export function currentMonacoTheme(theme: EditorTheme) {
+  if (attached) return theme
+  return Object.values(editorThemePresets).some((preset) => preset.dark === theme)
+    ? 'vs-dark'
+    : 'vs'
+}
+
 export function initializeEditorHighlighting() {
   return (ready ??= createEditorHighlighter().then((highlighter) => {
     shikiToMonaco(highlighter, monaco)
+    attached = true
   }))
 }

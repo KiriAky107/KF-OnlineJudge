@@ -12,18 +12,18 @@ import 'monaco-editor/languages/definitions/cpp/register'
 import 'monaco-editor/languages/definitions/python/register'
 import 'monaco-editor/languages/definitions/java/register'
 import 'monaco-editor/languages/definitions/rust/register'
-import { editorLanguage, editorTheme } from '../lib/editorHighlighting'
-import { initializeEditorHighlighting } from '../lib/monacoHighlighting'
+import { editorLanguage, type EditorTheme } from '../lib/editorHighlighting'
+import { currentMonacoTheme, initializeEditorHighlighting } from '../lib/monacoHighlighting'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 const props = defineProps<{
   modelValue: string
   language: string
-  theme: string
+  theme: EditorTheme
   fontSize: number
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const container = ref<HTMLDivElement>()
-const failed = ref(false)
+const highlightFailed = ref(false)
 let alive = true
 let editor: monaco.editor.IStandaloneCodeEditor | undefined
 let model: monaco.editor.ITextModel | undefined
@@ -32,17 +32,11 @@ let subscription: monaco.IDisposable | undefined
   globalThis as typeof globalThis & { MonacoEnvironment?: { getWorker: () => Worker } }
 ).MonacoEnvironment = { getWorker: () => new EditorWorker() }
 onMounted(async () => {
-  try {
-    await initializeEditorHighlighting()
-  } catch {
-    if (alive) failed.value = true
-    return
-  }
-  if (!alive || !container.value) return
+  if (!container.value) return
   model = monaco.editor.createModel(props.modelValue, editorLanguage(props.language))
   editor = monaco.editor.create(container.value, {
     model,
-    theme: editorTheme(props.theme),
+    theme: currentMonacoTheme(props.theme),
     fontSize: props.fontSize,
     minimap: { enabled: false },
     automaticLayout: true,
@@ -58,6 +52,13 @@ onMounted(async () => {
   subscription = editor.onDidChangeModelContent(() => {
     emit('update:modelValue', editor!.getValue())
   })
+  try {
+    await initializeEditorHighlighting()
+    if (!alive) return
+    monaco.editor.setTheme(currentMonacoTheme(props.theme))
+  } catch {
+    if (alive) highlightFailed.value = true
+  }
 })
 watch(
   () => props.modelValue,
@@ -74,7 +75,7 @@ watch(
 watch(
   () => props.theme,
   (value) => {
-    if (editor) monaco.editor.setTheme(editorTheme(value))
+    if (editor) monaco.editor.setTheme(currentMonacoTheme(value))
   },
 )
 watch(
@@ -89,14 +90,14 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <p v-if="failed" class="editor-error" role="status">代码高亮加载失败。</p>
-  <div v-else ref="container" class="monaco-container" />
+  <p v-if="highlightFailed" class="editor-error" role="status">正在使用编辑器内置高亮。</p>
+  <div ref="container" class="monaco-container" />
 </template>
 <style scoped>
 .monaco-container {
   width: 100%;
   height: 100%;
-  min-height: 320px;
+  min-height: 0;
 }
 .editor-error {
   margin: 8px 18px;
