@@ -89,6 +89,7 @@ class ResponsesLearningHint:
             instructions = (
                 "给一个能用公开样例完成的自查动作，中文一句，最多45字。"
                 "只依据输入，不复述计数，不猜题面、源码、隐藏用例或错误原因。"
+                "评测计数说明判定及题目版本。语言、提交是否相邻、改动行号和实际输出需要具体记录。"
             )
             if content.code is not None:
                 instructions += "改动计数只描述比较范围。编译问题只表示诊断类别。"
@@ -110,7 +111,7 @@ class ResponsesLearningHint:
                 instructions += (
                     "focus 从 focus_options 取一个值，也可用 null。"
                     "wrong_answer 是答案错误，compilation_error 是编译失败，"
-                    "later_accepted 是同版本后次通过。"
+                    "later_accepted 只复核同版本后次通过的那条评测。"
                 )
             text = content.model_dump_json()
         elif isinstance(content, PlanModelFacts):

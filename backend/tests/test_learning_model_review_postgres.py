@@ -209,7 +209,7 @@ def test_model_review_requires_opt_in_and_only_projects_aggregate_owned_evidence
                 assert [step["invocation_version"] for step in trace["steps"]] == [
                     "submission_history-v1",
                     "source_evidence-v1",
-                    "responses-review-v2",
+                    "responses-review-v3",
                 ]
                 assert result["model_review_basis"] == "evaluations"
                 assert (await foreign.get(actual)).status_code == 404
@@ -234,7 +234,7 @@ def test_model_review_requires_opt_in_and_only_projects_aggregate_owned_evidence
                     }
                 }
                 steps = (await owner.get(extended + "/trace")).json()["steps"]
-                assert steps[-1]["invocation_version"] == "responses-review-code-counts-v2"
+                assert steps[-1]["invocation_version"] == "responses-review-code-counts-v3"
 
                 review = SubmissionReviewResult.model_validate(projected)
                 latest = next(
@@ -295,8 +295,8 @@ def test_model_review_requires_opt_in_and_only_projects_aggregate_owned_evidence
                         "UPDATE learning_agent_steps SET invocation_version=$2 "
                         "WHERE run_id=$1 AND invocation_version=$3",
                         run_id,
-                        "responses-review-evidence-focus-v1",
                         "responses-review-evidence-focus-v2",
+                        "responses-review-evidence-focus-v3",
                     )
                     == "UPDATE 1"
                 )
@@ -318,7 +318,7 @@ def test_model_review_requires_opt_in_and_only_projects_aggregate_owned_evidence
                 assert trace["attempts"] == 2
                 assert [step["invocation_version"] for step in trace["steps"]] == [
                     "submission_history-v1",
-                    "responses-review-evidence-focus-v1",
+                    "responses-review-evidence-focus-v2",
                     "submission_history-v1",
                 ]
                 replay = await owner.post(queue, json=request)
@@ -350,7 +350,7 @@ def test_model_review_requires_opt_in_and_only_projects_aggregate_owned_evidence
                     captured[1] | {"code": captured[1]["code"] | {"control_flow": flow}}
                 ]
                 trace = (await owner.get(measured + "/trace")).json()["steps"]
-                assert trace[-1]["invocation_version"] == "responses-review-control-flow-v2"
+                assert trace[-1]["invocation_version"] == "responses-review-control-flow-v3"
 
                 old_condition = (
                     "int f(int private_value) {\n"

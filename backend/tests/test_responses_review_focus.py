@@ -40,6 +40,8 @@ def test_review_rejects_unoffered_categories_and_record_identifiers(monkeypatch,
             }
         assert body["max_output_tokens"] == 128 and body["store"] is False
         assert "最多45字" in body["instructions"] and "不复述计数" in body["instructions"]
+        assert "语言、提交是否相邻、改动行号和实际输出需要具体记录" in body["instructions"]
+        assert "later_accepted 只复核同版本后次通过的那条评测" in body["instructions"]
         return httpx.Response(
             200,
             json={

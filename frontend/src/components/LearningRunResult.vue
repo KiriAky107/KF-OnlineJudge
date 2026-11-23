@@ -96,6 +96,15 @@ const focusLabels = {
           <p
             v-if="
               run.result.model_status === 'generated' &&
+              run.result.model_review_basis === 'evaluations'
+            "
+            class="small muted"
+          >
+            模型建议参考了评测统计，具体记录可在上方打开。
+          </p>
+          <p
+            v-else-if="
+              run.result.model_status === 'generated' &&
               run.result.model_review_basis === 'evaluations_and_code_counts'
             "
             class="small muted"
@@ -139,10 +148,13 @@ const focusLabels = {
             {{ comparisonCaseLabels[run.result.model_hint.review_comparison_case] }}
           </p>
           <p v-if="run.result.model_focus" class="small review-focus">
-            复核线索 · {{ focusLabels[run.result.model_focus.category] }}
+            已复核的评测 · {{ focusLabels[run.result.model_focus.category] }}
             <RouterLink :to="'/submissions/' + run.result.model_focus.evidence.submission_id">
-              查看已核对评测
+              查看评测
             </RouterLink>
+          </p>
+          <p v-else-if="run.result.model_hint?.review_focus" class="small muted">
+            评测线索待核对 · {{ focusLabels[run.result.model_hint.review_focus] }}
           </p>
         </template>
         <template v-else-if="run.result.purpose === 'guided_help'">

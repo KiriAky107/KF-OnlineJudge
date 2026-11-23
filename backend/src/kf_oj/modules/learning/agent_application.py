@@ -387,7 +387,7 @@ class AgentLearning:
                 db, principal, running.skill_version_id, running.configuration_digest
             )
 
-        previous_invocation = None
+        previous_invocations = ()
         if source_context is not None:
             invocation = "responses-source-excerpt-v1"
             raw = source_context.model_dump_json().encode()
@@ -406,8 +406,9 @@ class AgentLearning:
                 invocation = "responses-review-code-counts-v1"
             else:
                 invocation = "responses-review-v1"
-            previous_invocation = invocation
-            invocation = invocation.removesuffix("-v1") + "-v2"
+            prefix = invocation.removesuffix("-v1")
+            previous_invocations = (invocation, prefix + "-v2")
+            invocation = prefix + "-v3"
             raw = content.model_dump_json().encode()
         elif isinstance(content, GuidedHelpModelFacts):
             invocation = "responses-concept-verdict-v1"
@@ -428,7 +429,7 @@ class AgentLearning:
                     _digest(raw),
                     self._model_limits if model is not None else None,
                     verify,
-                    previous_invocation=previous_invocation,
+                    previous_invocations=previous_invocations,
                 )
                 if dispatch and source_context is not None:
                     excerpt = await storage.take_source_excerpt(db, running)

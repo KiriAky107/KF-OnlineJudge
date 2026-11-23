@@ -566,7 +566,7 @@ class PostgresAgentStorage:
         limits: AgentModelLimits | None,
         verify: Callable[[AsyncSession], Awaitable[None]],
         *,
-        previous_invocation: str | None = None,
+        previous_invocations: tuple[str, ...] = (),
     ) -> tuple[AgentStep | None, bool, dict | None]:
         """Resolve an existing model step before admitting any new request."""
         run = await self._lock_run(db, running.run_id, running.revision)
@@ -583,7 +583,7 @@ class PostgresAgentStorage:
         if existing is not None:
             step, output = existing
             if (
-                step.invocation_version not in (invocation, previous_invocation)
+                step.invocation_version not in (invocation, *previous_invocations)
                 or step.arguments_digest != arguments_digest
             ):
                 raise AgentRecordConflict("model step input changed")
