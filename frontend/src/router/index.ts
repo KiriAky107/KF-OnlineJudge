@@ -31,6 +31,11 @@ export const router = createRouter({
       component: () => import('../views/LearningAgentView.vue'),
     },
     {
+      path: '/trainings/create',
+      meta: { title: '聊天创建训练集' },
+      component: () => import('../views/TrainingSetChatView.vue'),
+    },
+    {
       path: '/trainings/skill-drafts',
       meta: { title: '技能草稿' },
       component: () => import('../views/SkillDraftsView.vue'),

@@ -23,6 +23,7 @@ const { user, refresh } = useSession()
 const training = ref<components['schemas']['TrainingDetail'] | null>(null)
 const notes = ref<Record<string, string>>({})
 const ratings = ref<Record<string, Rating | ''>>({})
+const trainingDifficulties = { easy: '简单', medium: '中等', hard: '困难' } as const
 const ratingChoices: Record<Rating, string> = {
   too_easy: '偏简单',
   appropriate: '合适',
@@ -177,7 +178,7 @@ onBeforeUnmount(clear)
 </script>
 <template>
   <div class="breadcrumbs">
-    <RouterLink to="/trainings">训练计划</RouterLink><span>/</span><span>个人计划</span>
+    <RouterLink to="/trainings">训练集</RouterLink><span>/</span><span>详情</span>
   </div>
   <p v-if="error" role="alert">{{ error }}</p>
   <p v-if="notice" role="status">{{ notice }}</p>
@@ -186,11 +187,7 @@ onBeforeUnmount(clear)
     >后查看本人计划。
   </p>
   <template v-else>
-    <PageHeading
-      class="training-heading"
-      :title="training?.title ?? '训练计划'"
-      description="计划固定生成时的题目版本，进度来自本人的真实提交。"
-    >
+    <PageHeading class="training-heading" :title="training?.title ?? '训练集'">
       <el-button :disabled="loading || !!saving" @click="load">刷新进度</el-button>
       <el-button
         v-if="training"
@@ -203,104 +200,142 @@ onBeforeUnmount(clear)
       </el-button>
     </PageHeading>
     <div v-if="training" v-loading="loading" class="content-with-aside">
-      <PanelCard title="训练题目" icon="problems" subtitle="按顺序练习">
-        <TrainingGoalCoverage v-if="training.goal_coverage" :coverage="training.goal_coverage" />
-        <article
-          v-for="item in training.items"
-          :id="'training-item-' + item.id"
-          :key="item.id"
-          class="panel-body"
-        >
-          <h3>
-            {{ item.position + 1 }}.
-            <RouterLink v-if="item.available" :to="'/problems/' + item.problem_version_id">{{
-              item.title
-            }}</RouterLink
-            ><span v-else>{{ item.title }}</span>
-          </h3>
-          <div class="tag-list">
-            <span class="tag">{{ progressLabels[item.progress] }}</span
-            ><span v-if="!item.available" class="tag">当前不可用</span
-            ><span v-if="!item.is_current_version" class="tag">历史版本，不自动替换</span>
-          </div>
-          <p>{{ item.reasons.join('；') }}</p>
-          <p v-if="item.estimated_minutes" class="small muted">
-            建议用时约 {{ item.estimated_minutes }} 分钟
-          </p>
-          <TrainingTimingSource v-if="item.timing" :timing="item.timing" />
-          <TrainingPrerequisites v-if="item.prerequisites?.length" :proofs="item.prerequisites" />
-          <TrainingFeedbackSource
-            v-if="item.feedback_evidence"
-            :evidence="item.feedback_evidence"
-            compact
+      <PanelCard title="题单" icon="problems">
+        <div class="training-progress">
+          <progress
+            :value="training.completed_count"
+            :max="training.item_count || 1"
+            aria-label="训练集完成进度"
           />
-          <p class="small muted">
-            生成时标签：{{ item.tags.join(' / ') || '未标注' }}；难度：{{
-              item.difficulty || '未标注'
-            }}；元数据修订：{{ item.metadata_revision ?? '无' }}
-          </p>
-          <ul v-if="item.progress_evidence.length">
-            <li v-for="record in item.progress_evidence" :key="record.submission_id">
-              <RouterLink :to="'/submissions/' + record.submission_id"
-                >{{ record.verdict || record.state }} ·
-                {{ displayTime(record.submitted_at) }}</RouterLink
-              >
-            </li>
-          </ul>
-          <details v-if="item.evidence.length">
-            <summary>推荐依据的提交</summary>
-            <ul>
-              <li v-for="record in item.evidence" :key="record.submission_id">
+          <span>{{ training.completed_count }} / {{ training.item_count }} 道已完成</span>
+        </div>
+        <TrainingGoalCoverage v-if="training.goal_coverage" :coverage="training.goal_coverage" />
+        <div v-if="training.items.length" class="training-table">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">序号</th>
+                <th scope="col">题目</th>
+                <th scope="col">状态</th>
+                <th scope="col">难度</th>
+                <th scope="col">知识点</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in training.items" :key="item.id">
+                <td>{{ item.position + 1 }}</td>
+                <th scope="row">
+                  <RouterLink v-if="item.available" :to="'/problems/' + item.problem_version_id">{{
+                    item.title
+                  }}</RouterLink>
+                  <span v-else>{{ item.title }}（当前不可用）</span>
+                </th>
+                <td>{{ progressLabels[item.progress] }}</td>
+                <td>{{ item.difficulty ? trainingDifficulties[item.difficulty] : '未标注' }}</td>
+                <td>{{ item.tags.join('、') || '未标注' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <details v-if="training.items.length" class="training-records">
+          <summary>练习记录、备注和难度自评</summary>
+          <article
+            v-for="item in training.items"
+            :id="'training-item-' + item.id"
+            :key="item.id"
+            class="panel-body"
+          >
+            <h3>
+              {{ item.position + 1 }}.
+              <RouterLink v-if="item.available" :to="'/problems/' + item.problem_version_id">{{
+                item.title
+              }}</RouterLink
+              ><span v-else>{{ item.title }}</span>
+            </h3>
+            <div class="tag-list">
+              <span class="tag">{{ progressLabels[item.progress] }}</span
+              ><span v-if="!item.available" class="tag">当前不可用</span
+              ><span v-if="!item.is_current_version" class="tag">历史版本，不自动替换</span>
+            </div>
+            <p>{{ item.reasons.join('；') }}</p>
+            <p v-if="item.estimated_minutes" class="small muted">
+              建议用时约 {{ item.estimated_minutes }} 分钟
+            </p>
+            <TrainingTimingSource v-if="item.timing" :timing="item.timing" />
+            <TrainingPrerequisites v-if="item.prerequisites?.length" :proofs="item.prerequisites" />
+            <TrainingFeedbackSource
+              v-if="item.feedback_evidence"
+              :evidence="item.feedback_evidence"
+              compact
+            />
+            <p class="small muted">
+              生成时标签：{{ item.tags.join(' / ') || '未标注' }}；难度：{{
+                item.difficulty || '未标注'
+              }}；元数据修订：{{ item.metadata_revision ?? '无' }}
+            </p>
+            <ul v-if="item.progress_evidence.length">
+              <li v-for="record in item.progress_evidence" :key="record.submission_id">
                 <RouterLink :to="'/submissions/' + record.submission_id"
                   >{{ record.verdict || record.state }} ·
                   {{ displayTime(record.submitted_at) }}</RouterLink
                 >
               </li>
             </ul>
-          </details>
-          <el-input
-            v-model="notes[item.id]"
-            type="textarea"
-            :rows="2"
-            maxlength="1000"
-            show-word-limit
-            :aria-label="item.title + '学习备注'"
-            :disabled="!!saving"
-            placeholder="可选：记录一句学习备注（不改变判题结果）"
-          />
-          <el-button
-            :loading="saving === 'note:' + item.id"
-            :disabled="!!saving || notes[item.id] === item.note"
-            @click="saveItem(item.id, 'note')"
-            >保存备注</el-button
-          >
-          <div class="rating-form">
-            <el-select
-              v-model="ratings[item.id]"
-              :aria-label="item.title + '难度自评'"
+            <details v-if="item.evidence.length">
+              <summary>推荐依据的提交</summary>
+              <ul>
+                <li v-for="record in item.evidence" :key="record.submission_id">
+                  <RouterLink :to="'/submissions/' + record.submission_id"
+                    >{{ record.verdict || record.state }} ·
+                    {{ displayTime(record.submitted_at) }}</RouterLink
+                  >
+                </li>
+              </ul>
+            </details>
+            <el-input
+              v-model="notes[item.id]"
+              type="textarea"
+              :rows="2"
+              maxlength="1000"
+              show-word-limit
+              :aria-label="item.title + '学习备注'"
               :disabled="!!saving"
-            >
-              <el-option label="未评价" value="" />
-              <el-option
-                v-for="(label, rating) in ratingChoices"
-                :key="rating"
-                :label="label"
-                :value="rating"
-              />
-            </el-select>
+              placeholder="可选：记录一句学习备注（不改变判题结果）"
+            />
             <el-button
-              :loading="saving === 'feedback:' + item.id"
-              :disabled="!!saving || (ratings[item.id] ?? '') === (item.feedback?.rating ?? '')"
-              @click="saveItem(item.id, 'feedback')"
-              >保存难度自评</el-button
+              :loading="saving === 'note:' + item.id"
+              :disabled="!!saving || notes[item.id] === item.note"
+              @click="saveItem(item.id, 'note')"
+              >保存备注</el-button
             >
-          </div>
-          <p v-if="item.feedback" class="small muted">
-            本人自评：{{ ratingChoices[item.feedback.rating] }} ·
-            {{ displayTime(item.feedback.rated_at) }}
-          </p>
-        </article>
-        <el-empty v-if="!training.items.length" description="此计划没有题目" />
+            <div class="rating-form">
+              <el-select
+                v-model="ratings[item.id]"
+                :aria-label="item.title + '难度自评'"
+                :disabled="!!saving"
+              >
+                <el-option label="未评价" value="" />
+                <el-option
+                  v-for="(label, rating) in ratingChoices"
+                  :key="rating"
+                  :label="label"
+                  :value="rating"
+                />
+              </el-select>
+              <el-button
+                :loading="saving === 'feedback:' + item.id"
+                :disabled="!!saving || (ratings[item.id] ?? '') === (item.feedback?.rating ?? '')"
+                @click="saveItem(item.id, 'feedback')"
+                >保存难度自评</el-button
+              >
+            </div>
+            <p v-if="item.feedback" class="small muted">
+              本人自评：{{ ratingChoices[item.feedback.rating] }} ·
+              {{ displayTime(item.feedback.rated_at) }}
+            </p>
+          </article>
+        </details>
+        <el-empty v-else description="此训练集没有题目" />
       </PanelCard>
       <div class="stack">
         <PanelCard title="计划信息" icon="trainings"
@@ -407,6 +442,21 @@ onBeforeUnmount(clear)
 </template>
 
 <style scoped>
+.training-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.7rem;
+}
+.training-progress progress {
+  width: min(12rem, 50%);
+}
+.training-records > summary {
+  cursor: pointer;
+  padding: 0.75rem 0;
+}
+
 .training-heading :deep(.page-heading-actions) {
   flex-wrap: wrap;
 }

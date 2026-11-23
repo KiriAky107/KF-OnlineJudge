@@ -1472,3 +1472,45 @@ p {
     font-size: 22px;
   }
 }
+
+.training-table {
+  overflow-x: auto;
+}
+.training-table table {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  text-align: left;
+}
+.training-table :is(th, td) {
+  border-bottom: 1px solid var(--line);
+  padding: 0.65rem 0.8rem;
+}
+.training-table thead {
+  background: var(--el-fill-color-lighter);
+}
+.training-table progress {
+  vertical-align: middle;
+  width: min(8rem, 50%);
+}
+.training-table progress,
+.training-progress progress {
+  appearance: none;
+  height: 0.5rem;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--el-fill-color-lighter);
+  accent-color: var(--el-color-primary);
+}
+:is(.training-table, .training-progress) progress::-webkit-progress-bar {
+  background: var(--el-fill-color-lighter);
+}
+:is(.training-table, .training-progress) progress::-webkit-progress-value {
+  background: var(--el-color-primary);
+  border-radius: 999px;
+}
+:is(.training-table, .training-progress) progress::-moz-progress-bar {
+  background: var(--el-color-primary);
+  border-radius: 999px;
+}
