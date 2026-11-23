@@ -16,6 +16,8 @@ clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "=0.10.9"
+# Hardware-dispatched SHA-256 for the full, per-execution runtime file check.
+ring = "=0.17.14"
 rustix = { version = "1.1.5", features = ["net", "process", "fs", "thread", "mount", "system", "stdio", "pipe", "event", "time"] }
 
 # Fixed BPF compilation/installation through safe APIs; libc supplies syscall

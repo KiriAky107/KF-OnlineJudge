@@ -4,6 +4,7 @@ use kf_contracts::{
     judging::{Digest, Label},
     judging_v2::{ImageKind, RuntimeIdentity, RuntimeVersion},
 };
+use ring::digest;
 use rustix::{
     fd::{AsRawFd, OwnedFd},
     fs::{FileType, Mode, OFlags},
@@ -172,7 +173,8 @@ pub(crate) fn verify(image: &OwnedFd, identity: &RuntimeIdentity, bytes: &[u8]) 
     if root.st_uid != 0 || root.st_gid != 0 || root.st_mode & 0o7777 != 0o555 {
         return Err(refused());
     }
-    walk(image, "", root.st_dev, &mut files, &mut dirs)?;
+    let mut buffer = [0_u8; 65536];
+    walk(image, "", root.st_dev, &mut files, &mut dirs, &mut buffer)?;
     if !files.is_empty() || !dirs.is_empty() {
         return Err(refused());
     }
@@ -207,6 +209,7 @@ fn walk<'a>(
     device: u64,
     files: &mut BTreeMap<&'a str, &'a ImageFile>,
     dirs: &mut std::collections::BTreeSet<&'a str>,
+    buffer: &mut [u8],
 ) -> io::Result<()> {
     if prefix.split('/').count() > 32 {
         return Err(refused());
@@ -244,7 +247,7 @@ fn walk<'a>(
                 if st.st_dev != after.st_dev || st.st_ino != after.st_ino {
                     return Err(refused());
                 }
-                walk(&child, &path, device, files, dirs)?;
+                walk(&child, &path, device, files, dirs, buffer)?;
             }
             FileType::RegularFile => {
                 if st.st_nlink != 1 || st.st_size < 0 {
@@ -272,11 +275,10 @@ fn walk<'a>(
                     return Err(refused());
                 }
                 let mut reader = File::from(read);
-                let mut hash = Sha256::new();
+                let mut hash = digest::Context::new(&digest::SHA256);
                 let mut count = 0_u64;
-                let mut buffer = [0_u8; 65536];
                 loop {
-                    let n = reader.read(&mut buffer)?;
+                    let n = reader.read(buffer)?;
                     if n == 0 {
                         break;
                     }
@@ -287,7 +289,7 @@ fn walk<'a>(
                     hash.update(&buffer[..n]);
                 }
                 if count != expected.bytes
-                    || format!("{:x}", hash.finalize()) != expected.sha256.as_str()
+                    || !matches_digest(hash.finish().as_ref(), expected.sha256.as_str())
                 {
                     return Err(refused());
                 }
@@ -308,6 +310,17 @@ fn walk<'a>(
         }
     }
     Ok(())
+}
+
+fn matches_digest(digest: &[u8], expected: &str) -> bool {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let (pairs, rest) = expected.as_bytes().as_chunks::<2>();
+    rest.is_empty()
+        && pairs.len() == digest.len()
+        && digest
+            .iter()
+            .zip(pairs)
+            .all(|(byte, hex)| *hex == [HEX[(byte >> 4) as usize], HEX[(byte & 15) as usize]])
 }
 
 #[cfg(test)]
