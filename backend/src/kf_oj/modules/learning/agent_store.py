@@ -18,10 +18,8 @@ from kf_oj.contracts.agent_learning import (
     LEARNING_RESULT,
     AgentExecution,
     AgentLearningResult,
-    GuidedHelpResult,
     RunFeedback,
     StoredAgentLearningInput,
-    SubmissionReviewResult,
     UpdateRunFeedback,
 )
 from kf_oj.contracts.agent_runtime import AgentPurpose, AgentRun, AgentSession, AgentStep, RunState
@@ -415,10 +413,8 @@ class PostgresAgentStorage:
         self, db: AsyncSession, run_id: UUID, body: UpdateRunFeedback
     ) -> AgentExecution:
         execution = await self.execution_in(db, run_id, lock=True)
-        if execution.run.state != RunState.SUCCEEDED or not isinstance(
-            execution.result, (GuidedHelpResult, SubmissionReviewResult)
-        ):
-            raise AgentRecordConflict("learning feedback requires a completed hint or review")
+        if execution.run.state != RunState.SUCCEEDED or execution.result is None:
+            raise AgentRecordConflict("learning feedback requires a completed result")
         row = await db.get(AgentFeedbackRow, run_id, populate_existing=True)
         if body.rating is None:
             if row is not None:

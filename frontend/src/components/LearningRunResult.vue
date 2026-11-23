@@ -250,12 +250,10 @@ const focusLabels = {
           <li v-for="gap in run.result.gaps" :key="gap">{{ gap }}</li>
         </ul>
         <LearningRunFeedback
-          v-if="
-            run.state === 'succeeded' &&
-            (run.result.purpose === 'guided_help' || run.result.purpose === 'submission_review')
-          "
+          v-if="run.state === 'succeeded'"
           :key="run.run_id"
           :run-id="run.run_id"
+          :purpose="run.result.purpose"
           :saved="run.feedback"
           @saved="$emit('feedback', $event)"
         />
