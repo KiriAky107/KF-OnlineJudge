@@ -7,7 +7,7 @@ use kf_contracts::{
 use ring::digest;
 use rustix::{
     fd::{AsRawFd, OwnedFd},
-    fs::{FileType, Mode, OFlags},
+    fs::{AtFlags, FileType, Mode, OFlags, StatVfsMountFlags, StatxFlags},
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -155,9 +155,44 @@ impl ImageCatalog {
     }
 }
 
+const SQUASHFS_MAGIC: u64 = 0x7371_7368;
+
+fn mount_id(fd: &OwnedFd) -> io::Result<u64> {
+    let result = rustix::fs::statx(fd, "", AtFlags::EMPTY_PATH, StatxFlags::MNT_ID)?;
+    if result.stx_mask & StatxFlags::MNT_ID.bits() == 0 {
+        return Err(refused());
+    }
+    Ok(result.stx_mnt_id)
+}
+
+pub(crate) fn immutable_mount(fd: &OwnedFd) -> io::Result<Option<u64>> {
+    if rustix::fs::fstatfs(fd)?.f_type as u64 != SQUASHFS_MAGIC
+        || !rustix::fs::fstatvfs(fd)?
+            .f_flag
+            .contains(StatVfsMountFlags::RDONLY)
+    {
+        return Ok(None);
+    }
+    mount_id(fd).map(Some)
+}
+
+pub(crate) fn same_immutable_root(pinned: &OwnedFd, current: &OwnedFd) -> io::Result<bool> {
+    let Some(mount) = immutable_mount(pinned)? else {
+        return Ok(false);
+    };
+    let a = rustix::fs::fstat(pinned)?;
+    let b = rustix::fs::fstat(current)?;
+    Ok(a.st_dev == b.st_dev && a.st_ino == b.st_ino && mount_id(current)? == mount)
+}
+
 /// Every inode is checked, including unexpected entries and empty directories.
-/// No symlinks, hard links, writable files, special files or mount crossings.
-pub(crate) fn verify(image: &OwnedFd, identity: &RuntimeIdentity, bytes: &[u8]) -> io::Result<()> {
+/// Cached images must all be on the same mount: the execution bind is nonrecursive.
+pub(crate) fn verify(
+    image: &OwnedFd,
+    identity: &RuntimeIdentity,
+    bytes: &[u8],
+    immutable_mount: Option<u64>,
+) -> io::Result<()> {
     if bytes.len() as u64 > MAX_CATALOG_BYTES || catalog_digest(bytes) != identity.image_digest {
         return Err(refused());
     }
@@ -174,7 +209,14 @@ pub(crate) fn verify(image: &OwnedFd, identity: &RuntimeIdentity, bytes: &[u8]) 
         return Err(refused());
     }
     let mut buffer = [0_u8; 65536];
-    walk(image, "", root.st_dev, &mut files, &mut dirs, &mut buffer)?;
+    walk(
+        image,
+        "",
+        (root.st_dev, immutable_mount),
+        &mut files,
+        &mut dirs,
+        &mut buffer,
+    )?;
     if !files.is_empty() || !dirs.is_empty() {
         return Err(refused());
     }
@@ -206,7 +248,7 @@ fn compatible_cpu() -> bool {
 fn walk<'a>(
     directory: &OwnedFd,
     prefix: &str,
-    device: u64,
+    filesystem: (u64, Option<u64>),
     files: &mut BTreeMap<&'a str, &'a ImageFile>,
     dirs: &mut std::collections::BTreeSet<&'a str>,
     buffer: &mut [u8],
@@ -229,7 +271,11 @@ fn walk<'a>(
             Mode::empty(),
         )?;
         let st = rustix::fs::fstat(&fd)?;
-        if st.st_uid != 0 || st.st_gid != 0 || st.st_dev != device {
+        if st.st_uid != 0
+            || st.st_gid != 0
+            || st.st_dev != filesystem.0
+            || matches!(filesystem.1, Some(mount) if mount_id(&fd)? != mount)
+        {
             return Err(refused());
         }
         match FileType::from_raw_mode(st.st_mode) {
@@ -244,10 +290,13 @@ fn walk<'a>(
                     Mode::empty(),
                 )?;
                 let after = rustix::fs::fstat(&child)?;
-                if st.st_dev != after.st_dev || st.st_ino != after.st_ino {
+                if st.st_dev != after.st_dev
+                    || st.st_ino != after.st_ino
+                    || matches!(filesystem.1, Some(mount) if mount_id(&child)? != mount)
+                {
                     return Err(refused());
                 }
-                walk(&child, &path, device, files, dirs, buffer)?;
+                walk(&child, &path, filesystem, files, dirs, buffer)?;
             }
             FileType::RegularFile => {
                 if st.st_nlink != 1 || st.st_size < 0 {

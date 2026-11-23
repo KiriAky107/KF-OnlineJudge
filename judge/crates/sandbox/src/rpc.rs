@@ -173,7 +173,7 @@ impl Drop for SocketLease<'_> {
 /// the finite helper scope. No internal sudo, account changes or deployment.
 pub fn serve_one(config_path: &Path, socket: &Path) -> io::Result<serde_json::Value> {
     let config = execution::load_config(config_path)?;
-    execution::authorize_registry(&config)?;
+    let images = execution::authorize_registry(&config)?;
     let parent = crate::isolation::root::open_directory(socket.parent().ok_or_else(denied)?)?;
     let name = socket.file_name().ok_or_else(denied)?;
     // Refuse replacement, including an existing stale/foreign socket.
@@ -213,13 +213,14 @@ pub fn serve_one(config_path: &Path, socket: &Path) -> io::Result<serde_json::Va
         }
     };
     drop(listener);
-    serve_stream(&config, stream, None, None)
+    serve_stream(&config, stream, None, None, &images)
 }
 pub(crate) fn serve_stream(
     config: &crate::runtime::ValidatedRuntimeConfig,
     stream: UnixStream,
     binding: Option<&str>,
     guardian: Option<&OwnedFd>,
+    images: &[Option<OwnedFd>],
 ) -> io::Result<serde_json::Value> {
     let ids = &config.config().identities;
     let mut c = channel(stream, ids.worker_uid, ids.worker_gid)?;
@@ -237,6 +238,7 @@ pub(crate) fn serve_stream(
         guardian.map_or(run::MonitorMode::Peer(&peer), |g| {
             run::MonitorMode::FactoryPeers(&peer, g)
         }),
+        images,
     ) {
         Ok((result, _)) => {
             let report = result.report;

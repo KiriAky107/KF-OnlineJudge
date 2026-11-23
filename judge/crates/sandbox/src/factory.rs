@@ -38,6 +38,50 @@ struct Acquire {
     )]
     health_version: Option<u8>,
 }
+
+/// Private handoff over the existing root factory lifeline. The worker's
+/// allocation protocol and its execution request are unchanged.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImageAdmission {
+    configuration_sha256: String,
+    pinned_images: u8,
+}
+
+impl crate::launcher::protocol::sealed::Sealed for ImageAdmission {}
+impl WireMessage for ImageAdmission {
+    const MAX_BYTES: usize = 128;
+    fn valid(&self) -> bool {
+        self.configuration_sha256.len() == 64
+            && self
+                .configuration_sha256
+                .bytes()
+                .all(|c| c.is_ascii_hexdigit())
+            && self.pinned_images < (1 << 4)
+    }
+}
+impl ImageAdmission {
+    fn receive_images(
+        self,
+        control: &mut crate::launcher::protocol::ControlChannel,
+        configuration_sha256: &str,
+        count: usize,
+    ) -> io::Result<Vec<Option<OwnedFd>>> {
+        if self.configuration_sha256 != configuration_sha256 || self.pinned_images >> count != 0 {
+            return Err(denied());
+        }
+        (0..count)
+            .map(|index| {
+                if self.pinned_images & (1 << index) == 0 {
+                    Ok(None)
+                } else {
+                    control.receive_fd().map(Some)
+                }
+            })
+            .collect()
+    }
+}
+
 fn health_version<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<u8>, D::Error> {
@@ -385,15 +429,14 @@ pub fn serve_with_limit(
         return Err(denied());
     }
     clean_environment()?;
-    let config = execution::load_config(config_path)?;
-    let configuration_sha256 = format!(
-        "{:x}",
-        Sha256::digest(execution::read_bounded_file(
-            config_path,
-            crate::runtime::MAX_CONFIG_BYTES
-        )?)
-    );
-    execution::authorize_registry(&config)?;
+    let (config, configuration_sha256) = execution::load_config_snapshot(config_path)?;
+    let images = execution::authorize_registry(&config)?;
+    let admission = ImageAdmission {
+        configuration_sha256: configuration_sha256.clone(),
+        pinned_images: images.iter().enumerate().fold(0, |mask, (index, image)| {
+            mask | (u8::from(image.is_some()) << index)
+        }),
+    };
     let stop_signals = crate::factory_signals::StopSignals::install()?;
     let policy = config.config();
     if policy.aggregate.supervisor_processes < 4 + 8 * policy.max_concurrent_runs {
@@ -542,7 +585,7 @@ pub fn serve_with_limit(
                 let current =
                     execution::read_bounded_file(config_path, crate::runtime::MAX_CONFIG_BYTES)?;
                 if format!("{:x}", Sha256::digest(current)) != configuration_sha256
-                    || execution::authorize(&config).is_err()
+                    || execution::authorize_image(&config, images[0].as_ref()).is_err()
                     || crate::cgroup::DelegatedCgroup::inspect(&config).is_err()
                 {
                     let _ = channel.send(&Allocation::Refused {});
@@ -611,10 +654,26 @@ pub fn serve_with_limit(
                 .stderr(Stdio::null())
                 .spawn()?;
             let helper_pid = child.id();
+            let transfer = (|| {
+                let mut control = rpc::channel(guardian.try_clone()?, 0, 0)?;
+                control.send(&admission)?;
+                for image in images.iter().flatten() {
+                    control.send_fd(image)?;
+                }
+                Ok::<_, io::Error>(())
+            })();
+            let handoff_failed = transfer.is_err();
+            if handoff_failed {
+                let _ = guardian.shutdown(std::net::Shutdown::Both);
+            }
             active.push(Active {
                 child,
                 _guardian: guardian,
             });
+            if handoff_failed {
+                let _ = channel.send(&Allocation::Refused {});
+                continue;
+            }
             if channel
                 .send(&Allocation::Ready {
                     run_id: request.run_id,
@@ -655,7 +714,7 @@ pub fn serve_with_limit(
 pub fn child(config_path: &Path, run_id: &str) -> io::Result<()> {
     // Duplicate only the fixed descriptors installed by the root factory.
     let stream: UnixStream = rustix::io::fcntl_dupfd_cloexec(rustix::stdio::stdin(), 3)?.into();
-    let guardian = rustix::io::fcntl_dupfd_cloexec(rustix::stdio::stdout(), 3)?;
+    let guardian: UnixStream = rustix::io::fcntl_dupfd_cloexec(rustix::stdio::stdout(), 3)?.into();
     let peer = rustix::net::sockopt::socket_peercred(&guardian)?;
     if peer.uid.as_raw() != 0
         || peer.gid.as_raw() != 0
@@ -663,12 +722,19 @@ pub fn child(config_path: &Path, run_id: &str) -> io::Result<()> {
     {
         return Err(denied());
     }
-    let config = execution::load_config(config_path)?;
-    execution::authorize(&config)?;
+    let mut control = rpc::channel(guardian, 0, 0)?;
+    let admission = control.receive::<ImageAdmission>()?;
+    let (config, configuration_sha256) = execution::load_config_snapshot(config_path)?;
+    let images = admission.receive_images(
+        &mut control,
+        &configuration_sha256,
+        1 + config.config().runtime_images.len(),
+    )?;
+    let guardian = control.duplicate_stream()?;
     if crate::spec::identifier(run_id, "run_id").is_err() {
         return Err(denied());
     }
-    let result = rpc::serve_stream(&config, stream, Some(run_id), Some(&guardian))?;
+    let result = rpc::serve_stream(&config, stream, Some(run_id), Some(&guardian), &images)?;
     if result["report"]["cleanup"] != "complete" {
         return Err(denied());
     }
@@ -677,6 +743,44 @@ pub fn child(config_path: &Path, run_id: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn image_handoff_keeps_registry_slots_and_refuses_changed_policy() {
+        let (a, b) = UnixStream::pair().unwrap();
+        let peer = rustix::net::sockopt::socket_peercred(&a).unwrap();
+        let mut sender = rpc::channel(a, peer.uid.as_raw(), peer.gid.as_raw()).unwrap();
+        let mut receiver = rpc::channel(b, peer.uid.as_raw(), peer.gid.as_raw()).unwrap();
+        let configuration_sha256 = "1".repeat(64);
+        let dir = File::open("/proc").unwrap();
+        let admission = ImageAdmission {
+            configuration_sha256: configuration_sha256.clone(),
+            pinned_images: 0b010,
+        };
+        assert!(
+            ImageAdmission {
+                configuration_sha256: "2".repeat(64),
+                pinned_images: 0b010,
+            }
+            .receive_images(&mut receiver, &configuration_sha256, 3)
+            .is_err()
+        );
+        sender.send(&admission).unwrap();
+        sender.send_fd(&dir).unwrap();
+        let images = receiver
+            .receive::<ImageAdmission>()
+            .unwrap()
+            .receive_images(&mut receiver, &configuration_sha256, 3)
+            .unwrap();
+        assert!(images[0].is_none() && images[2].is_none());
+        let root = images[1].as_ref().unwrap();
+        let original = rustix::fs::fstat(&dir).unwrap();
+        let received = rustix::fs::fstat(root).unwrap();
+        assert_eq!(
+            (original.st_dev, original.st_ino),
+            (received.st_dev, received.st_ino)
+        );
+        assert!(!crate::image::same_immutable_root(root, root).unwrap());
+    }
+
     #[test]
     fn socket_publish_exposes_only_prepared_inode_and_lease_cleans_both_paths() {
         let root = std::env::temp_dir().join(format!(
