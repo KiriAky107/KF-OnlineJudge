@@ -5,6 +5,9 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from kf_oj.contracts.judging import Verdict
+from kf_oj.contracts.submission_evidence import SubmissionCodeEvidence, SubmissionSourceExcerpt
+
 
 class CancelUnavailable(ValueError):
     pass
@@ -53,11 +56,28 @@ class LearningHistory:
 
 
 async def learning_records(
-    session, principal, *, since: datetime, limit: int = 500
+    session,
+    principal,
+    *,
+    since: datetime,
+    as_of: datetime | None = None,
+    limit: int = 500,
+    problem_ids: tuple[UUID, ...] = (),
+    submission_id: UUID | None = None,
+    anchor_submission_id: UUID | None = None,
 ) -> LearningHistory:
     from .learning_queries import records
 
-    return await records(session, principal, since=since, limit=limit)
+    return await records(
+        session,
+        principal,
+        since=since,
+        as_of=as_of,
+        limit=limit,
+        problem_ids=problem_ids,
+        submission_id=submission_id,
+        anchor_submission_id=anchor_submission_id,
+    )
 
 
 async def accepted_versions(session, principal, version_ids: set[UUID]) -> set[UUID]:
@@ -66,15 +86,62 @@ async def accepted_versions(session, principal, version_ids: set[UUID]) -> set[U
     return await accepted(session, principal, version_ids)
 
 
+@dataclass(frozen=True, slots=True)
+class CatalogStatistics:
+    total: int
+    verdict_counts: dict[Verdict, int]
+
+
+async def catalog_statistics(
+    session, problem_ids: tuple[UUID, ...]
+) -> dict[UUID, CatalogStatistics]:
+    from .queries import catalog_counts
+
+    return await catalog_counts(session, problem_ids)
+
+
+@dataclass(frozen=True, slots=True)
+class LearningPractice:
+    last_attempt_at: datetime
+    last_accepted_at: datetime | None
+
+
+async def learning_practice(
+    session, principal, version_ids: set[UUID], *, as_of: datetime
+) -> dict[UUID, LearningPractice]:
+    from .learning_queries import practice
+
+    return await practice(session, principal, version_ids, as_of=as_of)
+
+
 async def learning_progress(
-    session, principal, version_ids: set[UUID], *, since: datetime
+    session, principal, version_ids: set[UUID], *, since: datetime, as_of: datetime | None = None
 ) -> dict[UUID, LearningProgress]:
     from .learning_queries import progress
 
-    return await progress(session, principal, version_ids, since=since)
+    return await progress(session, principal, version_ids, since=since, as_of=as_of)
 
 
 @dataclass(frozen=True)
 class LearningProgress:
     status: str
     evidence: tuple[LearningRecord, ...]
+
+
+class SubmissionEvidencePort(Protocol):
+    async def owned_source_excerpt(
+        self, principal, submission_id: UUID, start_line: int, end_line: int
+    ) -> SubmissionSourceExcerpt: ...
+
+    async def learning_code_evidence(
+        self,
+        session,
+        principal,
+        *,
+        since: datetime,
+        as_of: datetime,
+        problem_ids: tuple[UUID, ...],
+        submission_id: UUID | None,
+        comparison: bool,
+        collect_control_flow: bool = False,
+    ) -> SubmissionCodeEvidence | None: ...

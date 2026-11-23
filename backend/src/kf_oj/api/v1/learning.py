@@ -8,11 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from kf_oj.api.dependencies import current_principal, unsafe_principal
 from kf_oj.contracts.learning import (
     CreateTraining,
+    CreateTrainingFollowUp,
     LearningOverview,
     LearningParameters,
     LearningRecommendations,
     TrainingDetail,
     TrainingPage,
+    UpdateTrainingFeedback,
     UpdateTrainingNote,
 )
 from kf_oj.modules.identity.public import Principal
@@ -20,6 +22,7 @@ from kf_oj.modules.learning.public import (
     IdempotencyConflict,
     LearningUnavailable,
     NoCandidates,
+    TrainingSourceUnavailable,
 )
 
 router = APIRouter(tags=["learning"])
@@ -79,6 +82,25 @@ async def training_detail(
         raise HTTPException(404, "training unavailable") from None
 
 
+@router.post("/trainings/{training_id}/follow-ups", response_model=TrainingDetail, status_code=201)
+async def create_follow_up(
+    training_id: UUID,
+    body: CreateTrainingFollowUp,
+    request: Request,
+    principal: Annotated[Principal, Depends(unsafe_principal)],
+):
+    try:
+        return await service(request).create(principal, body, source_plan_id=training_id)
+    except TrainingSourceUnavailable:
+        raise HTTPException(404, "training unavailable") from None
+    except IdempotencyConflict:
+        raise HTTPException(409, "idempotency request conflict") from None
+    except LearningUnavailable:
+        raise HTTPException(409, "recommendation changed; regenerate") from None
+    except NoCandidates:
+        raise HTTPException(422, "no available matching problems") from None
+
+
 @router.patch("/trainings/{training_id}/items/{item_id}", response_model=TrainingDetail)
 async def update_note(
     training_id: UUID,
@@ -89,5 +111,19 @@ async def update_note(
 ):
     try:
         return await service(request).note(principal, training_id, item_id, body)
+    except LearningUnavailable:
+        raise HTTPException(404, "training unavailable") from None
+
+
+@router.put("/trainings/{training_id}/items/{item_id}/feedback", response_model=TrainingDetail)
+async def update_feedback(
+    training_id: UUID,
+    item_id: UUID,
+    body: UpdateTrainingFeedback,
+    request: Request,
+    principal: Annotated[Principal, Depends(unsafe_principal)],
+):
+    try:
+        return await service(request).rate(principal, training_id, item_id, body)
     except LearningUnavailable:
         raise HTTPException(404, "training unavailable") from None

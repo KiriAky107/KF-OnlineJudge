@@ -17,6 +17,7 @@ from kf_oj.contracts.judging import AdmissionPolicy
 from kf_oj.core.settings import Settings
 from kf_oj.infra.artifacts.repository import ArtifactRepository
 from kf_oj.infra.artifacts.store import ArtifactError, ArtifactStore
+from kf_oj.modules.problems.learning_models import ProblemLearningMetadata
 from kf_oj.modules.problems.models import Problem, ProblemVersion
 from kf_oj.modules.problems.service import ProblemService
 
@@ -171,6 +172,31 @@ def test_actual_import_two_immutable_versions_and_public_api(postgres_url, tmp_p
                 }
                 page = (await client.get("/api/v1/problems")).json()
                 assert page["items"][0]["version_id"] == str(second)
+                assert page["items"][0]["difficulty"] is None
+                assert page["items"][0]["tags"] == []
+                assert new.json()["execution_available"] is True
+                async with app.state.sessions.begin() as session:
+                    session.add(
+                        ProblemLearningMetadata(
+                            problem_version_id=second,
+                            difficulty="medium",
+                            tags=["排序"],
+                            revision=1,
+                        )
+                    )
+                filtered = await client.get(
+                    "/api/v1/problems",
+                    params={"search": "SECOND", "difficulty": "medium", "tag": "排序"},
+                )
+                (entry,) = filtered.json()["items"]
+                assert entry["version_id"] == str(second)
+                assert entry["difficulty"] == "medium" and entry["tags"] == ["排序"]
+                assert (await client.get("/api/v1/problems", params={"tag": "排序模板"})).json()[
+                    "items"
+                ] == []
+                assert (await client.get("/api/v1/problems", params={"search": "%"})).json()[
+                    "items"
+                ] == []
                 assert (await client.get("/api/v1/problems?limit=0")).status_code == 422
                 assert (await client.get(f"/api/v1/problems/versions/{uuid4()}")).status_code == 404
                 public_text = old.text + new.text + json.dumps(page)

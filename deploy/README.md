@@ -122,6 +122,35 @@ broker 暂停期间，API 保留 queued/outbox；恢复后 publisher confirm 与
 `kf-artifacts --limit 100` 只回收达到年龄要求的无引用工件和已标记删除项，
 保留仍被题目或提交引用的源码。Root 恢复还需核对 journal、inode 和实际排空。
 
+## 本地学习助手
+
+先用迁移账号升级开发数据库到当前版本。迁移建立 `kf_oj_learning_worker` 权限组。
+给学习进程创建独立的普通登录角色并加入该组，在 PostgreSQL 交互终端设置口令。
+
+```sql
+CREATE ROLE kf_oj_learning_local LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+GRANT kf_oj_learning_worker TO kf_oj_learning_local;
+\password kf_oj_learning_local
+```
+
+在学习进程的私有环境中配置 `KF_OJ_LEARNING_DATABASE_URL`，使用该登录角色和与 API
+相同的开发数据库。连接 URI 使用 `postgresql+asyncpg`。在项目根目录执行以下命令。
+
+```sh
+make learning-worker-check
+make learning-worker
+```
+
+检查只读回登录角色及权限。启动后，在已运行的前端用本人账号打开训练页的学习助手，
+保存授权并启动技能。Worker 使用 PostgreSQL 领取任务。本地停止可用 Ctrl+C，
+待接续任务由数据库租约在下次启动时恢复。
+
+规则提示和规则训练可以独立运行。需要模型提示时，在学习进程环境同时配置
+`KF_OJ_LEARNING_MODEL_BASE_URL` 与 `KF_OJ_LEARNING_MODEL_NAME`。
+使用远程 HTTPS Responses 时由私有环境提供 `KF_OJ_LEARNING_MODEL_API_KEY`；
+本机回环 HTTP 端点可省略密钥。Base URL 填兼容端点的基础路径，例如本机的
+`http://127.0.0.1:8001/v1`，Worker 会附加 `/responses`。
+
 ## 四语言节点的受控升级
 
 `judge.admission.example.json` 是显式 v1/v2 注册表，

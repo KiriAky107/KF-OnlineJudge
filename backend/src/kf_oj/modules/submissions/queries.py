@@ -1,15 +1,22 @@
+import asyncio
 import base64
 import json
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import and_, func, select, tuple_
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from kf_oj.contracts.judging import MAX_SOURCE_BYTES, ArtifactReference
+from kf_oj.contracts.judging import MAX_SOURCE_BYTES, ArtifactReference, Verdict
 from kf_oj.contracts.judging_versions import decode_report
+from kf_oj.contracts.submission_evidence import (
+    CodeSubmissionRef,
+    SubmissionCodeEvidence,
+    SubmissionSourceExcerpt,
+)
 from kf_oj.contracts.submissions import (
     CancellationAccepted,
+    ProblemSubmissionStatus,
     PublicCaseResult,
     PublicJudgement,
     SubmissionComparison,
@@ -25,8 +32,38 @@ from kf_oj.modules.submissions.models import Evaluation, Submission
 from kf_oj.modules.submissions.public import (
     CancellationPort,
     CancelUnavailable,
+    CatalogStatistics,
     SubmissionUnavailable,
 )
+from kf_oj.modules.submissions.source_evidence import (
+    compare_owned_sources,
+    compiler_evidence,
+    source_excerpt,
+)
+
+
+async def catalog_counts(session, problem_ids: tuple[UUID, ...]) -> dict[UUID, CatalogStatistics]:
+    if not problem_ids:
+        return {}
+    verdicts = tuple(
+        verdict for verdict in Verdict if verdict not in (Verdict.CANCELLED, Verdict.SYSTEM_ERROR)
+    )
+    trusted = and_(Evaluation.state == "finished", Evaluation.final_report_digest.is_not(None))
+    query = (
+        select(
+            Submission.problem_id,
+            func.count(),
+            *(func.count().filter(trusted, Evaluation.verdict == verdict) for verdict in verdicts),
+        )
+        .select_from(Submission)
+        .outerjoin(Evaluation, Evaluation.submission_id == Submission.id)
+        .where(Submission.problem_id.in_(problem_ids))
+        .group_by(Submission.problem_id)
+    )
+    return {
+        problem_id: CatalogStatistics(total, dict(zip(verdicts, counts, strict=True)))
+        for problem_id, total, *counts in await session.execute(query)
+    }
 
 
 def cursor_encode(submission: Submission) -> str:
@@ -126,6 +163,40 @@ class SubmissionQueries:
             raise SubmissionUnavailable("submission unavailable")
         return self._project_detail(*row)
 
+    async def problem_status(
+        self, principal: Principal, version_id: UUID
+    ) -> ProblemSubmissionStatus:
+        history = (
+            select(Submission, Evaluation)
+            .join(Evaluation, Evaluation.submission_id == Submission.id)
+            .where(
+                Submission.account_id == principal.account_id,
+                Submission.problem_version_id == version_id,
+            )
+        )
+        solved = (
+            history.with_only_columns(Submission.id)
+            .where(
+                Evaluation.state == "finished",
+                Evaluation.verdict == Verdict.ACCEPTED,
+                Evaluation.failure_code.is_(None),
+                Evaluation.final_report_digest.is_not(None),
+            )
+            .correlate(None)
+            .exists()
+        )
+        latest = (
+            history.add_columns(solved)
+            .order_by(Submission.created_at.desc(), Submission.id.desc())
+            .limit(1)
+        )
+        async with self.sessions() as session:
+            row = (await session.execute(latest)).one_or_none()
+        if row is None:
+            return ProblemSubmissionStatus(solved=False, latest=None)
+        submission, evaluation, passed = row
+        return ProblemSubmissionStatus(solved=passed, latest=summary(submission, evaluation))
+
     @staticmethod
     def _project_detail(submission: Submission, evaluation: Evaluation) -> SubmissionDetail:
         result = None
@@ -183,6 +254,111 @@ class SubmissionQueries:
             raise CancelUnavailable("cancellation service unavailable")
         return CancellationAccepted(submission_id=submission.id, evaluation_id=evaluation.id)
 
+    async def learning_code_evidence(
+        self,
+        session,
+        principal: Principal,
+        *,
+        since: datetime,
+        as_of: datetime,
+        problem_ids: tuple[UUID, ...],
+        submission_id: UUID | None,
+        comparison: bool,
+        collect_control_flow: bool = False,
+    ) -> SubmissionCodeEvidence | None:
+        history = (
+            select(Submission, Evaluation)
+            .join(Evaluation, Evaluation.submission_id == Submission.id)
+            .where(
+                Submission.account_id == principal.account_id,
+                Submission.created_at.between(since, as_of),
+            )
+            .order_by(Submission.created_at.desc(), Submission.id.desc())
+        )
+        if problem_ids:
+            history = history.where(Submission.problem_id.in_(problem_ids))
+        selected = history
+        if submission_id is not None:
+            selected = selected.where(Submission.id == submission_id)
+        found = (await session.execute(selected.limit(1))).one_or_none()
+        if found is None:
+            if submission_id is not None:
+                raise SubmissionUnavailable("submission unavailable")
+            return None
+
+        submission, evaluation = found
+        ref = self._code_ref(submission, evaluation)
+        try:
+            lines = (await self._read_source(session, submission)).splitlines()
+        except SubmissionUnavailable:
+            return SubmissionCodeEvidence(
+                source=ref,
+                source_available=False,
+                line_count=None,
+                compiler_locations=(),
+                diagnostics_truncated=False,
+            )
+
+        report = (
+            self._project_detail(submission, evaluation).result
+            if evaluation.updated_at <= as_of
+            else None
+        )
+        diagnostics = compiler_evidence(
+            submission.language,
+            report.diagnostics if report else "",
+            len(lines),
+            report.diagnostics_truncated if report else False,
+        )
+        diff = None
+        if comparison:
+            before = (
+                await session.execute(
+                    history.where(
+                        Submission.problem_version_id == submission.problem_version_id,
+                        Submission.language == submission.language,
+                        tuple_(Submission.created_at, Submission.id)
+                        < (submission.created_at, submission.id),
+                    ).limit(1)
+                )
+            ).one_or_none()
+            if before is not None:
+                earlier, earlier_evaluation = before
+                try:
+                    source = await self._read_source(session, earlier)
+                except SubmissionUnavailable:
+                    source = None
+                if source is not None:
+                    diff = await asyncio.to_thread(
+                        compare_owned_sources,
+                        self._code_ref(earlier, earlier_evaluation),
+                        source.splitlines(),
+                        lines,
+                        collect_control_flow=collect_control_flow,
+                    )
+        return SubmissionCodeEvidence(
+            source=ref,
+            source_available=True,
+            line_count=len(lines),
+            compiler_locations=diagnostics.locations,
+            diagnostics_truncated=diagnostics.truncated,
+            comparison=diff,
+            compiler_correction=diagnostics.correction
+            if evaluation.verdict == "compilation_error"
+            and report is not None
+            and report.compilation_status == "compilation_error"
+            else None,
+        )
+
+    @staticmethod
+    def _code_ref(submission: Submission, evaluation: Evaluation) -> CodeSubmissionRef:
+        return CodeSubmissionRef(
+            submission_id=submission.id,
+            evaluation_id=evaluation.id,
+            problem_version_id=submission.problem_version_id,
+            language=submission.language,
+        )
+
     async def owned_source(self, principal: Principal, submission_id: UUID) -> bytes:
         async with self.sessions() as session:
             submission = await session.scalar(
@@ -193,6 +369,22 @@ class SubmissionQueries:
             if submission is None:
                 raise SubmissionUnavailable("submission unavailable")
             return await self._read_source(session, submission)
+
+    async def owned_source_excerpt(
+        self, principal: Principal, submission_id: UUID, start_line: int, end_line: int
+    ) -> SubmissionSourceExcerpt:
+        async with self.sessions() as session:
+            row = (await session.execute(self.owned(principal, submission_id))).one_or_none()
+            if row is None:
+                raise SubmissionUnavailable("submission unavailable")
+            submission, evaluation = row
+            data = await self._read_source(session, submission)
+        return SubmissionSourceExcerpt(
+            source=self._code_ref(submission, evaluation),
+            start_line=start_line,
+            end_line=end_line,
+            text=source_excerpt(data, start_line, end_line),
+        )
 
     async def _read_source(self, session, submission: Submission) -> bytes:
         metadata = await session.get(Artifact, submission.source_digest)

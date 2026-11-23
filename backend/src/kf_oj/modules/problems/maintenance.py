@@ -4,18 +4,21 @@ import asyncio
 import hashlib
 import json
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from uuid import uuid4, uuid5
 
 from sqlalchemy import func, select, text
 
 from kf_oj.contracts.admin_problems import CandidatePreview
 from kf_oj.contracts.judging import ArtifactReference, TestCase
+from kf_oj.contracts.problem_learning import LearningMetadataView
 from kf_oj.contracts.problem_maintenance import (
     MaintainedProblem,
     MaintainedProblemPage,
     MaintainedVersion,
     MaintainedVersionPage,
     MaintenanceReceipt,
+    ProblemEditor,
 )
 from kf_oj.modules.identity.public import ProblemMaintenancePort
 from kf_oj.modules.operations.public import MaintenanceAuditPort
@@ -28,9 +31,15 @@ from kf_oj.modules.problems.import_models import (
     ProblemImportOperation,
 )
 from kf_oj.modules.problems.imports import ImportConflict, ImportMissing, ImportUnavailable
+from kf_oj.modules.problems.learning_models import ProblemLearningMetadata
 from kf_oj.modules.problems.maintenance_models import ProblemMaintenanceOperation
 from kf_oj.modules.problems.models import Problem, ProblemCase, ProblemVersion
-from kf_oj.modules.problems.publication import admit_version, publish_version
+from kf_oj.modules.problems.publication import (
+    admit_judging_version,
+    admit_version,
+    persist_published_version,
+    publish_version,
+)
 from kf_oj.modules.problems.service import ProblemService
 
 
@@ -43,6 +52,16 @@ def project_problem(problem, version):
         revision=version.revision if version else 0,
         title=version.title if version else None,
         created_at=problem.created_at,
+    )
+
+
+def project_learning_metadata(version_id, row):
+    return LearningMetadataView(
+        problem_version_id=version_id,
+        tags=tuple(row.tags) if row else (),
+        prerequisite_tags=tuple(row.prerequisite_tags) if row else (),
+        difficulty=row.difficulty if row else None,
+        revision=row.revision if row else 0,
     )
 
 
@@ -139,6 +158,25 @@ class ProblemMaintenance:
                     for v, n in rows[:limit]
                 ),
                 next_before=rows[limit - 1][0].revision if len(rows) > limit else None,
+            )
+
+    async def editor(self, principal, problem_id):
+        async with self.transaction(principal) as session:
+            problem = await session.get(Problem, problem_id)
+            if problem is None or problem.active_version_id is None:
+                raise ImportMissing("problem unavailable")
+            version = await session.get(ProblemVersion, problem.active_version_id)
+            if version is None or version.published_at is None:
+                raise ImportMissing("published version unavailable")
+            metadata = await session.get(ProblemLearningMetadata, version.id)
+            case_count = await session.scalar(
+                select(func.count()).where(ProblemCase.version_id == version.id)
+            )
+            return ProblemEditor(
+                enabled=problem.enabled,
+                detail=ProblemService._detail(problem, version),
+                metadata=project_learning_metadata(version.id, metadata),
+                case_count=case_count,
             )
 
     async def receipt(self, principal, operation_id):
@@ -301,6 +339,73 @@ class ProblemMaintenance:
                     session, principal, request, "publish", digest, problem, version, version.id
                 )
 
+    async def revise(self, principal, problem_id, request):
+        if self.artifacts is None or self.policy is None or self._publishing.locked():
+            raise ImportUnavailable("publication unavailable")
+        async with self._publishing, self.transaction(principal) as session:
+            digest, replay = await self._replay(session, principal, "publish", request, problem_id)
+            if replay:
+                return replay
+            problem = await session.get(Problem, problem_id, with_for_update=True)
+            if problem is None:
+                raise ImportMissing("problem unavailable")
+            if (
+                not problem.enabled
+                or problem.active_version_id != request.expected_active_version_id
+            ):
+                raise ImportConflict("active version or availability changed")
+            previous = await session.get(
+                ProblemVersion, problem.active_version_id, with_for_update=True
+            )
+            if previous is None or previous.published_at is None:
+                raise ImportUnavailable("published version unavailable")
+            metadata = await session.get(ProblemLearningMetadata, previous.id)
+            inherited = project_learning_metadata(previous.id, metadata)
+            if inherited.revision != request.expected_metadata_revision:
+                raise ImportConflict("learning metadata changed")
+            original = await ProblemService._judging_version(session, (previous, problem))
+            version_id = uuid4()
+            cases = tuple(
+                case.model_copy(update={"case_id": uuid5(version_id, str(case.case_id))})
+                for case in original.cases
+            )
+            admit_judging_version(
+                self.policy, replace(original, version_id=version_id, cases=cases)
+            )
+            version = ProblemVersion(
+                id=version_id,
+                problem_id=problem.id,
+                title=request.title.strip(),
+                statement=request.statement,
+                public_samples=[sample.model_dump(mode="json") for sample in request.samples],
+                languages=previous.languages,
+                judging_schema_version=previous.judging_schema_version,
+                language_configurations=previous.language_configurations,
+                toolchain=previous.toolchain,
+                compile_limits=previous.compile_limits,
+                run_limits=previous.run_limits,
+                job_wall_time_us=previous.job_wall_time_us,
+                comparison=previous.comparison,
+            )
+            await persist_published_version(session, problem, version, cases)
+            tags, difficulty = request.metadata.tags, request.metadata.difficulty
+            prerequisites = request.metadata.prerequisite_tags
+            if prerequisites is None:
+                prerequisites = inherited.prerequisite_tags
+            if tags or prerequisites or difficulty is not None:
+                session.add(
+                    ProblemLearningMetadata(
+                        problem_version_id=version.id,
+                        tags=list(tags),
+                        prerequisite_tags=list(prerequisites),
+                        difficulty=difficulty,
+                        revision=1,
+                    )
+                )
+            return await self._record(
+                session, principal, request, "publish", digest, problem, version, version.id
+            )
+
     async def availability(self, principal, problem_id, request, *, enabled):
         action = "restore" if enabled else "disable"
         async with self.transaction(principal) as session:
@@ -324,9 +429,6 @@ class ProblemMaintenance:
             return await self._record(session, principal, request, action, digest, problem, version)
 
     async def learning_metadata(self, principal, version_id, body=None):
-        from kf_oj.contracts.problem_learning import LearningMetadataView
-        from kf_oj.modules.problems.learning_models import ProblemLearningMetadata
-
         async with self.transaction(principal) as session:
             version = await session.scalar(
                 select(ProblemVersion).where(ProblemVersion.id == version_id).with_for_update()
@@ -335,16 +437,29 @@ class ProblemMaintenance:
                 raise ImportMissing("problem version unavailable")
             row = await session.get(ProblemLearningMetadata, version_id)
             if body is not None:
+                prerequisites = (
+                    list(body.prerequisite_tags)
+                    if body.prerequisite_tags is not None
+                    else row.prerequisite_tags
+                    if row is not None
+                    else []
+                )
                 if row is None:
                     row = ProblemLearningMetadata(
                         problem_version_id=version_id,
                         tags=list(body.tags),
+                        prerequisite_tags=prerequisites,
                         difficulty=body.difficulty,
                         revision=1,
                     )
                     session.add(row)
-                elif row.tags != list(body.tags) or row.difficulty != body.difficulty:
+                elif (
+                    row.tags != list(body.tags)
+                    or row.difficulty != body.difficulty
+                    or row.prerequisite_tags != prerequisites
+                ):
                     row.tags, row.difficulty = list(body.tags), body.difficulty
+                    row.prerequisite_tags = prerequisites
                     row.revision += 1
                 await self.audit.record(
                     session,
@@ -355,9 +470,4 @@ class ProblemMaintenance:
                     version_id,
                 )
                 await session.flush()
-            return LearningMetadataView(
-                problem_version_id=version_id,
-                tags=tuple(row.tags) if row else (),
-                difficulty=row.difficulty if row else None,
-                revision=row.revision if row else 0,
-            )
+            return project_learning_metadata(version_id, row)

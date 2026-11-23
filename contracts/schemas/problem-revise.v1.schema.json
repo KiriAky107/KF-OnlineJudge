@@ -1,0 +1,149 @@
+{
+  "$defs": {
+    "LearningLabel": {
+      "maxLength": 40,
+      "minLength": 1,
+      "type": "string"
+    },
+    "LearningMetadataUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "difficulty": {
+          "anyOf": [
+            {
+              "enum": [
+                "easy",
+                "medium",
+                "hard"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Difficulty"
+        },
+        "prerequisite_tags": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PrerequisiteTags"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tags": {
+          "items": {
+            "$ref": "#/$defs/LearningLabel"
+          },
+          "maxItems": 16,
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "tags",
+        "difficulty"
+      ],
+      "title": "LearningMetadataUpdate",
+      "type": "object"
+    },
+    "PrerequisiteTags": {
+      "items": {
+        "$ref": "#/$defs/LearningLabel"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "PublicSample": {
+      "additionalProperties": false,
+      "properties": {
+        "encoding": {
+          "const": "base64",
+          "default": "base64",
+          "title": "Encoding",
+          "type": "string"
+        },
+        "input": {
+          "maxLength": 87384,
+          "title": "Input",
+          "type": "string"
+        },
+        "output": {
+          "maxLength": 87384,
+          "title": "Output",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "output"
+      ],
+      "title": "PublicSample",
+      "type": "object"
+    }
+  },
+  "$id": "urn:kf-oj:problem-revise:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "expected_active_version_id": {
+      "format": "uuid",
+      "title": "Expected Active Version Id",
+      "type": "string"
+    },
+    "expected_metadata_revision": {
+      "minimum": 0,
+      "title": "Expected Metadata Revision",
+      "type": "integer"
+    },
+    "metadata": {
+      "$ref": "#/$defs/LearningMetadataUpdate"
+    },
+    "operation_id": {
+      "format": "uuid",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "samples": {
+      "items": {
+        "$ref": "#/$defs/PublicSample"
+      },
+      "maxItems": 10,
+      "title": "Samples",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "statement": {
+      "maxLength": 262144,
+      "minLength": 1,
+      "title": "Statement",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 160,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "operation_id",
+    "expected_active_version_id",
+    "expected_metadata_revision",
+    "title",
+    "statement",
+    "samples",
+    "metadata"
+  ],
+  "title": "ReviseProblem",
+  "type": "object"
+}

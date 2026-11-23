@@ -227,6 +227,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/problems/{problem_id}/editor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Editor */
+        get: operations["editor_api_v1_admin_problems__problem_id__editor_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/problems/{problem_id}/restore": {
         parameters: {
             query?: never;
@@ -244,6 +261,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/problems/{problem_id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revise */
+        post: operations["revise_api_v1_admin_problems__problem_id__revisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/problems/{problem_id}/versions": {
         parameters: {
             query?: never;
@@ -255,6 +289,91 @@ export interface paths {
         get: operations["versions_api_v1_admin_problems__problem_id__versions_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/skill-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Skill Report Reviews */
+        get: operations["skill_report_reviews_api_v1_admin_skill_reports_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/skill-reports/{report_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Skill Report */
+        post: operations["decide_skill_report_api_v1_admin_skill_reports__report_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/skill-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Review Queue */
+        get: operations["review_queue_api_v1_admin_skill_reviews_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/skill-reviews/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Version */
+        post: operations["decide_version_api_v1_admin_skill_reviews__version_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/skill-reviews/{version_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable Skill Version */
+        post: operations["disable_skill_version_api_v1_admin_skill_reviews__version_id__disable_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -359,6 +478,369 @@ export interface paths {
         /** Manifest */
         get: operations["manifest_api_v1_internal_evaluations__evaluation_id__attempts__attempt_id__manifest_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run History */
+        get: operations["run_history_api_v1_learning_agent_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Run */
+        get: operations["read_run_api_v1_learning_agent_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Run */
+        post: operations["cancel_run_api_v1_learning_agent_runs__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/runs/{run_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save Feedback */
+        put: operations["save_feedback_api_v1_learning_agent_runs__run_id__feedback_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/runs/{run_id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run Trace */
+        get: operations["run_trace_api_v1_learning_agent_runs__run_id__trace_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/runs/{run_id}/training": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save Training */
+        post: operations["save_training_api_v1_learning_agent_runs__run_id__training_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** New Session */
+        post: operations["new_session_api_v1_learning_agent_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/sessions/{session_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Run */
+        post: operations["start_run_api_v1_learning_agent_sessions__session_id__runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skill-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Drafts */
+        get: operations["list_drafts_api_v1_learning_agent_skill_drafts_get"];
+        put?: never;
+        /** Create Draft */
+        post: operations["create_draft_api_v1_learning_agent_skill_drafts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skill-drafts/{draft_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Draft */
+        get: operations["read_draft_api_v1_learning_agent_skill_drafts__draft_id__get"];
+        /** Update Draft */
+        put: operations["update_draft_api_v1_learning_agent_skill_drafts__draft_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skill-drafts/{draft_id}/releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Author Versions */
+        get: operations["author_versions_api_v1_learning_agent_skill_drafts__draft_id__releases_get"];
+        put?: never;
+        /** Submit Version */
+        post: operations["submit_version_api_v1_learning_agent_skill_drafts__draft_id__releases_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skill-drafts/{draft_id}/trials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Trial */
+        post: operations["create_trial_api_v1_learning_agent_skill_drafts__draft_id__trials_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skill-library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Discover Skills */
+        get: operations["discover_skills_api_v1_learning_agent_skill_library_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skill-library/{skill_id}/favorite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Change Favorite */
+        put: operations["change_favorite_api_v1_learning_agent_skill_library__skill_id__favorite_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skill-library/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Published Skill */
+        get: operations["published_skill_api_v1_learning_agent_skill_library__version_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skill-library/{version_id}/rating": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Version Rating */
+        get: operations["version_rating_api_v1_learning_agent_skill_library__version_id__rating_get"];
+        /** Rate Version */
+        put: operations["rate_version_api_v1_learning_agent_skill_library__version_id__rating_put"];
+        post?: never;
+        /** Retract Rating */
+        delete: operations["retract_rating_api_v1_learning_agent_skill_library__version_id__rating_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skill-library/{version_id}/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Own Skill Reports */
+        get: operations["own_skill_reports_api_v1_learning_agent_skill_library__version_id__reports_get"];
+        put?: never;
+        /** Submit Skill Report */
+        post: operations["submit_skill_report_api_v1_learning_agent_skill_library__version_id__reports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skill-versions/{version_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive Version */
+        post: operations["archive_version_api_v1_learning_agent_skill_versions__version_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skill-versions/{version_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw Version */
+        post: operations["withdraw_version_api_v1_learning_agent_skill_versions__version_id__withdraw_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Skills */
+        get: operations["skills_api_v1_learning_agent_skills_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/skills/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Configure Skill */
+        put: operations["configure_skill_api_v1_learning_agent_skills__version_id__put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -486,6 +968,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/submissions/problem-status/{problem_version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Problem Status */
+        get: operations["problem_status_api_v1_submissions_problem_status__problem_version_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/submissions/{submission_id}": {
         parameters: {
             query?: never;
@@ -571,6 +1070,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/submissions/{submission_id}/source-excerpt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Excerpt */
+        get: operations["excerpt_api_v1_submissions__submission_id__source_excerpt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trainings": {
         parameters: {
             query?: never;
@@ -606,6 +1122,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trainings/{training_id}/follow-ups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Follow Up */
+        post: operations["create_follow_up_api_v1_trainings__training_id__follow_ups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trainings/{training_id}/items/{item_id}": {
         parameters: {
             query?: never;
@@ -621,6 +1154,23 @@ export interface paths {
         head?: never;
         /** Update Note */
         patch: operations["update_note_api_v1_trainings__training_id__items__item_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/trainings/{training_id}/items/{item_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Feedback */
+        put: operations["update_feedback_api_v1_trainings__training_id__items__item_id__feedback_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 }
@@ -645,6 +1195,118 @@ export interface components {
              * @constant
              */
             schema_version: 1;
+        };
+        /** AgentHistoryItem */
+        AgentHistoryItem: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            purpose: components["schemas"]["AgentPurpose"];
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Skill Version Id
+             * Format: uuid
+             */
+            skill_version_id: string;
+            state: components["schemas"]["RunState"];
+        };
+        /** AgentHistoryPage */
+        AgentHistoryPage: {
+            /** Items */
+            items: components["schemas"]["AgentHistoryItem"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /**
+         * AgentPurpose
+         * @enum {string}
+         */
+        AgentPurpose: "submission_review" | "guided_help" | "focused_training" | "periodic_review";
+        /** AgentRunTrace */
+        AgentRunTrace: {
+            /** Attempts */
+            attempts: number;
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** Finished Tool Calls */
+            finished_tool_calls: number;
+            /** Model Elapsed Ms */
+            model_elapsed_ms?: number | null;
+            model_usage?: components["schemas"]["ModelTokenUsage"] | null;
+            /** Queue Ms */
+            queue_ms: number | null;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /** Steps */
+            steps: components["schemas"]["AgentTraceStep"][];
+            /** Tool Calls */
+            tool_calls: number;
+            /** Tool Elapsed Ms */
+            tool_elapsed_ms: number;
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** AgentRunView */
+        AgentRunView: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Failure Code */
+            failure_code?: string | null;
+            feedback?: components["schemas"]["RunFeedback"] | null;
+            /** Result */
+            result?: (components["schemas"]["SubmissionReviewResult"] | components["schemas"]["GuidedHelpResult"] | components["schemas"]["FocusedTrainingResult"] | components["schemas"]["PeriodicReviewResult"]) | null;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Skill Version Id
+             * Format: uuid
+             */
+            skill_version_id: string;
+            state: components["schemas"]["RunState"];
+        };
+        /** AgentTraceStep */
+        AgentTraceStep: {
+            /** Error Code */
+            error_code: string | null;
+            /** Invocation Version */
+            invocation_version: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "model" | "tool";
+            /** Sequence */
+            sequence: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "running" | "succeeded" | "failed" | "cancelled";
         };
         /** ArtifactReference */
         ArtifactReference: {
@@ -700,6 +1362,53 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** CatalogProblem */
+        CatalogProblem: {
+            /**
+             * Accepted Submissions
+             * @default 0
+             */
+            accepted_submissions: number;
+            /** Difficulty */
+            difficulty?: ("easy" | "medium" | "hard") | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Judged Submissions
+             * @default 0
+             */
+            judged_submissions: number;
+            /** Languages */
+            languages: components["schemas"]["kf_oj__contracts__judging_v2__Language"][];
+            /** Revision */
+            revision: number;
+            /** Slug */
+            slug: string;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            /** Title */
+            title: string;
+            /**
+             * Total Submissions
+             * @default 0
+             */
+            total_submissions: number;
+            /** Verdict Counts */
+            verdict_counts?: {
+                [key: string]: number;
+            };
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
         /** ChangeProblemAvailability */
         ChangeProblemAvailability: {
             /**
@@ -721,11 +1430,148 @@ export interface components {
              */
             schema_version: 1;
         };
+        /** ChangeSkillFavorite */
+        ChangeSkillFavorite: {
+            /** Favorited */
+            favorited: boolean;
+        };
+        /** ChangeSkillRating */
+        ChangeSkillRating: {
+            /** Score */
+            score: number;
+        };
+        /** CodeBoundaryChange */
+        CodeBoundaryChange: {
+            /** After Line */
+            after_line: number;
+            /**
+             * After Operator
+             * @enum {string}
+             */
+            after_operator: "<" | "<=" | ">" | ">=" | "==" | "!=";
+            /** Before Line */
+            before_line: number;
+            /**
+             * Before Operator
+             * @enum {string}
+             */
+            before_operator: "<" | "<=" | ">" | ">=" | "==" | "!=";
+            /**
+             * Changed Cases
+             * @default []
+             */
+            changed_cases: ("less" | "equal" | "greater")[];
+        };
+        /** CodeControlFlowCounts */
+        CodeControlFlowCounts: {
+            /** Branch Keywords */
+            branch_keywords: number;
+            /** Loop Keywords */
+            loop_keywords: number;
+            /** Return Keywords */
+            return_keywords: number;
+        };
+        /** CodeControlFlowDiff */
+        CodeControlFlowDiff: {
+            after: components["schemas"]["CodeControlFlowCounts"];
+            before: components["schemas"]["CodeControlFlowCounts"];
+            /**
+             * Method
+             * @default control-keywords-v1
+             * @constant
+             */
+            method: "control-keywords-v1";
+        };
+        /** CodeDiffEvidence */
+        CodeDiffEvidence: {
+            /** Boundary Changes */
+            boundary_changes?: components["schemas"]["CodeBoundaryChange"][];
+            control_flow?: components["schemas"]["CodeControlFlowDiff"] | null;
+            earlier: components["schemas"]["CodeSubmissionRef"];
+            /** Regions */
+            regions: components["schemas"]["CodeDiffRegion"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** CodeDiffRegion */
+        CodeDiffRegion: {
+            /** After Count */
+            after_count: number;
+            /** After Line */
+            after_line: number;
+            /** Before Count */
+            before_count: number;
+            /** Before Line */
+            before_line: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "replace" | "insert" | "delete";
+        };
+        /** CodeSubmissionRef */
+        CodeSubmissionRef: {
+            /**
+             * Evaluation Id
+             * Format: uuid
+             */
+            evaluation_id: string;
+            language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
         /**
          * CompilationStatus
          * @enum {string}
          */
         CompilationStatus: "succeeded" | "compilation_error" | "compilation_limit" | "cancelled" | "system_error";
+        /** CompilerCorrection */
+        CompilerCorrection: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "missing_semicolon" | "missing_colon" | "expected_indented_block" | "unclosed_parenthesis";
+            location: components["schemas"]["CompilerLocation"];
+        };
+        /** CompilerLocation */
+        CompilerLocation: {
+            /** Column */
+            column?: number | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "error" | "warning" | "note" | "location";
+            /** Line */
+            line: number;
+        };
+        /** ConfigureSkill */
+        ConfigureSkill: {
+            /**
+             * Authorized Tools
+             * @default []
+             */
+            authorized_tools: components["schemas"]["SkillToolView"][];
+            /** Enabled */
+            enabled: boolean;
+            /** Parameters */
+            parameters?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+        };
+        /** CreateLearningSession */
+        CreateLearningSession: {
+            purpose: components["schemas"]["AgentPurpose"];
+        };
         /** CreateProblemImport */
         CreateProblemImport: {
             /** Archive Bytes */
@@ -765,6 +1611,22 @@ export interface components {
              */
             stdin: string;
         };
+        /** CreateSkillDraft */
+        CreateSkillDraft: {
+            document?: components["schemas"]["SkillDraftDocument"] | null;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Source Version Id */
+            source_version_id?: string | null;
+        };
+        /** CreateSkillTrial */
+        CreateSkillTrial: {
+            /** Revision */
+            revision: number;
+        };
         /** CreateSubmission */
         CreateSubmission: {
             /**
@@ -788,6 +1650,11 @@ export interface components {
              * @default 5
              */
             count: number;
+            /**
+             * Cover Each Goal
+             * @default false
+             */
+            cover_each_goal: boolean;
             /** Difficulty */
             difficulty?: ("easy" | "medium" | "hard") | null;
             /**
@@ -795,6 +1662,8 @@ export interface components {
              * Format: uuid
              */
             idempotency_key: string;
+            /** Ranking Profile */
+            ranking_profile?: ("feedback_first" | "unresolved_first") | null;
             /**
              * Tags
              * @default []
@@ -805,6 +1674,20 @@ export interface components {
              * @default 个人训练计划
              */
             title: string;
+        };
+        /** CreateTrainingFollowUp */
+        CreateTrainingFollowUp: {
+            /** Cycle Days */
+            cycle_days?: number | null;
+            /** Daily Minutes */
+            daily_minutes?: number | null;
+            /**
+             * Idempotency Key
+             * Format: uuid
+             */
+            idempotency_key: string;
+            /** Sessions Per Week */
+            sessions_per_week?: number | null;
         };
         /** CurrentUser */
         CurrentUser: {
@@ -817,11 +1700,86 @@ export interface components {
             /** Username */
             username: string;
         };
+        /** DisableSkillVersion */
+        DisableSkillVersion: {
+            /** Reason */
+            reason: string;
+        };
         /**
          * FailureCode
          * @enum {string}
          */
         FailureCode: "artifact_unavailable" | "sandbox_unavailable" | "cleanup_failed" | "lease_lost" | "control_plane_unavailable" | "worker_shutdown" | "job_deadline";
+        /** FocusedTrainingResult */
+        FocusedTrainingResult: {
+            /** Daily Minutes */
+            daily_minutes: number;
+            /** Evidence As Of */
+            evidence_as_of?: string | null;
+            /** Gaps */
+            gaps: string[];
+            /** Goal */
+            goal: string;
+            goal_coverage?: components["schemas"]["TrainingGoalCoverage"] | null;
+            /** Items */
+            items: components["schemas"]["ProposedExercise"][];
+            model_hint?: components["schemas"]["ModelHint"] | null;
+            /** Model Status */
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "insufficient_evidence" | "source_model_unavailable") | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            purpose: "focused_training";
+            /** Ranking Profile */
+            ranking_profile?: ("feedback_first" | "unresolved_first") | null;
+        };
+        /** FocusedTrainingSchedule */
+        FocusedTrainingSchedule: {
+            /** Daily Minutes */
+            daily_minutes: number;
+            /** Goal */
+            goal: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            purpose: "focused_training";
+        };
+        /** GuidedHelpResult */
+        GuidedHelpResult: {
+            code?: components["schemas"]["SubmissionCodeEvidence"] | null;
+            /**
+             * Delivered Level
+             * @default concept
+             * @enum {string}
+             */
+            delivered_level: "concept" | "location" | "local_change";
+            evidence: components["schemas"]["LearningEvidence"] | null;
+            /** Evidence As Of */
+            evidence_as_of?: string | null;
+            /** Gaps */
+            gaps: string[];
+            /** Hint */
+            hint: string;
+            /** Hint Example */
+            hint_example?: string | null;
+            model_hint?: components["schemas"]["ModelHint"] | null;
+            /** Model Hint Basis */
+            model_hint_basis?: "topic_and_verdict" | null;
+            /** Model Status */
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "insufficient_evidence" | "source_model_unavailable") | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            purpose: "guided_help";
+            /**
+             * Requested Level
+             * @enum {string}
+             */
+            requested_level: "concept" | "location" | "local_change";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -899,6 +1857,7 @@ export interface components {
             submission_id: string;
             toolchain: components["schemas"]["Toolchain"];
         };
+        JsonValue: unknown;
         /**
          * Language
          * @enum {string}
@@ -936,17 +1895,21 @@ export interface components {
             /** Verdict */
             verdict: string | null;
         };
+        LearningLabel: string;
         /** LearningMetadataUpdate */
         LearningMetadataUpdate: {
             /** Difficulty */
             difficulty: ("easy" | "medium" | "hard") | null;
+            prerequisite_tags?: components["schemas"]["PrerequisiteTags"] | null;
             /** Tags */
-            tags: string[];
+            tags: components["schemas"]["LearningLabel"][];
         };
         /** LearningMetadataView */
         LearningMetadataView: {
             /** Difficulty */
             difficulty: ("easy" | "medium" | "hard") | null;
+            /** @default [] */
+            prerequisite_tags: components["schemas"]["PrerequisiteTags"];
             /**
              * Problem Version Id
              * Format: uuid
@@ -955,7 +1918,7 @@ export interface components {
             /** Revision */
             revision: number;
             /** Tags */
-            tags: string[];
+            tags: components["schemas"]["LearningLabel"][];
         };
         /** LearningOverview */
         LearningOverview: {
@@ -1009,8 +1972,15 @@ export interface components {
              * @default 5
              */
             count: number;
+            /**
+             * Cover Each Goal
+             * @default false
+             */
+            cover_each_goal: boolean;
             /** Difficulty */
             difficulty?: ("easy" | "medium" | "hard") | null;
+            /** Ranking Profile */
+            ranking_profile?: ("feedback_first" | "unresolved_first") | null;
             /**
              * Tags
              * @default []
@@ -1036,11 +2006,27 @@ export interface components {
              * Format: date-time
              */
             generated_at: string;
+            goal_coverage?: components["schemas"]["TrainingGoalCoverage"] | null;
             /** Items */
             items: components["schemas"]["RecommendedProblem"][];
             parameters: components["schemas"]["LearningParameters"];
+            prerequisite_gap?: components["schemas"]["PrerequisiteGap"] | null;
             /** Rule Version */
             rule_version: string;
+        };
+        /** LearningSessionView */
+        LearningSessionView: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            purpose: components["schemas"]["AgentPurpose"];
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
         };
         /** LegacyImportBudget */
         LegacyImportBudget: {
@@ -1229,6 +2215,33 @@ export interface components {
              */
             schema_version: 1;
         };
+        /** ModelHint */
+        ModelHint: {
+            /** Latency Ms */
+            latency_ms: number;
+            /** Model */
+            model: string;
+            /** Response Id */
+            response_id: string;
+            /** Review Comparison Case */
+            review_comparison_case?: ("less" | "equal" | "greater") | null;
+            /** Review Focus */
+            review_focus?: ("wrong_answer" | "compilation_error" | "later_accepted") | null;
+            /** Source Line */
+            source_line?: number | null;
+            /** Text */
+            text: string;
+            usage?: components["schemas"]["ModelTokenUsage"] | null;
+        };
+        /** ModelTokenUsage */
+        ModelTokenUsage: {
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Total Tokens */
+            total_tokens: number;
+        };
         /** PerformanceBucket */
         PerformanceBucket: {
             /** Count */
@@ -1266,13 +2279,66 @@ export interface components {
             /** Window Truncated */
             window_truncated: boolean;
         };
+        /** PeriodicReviewResult */
+        PeriodicReviewResult: {
+            /** Cycle Days */
+            cycle_days: number;
+            /** Evidence */
+            evidence: components["schemas"]["LearningEvidence"][];
+            /** Evidence As Of */
+            evidence_as_of?: string | null;
+            /** Gaps */
+            gaps: string[];
+            /** Goal */
+            goal: string;
+            /** Items */
+            items: components["schemas"]["ProposedExercise"][];
+            model_hint?: components["schemas"]["ModelHint"] | null;
+            /** Model Status */
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "insufficient_evidence" | "source_model_unavailable") | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            purpose: "periodic_review";
+            /** Ranking Profile */
+            ranking_profile?: ("feedback_first" | "unresolved_first") | null;
+            /** Sessions Per Week */
+            sessions_per_week: number;
+        };
+        /** PeriodicReviewSchedule */
+        PeriodicReviewSchedule: {
+            /** Cycle Days */
+            cycle_days: number;
+            /** Goal */
+            goal: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            purpose: "periodic_review";
+            /** Sessions Per Week */
+            sessions_per_week: number;
+        };
         /**
          * PreparationKind
          * @enum {string}
          */
         PreparationKind: "compile" | "syntax_check";
+        /** PrerequisiteGap */
+        PrerequisiteGap: {
+            /** Affected Candidates */
+            affected_candidates: number;
+            /** Missing Tags */
+            missing_tags: string[];
+            /** Remaining Tags */
+            remaining_tags: number;
+        };
+        PrerequisiteTags: components["schemas"]["LearningLabel"][];
         /** ProblemDetail */
         ProblemDetail: {
+            /** Execution Available */
+            execution_available?: boolean | null;
             /**
              * Id
              * Format: uuid
@@ -1301,6 +2367,15 @@ export interface components {
              * Format: uuid
              */
             version_id: string;
+        };
+        /** ProblemEditor */
+        ProblemEditor: {
+            /** Case Count */
+            case_count: number;
+            detail: components["schemas"]["ProblemDetail"];
+            /** Enabled */
+            enabled: boolean;
+            metadata: components["schemas"]["LearningMetadataView"];
         };
         /** ProblemImportCapabilities */
         ProblemImportCapabilities: {
@@ -1553,30 +2628,47 @@ export interface components {
         /** ProblemPage */
         ProblemPage: {
             /** Items */
-            items: components["schemas"]["ProblemSummary"][];
+            items: components["schemas"]["CatalogProblem"][];
             /** Next After */
             next_after: string | null;
         };
-        /** ProblemSummary */
-        ProblemSummary: {
+        /** ProblemSubmissionStatus */
+        ProblemSubmissionStatus: {
+            latest: components["schemas"]["SubmissionSummary"] | null;
+            /** Solved */
+            solved: boolean;
+        };
+        /** ProposedExercise */
+        ProposedExercise: {
+            /** Difficulty */
+            difficulty: ("easy" | "medium" | "hard") | null;
+            /** Estimated Minutes */
+            estimated_minutes?: number | null;
+            feedback_evidence?: components["schemas"]["TrainingFeedbackEvidence"] | null;
+            /** Objective */
+            objective: string;
+            /** Position */
+            position: number;
             /**
-             * Id
+             * Prerequisites
+             * @default []
+             */
+            prerequisites: components["schemas"]["TrainingPrerequisite"][];
+            /**
+             * Problem Id
              * Format: uuid
              */
-            id: string;
-            /** Languages */
-            languages: components["schemas"]["kf_oj__contracts__judging_v2__Language"][];
-            /** Revision */
-            revision: number;
-            /** Slug */
-            slug: string;
+            problem_id: string;
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /** Tags */
+            tags: string[];
+            timing?: components["schemas"]["TrainingTiming"] | null;
             /** Title */
             title: string;
-            /**
-             * Version Id
-             * Format: uuid
-             */
-            version_id: string;
         };
         /** PublicCaseResult */
         PublicCaseResult: {
@@ -1658,14 +2750,58 @@ export interface components {
              */
             schema_version: 1;
         };
+        /** PublishedSkill */
+        PublishedSkill: {
+            /** Author */
+            author: string;
+            /** Based On Version Id */
+            based_on_version_id: string | null;
+            /** Content Digest */
+            content_digest: string;
+            document: components["schemas"]["SkillDraftDocument"];
+            /** Favorited */
+            favorited: boolean;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /**
+             * Skill Id
+             * Format: uuid
+             */
+            skill_id: string;
+            /** Version */
+            version: number;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** PublishedSkillPage */
+        PublishedSkillPage: {
+            /** Items */
+            items: components["schemas"]["PublishedSkill"][];
+            /** Truncated */
+            truncated: boolean;
+        };
         /** RecommendedProblem */
         RecommendedProblem: {
             /** Difficulty */
             difficulty: ("easy" | "medium" | "hard") | null;
+            /** Estimated Minutes */
+            estimated_minutes?: number | null;
             /** Evidence */
             evidence: components["schemas"]["LearningEvidence"][];
+            feedback_evidence?: components["schemas"]["TrainingFeedbackEvidence"] | null;
             /** Metadata Revision */
             metadata_revision: number | null;
+            /**
+             * Prerequisites
+             * @default []
+             */
+            prerequisites: components["schemas"]["TrainingPrerequisite"][];
             /** Previously Accepted */
             previously_accepted: boolean;
             /**
@@ -1684,8 +2820,102 @@ export interface components {
             slug: string;
             /** Tags */
             tags: string[];
+            timing?: components["schemas"]["TrainingTiming"] | null;
             /** Title */
             title: string;
+        };
+        /** ReviewComparison */
+        ReviewComparison: {
+            /**
+             * Earlier Submission Id
+             * Format: uuid
+             */
+            earlier_submission_id: string;
+            /**
+             * Later Submission Id
+             * Format: uuid
+             */
+            later_submission_id: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "later_accepted" | "later_non_accepted" | "other";
+        };
+        /** ReviewEvidenceFocus */
+        ReviewEvidenceFocus: {
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "wrong_answer" | "compilation_error" | "later_accepted";
+            evidence: components["schemas"]["LearningEvidence"];
+        };
+        /** ReviewSkillReport */
+        ReviewSkillReport: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "confirm" | "dismiss";
+            /** Note */
+            note: string;
+        };
+        /** ReviewSkillVersion */
+        ReviewSkillVersion: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "publish" | "reject";
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /** ReviseProblem */
+        ReviseProblem: {
+            /**
+             * Expected Active Version Id
+             * Format: uuid
+             */
+            expected_active_version_id: string;
+            /** Expected Metadata Revision */
+            expected_metadata_revision: number;
+            metadata: components["schemas"]["LearningMetadataUpdate"];
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /** Samples */
+            samples: components["schemas"]["PublicSample"][];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Statement */
+            statement: string;
+            /** Title */
+            title: string;
+        };
+        /** RunFeedback */
+        RunFeedback: {
+            /**
+             * Rated At
+             * Format: date-time
+             */
+            rated_at: string;
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "helpful" | "partly_helpful" | "not_helpful";
+            /** Reason */
+            reason: ("unclear_next_step" | "unrelated_hint" | "insufficient_evidence") | null;
         };
         /** RunLimits */
         RunLimits: {
@@ -1710,6 +2940,11 @@ export interface components {
             /** Workdir Bytes */
             workdir_bytes: number;
         };
+        /**
+         * RunState
+         * @enum {string}
+         */
+        RunState: "queued" | "running" | "retry_wait" | "cancel_requested" | "cancelled" | "succeeded" | "failed";
         /** SelfTestDetail */
         SelfTestDetail: {
             /** Compile Diagnostics */
@@ -1762,6 +2997,398 @@ export interface components {
             stdout_truncated: boolean;
             /** Verdict */
             verdict: string | null;
+        };
+        /** SkillBindingView */
+        SkillBindingView: {
+            /**
+             * Authorized Tools
+             * @default []
+             */
+            authorized_tools: components["schemas"]["SkillToolView"][];
+            /** Enabled */
+            enabled: boolean;
+            /** Parameters */
+            parameters?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /**
+             * Skill Version Id
+             * Format: uuid
+             */
+            skill_version_id: string;
+        };
+        /** SkillCatalogView */
+        SkillCatalogView: {
+            /** Versions */
+            versions: components["schemas"]["SkillVersionView"][];
+        };
+        /** SkillDraftDocument */
+        SkillDraftDocument: {
+            /** Attribution */
+            attribution?: string | null;
+            /** Description */
+            description: string;
+            /** License */
+            license?: string | null;
+            /** Method */
+            method: string;
+            /** Parameters */
+            parameters?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            purpose: components["schemas"]["AgentPurpose"];
+            /** References */
+            references?: components["schemas"]["SkillReference"][];
+            /**
+             * Requested Tools
+             * @default []
+             */
+            requested_tools: components["schemas"]["SkillToolView"][];
+            /**
+             * Runtime Version
+             * @default 1
+             * @constant
+             */
+            runtime_version: 1;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Title */
+            title: string;
+        };
+        /** SkillDraftPage */
+        SkillDraftPage: {
+            /** Items */
+            items: components["schemas"]["SkillDraftSummary"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** SkillDraftSummary */
+        SkillDraftSummary: {
+            /**
+             * Draft Id
+             * Format: uuid
+             */
+            draft_id: string;
+            purpose: components["schemas"]["AgentPurpose"];
+            /** Revision */
+            revision: number;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** SkillDraftView */
+        SkillDraftView: {
+            /** Content Digest */
+            content_digest: string;
+            document: components["schemas"]["SkillDraftDocument"];
+            /**
+             * Draft Id
+             * Format: uuid
+             */
+            draft_id: string;
+            purpose: components["schemas"]["AgentPurpose"];
+            /** Revision */
+            revision: number;
+            /** Source Version Id */
+            source_version_id: string | null;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** SkillReference */
+        SkillReference: {
+            /** Content */
+            content: string;
+            /** Path */
+            path: string;
+            /** Sha256 */
+            sha256?: string | null;
+        };
+        /** SkillReportPage */
+        SkillReportPage: {
+            /** Items */
+            items: components["schemas"]["SkillReportView"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** SkillReportReviewPage */
+        SkillReportReviewPage: {
+            /** Items */
+            items: components["schemas"]["SkillReportReviewView"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** SkillReportReviewView */
+        SkillReportReviewView: {
+            /** Decided At */
+            decided_at: string | null;
+            /** Decision Note */
+            decision_note: string | null;
+            /** Details */
+            details: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "incorrect_content" | "privacy" | "licensing" | "other";
+            /** Release Title */
+            release_title: string;
+            /**
+             * Report Id
+             * Format: uuid
+             */
+            report_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "confirmed" | "dismissed";
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+            /** Version */
+            version: number;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** SkillReportView */
+        SkillReportView: {
+            /** Decided At */
+            decided_at: string | null;
+            /** Decision Note */
+            decision_note: string | null;
+            /** Details */
+            details: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "incorrect_content" | "privacy" | "licensing" | "other";
+            /**
+             * Report Id
+             * Format: uuid
+             */
+            report_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "confirmed" | "dismissed";
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** SkillToolView */
+        SkillToolView: {
+            /** Name */
+            name: string;
+            /** Version */
+            version: number;
+        };
+        /** SkillTrialView */
+        SkillTrialView: {
+            /** Content Digest */
+            content_digest: string;
+            /** Revision */
+            revision: number;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** SkillVersionRating */
+        SkillVersionRating: {
+            /** Average */
+            average: number | null;
+            /** Count */
+            count: number;
+            /** Own Score */
+            own_score: number | null;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** SkillVersionReview */
+        SkillVersionReview: {
+            /** Archived At */
+            archived_at?: string | null;
+            /** Author */
+            author: string;
+            /** Based On Version Id */
+            based_on_version_id: string | null;
+            /** Content Digest */
+            content_digest: string;
+            /** Decided At */
+            decided_at: string | null;
+            /** Disable Reason */
+            disable_reason?: string | null;
+            /** Disabled At */
+            disabled_at?: string | null;
+            document: components["schemas"]["SkillDraftDocument"];
+            /**
+             * Draft Id
+             * Format: uuid
+             */
+            draft_id: string;
+            /** Draft Revision */
+            draft_revision: number;
+            /** Review Note */
+            review_note: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "published" | "archived" | "rejected" | "withdrawn" | "disabled";
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+            /** Version */
+            version: number;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** SkillVersionReviewPage */
+        SkillVersionReviewPage: {
+            /** Items */
+            items: components["schemas"]["SkillVersionReview"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** SkillVersionView */
+        SkillVersionView: {
+            /** Archived At */
+            archived_at?: string | null;
+            /** Available Tools */
+            available_tools: components["schemas"]["SkillToolView"][];
+            binding?: components["schemas"]["SkillBindingView"] | null;
+            /** Default Parameters */
+            default_parameters: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Description */
+            description: string;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "builtin" | "published" | "trial";
+            purpose: components["schemas"]["AgentPurpose"];
+            /** Release */
+            release: number;
+            /** Slug */
+            slug: string;
+            /** Title */
+            title: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** SourceLineRange */
+        SourceLineRange: {
+            /** End Line */
+            end_line: number;
+            /** Start Line */
+            start_line: number;
+        };
+        /** StartAgentRun */
+        StartAgentRun: {
+            /**
+             * Include Model Code Context
+             * @default false
+             */
+            include_model_code_context: boolean;
+            /** Include Model Comparison Cases */
+            include_model_comparison_cases?: boolean;
+            /** Include Model Control Flow */
+            include_model_control_flow?: boolean;
+            /** Include Model Evidence Focus */
+            include_model_evidence_focus?: boolean;
+            /**
+             * Include Model Plan Explanation
+             * @default false
+             */
+            include_model_plan_explanation: boolean;
+            /**
+             * Include Model Review
+             * @default false
+             */
+            include_model_review: boolean;
+            /** Include Model Verdict */
+            include_model_verdict?: boolean;
+            /**
+             * Include Source Evidence
+             * @default false
+             */
+            include_source_evidence: boolean;
+            model_source_excerpt?: components["schemas"]["SourceLineRange"] | null;
+            /** Model Topic */
+            model_topic?: ("binary_search" | "graph_traversal" | "dynamic_programming") | null;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Skill Version Id
+             * Format: uuid
+             */
+            skill_version_id: string;
+            /** Submission Id */
+            submission_id?: string | null;
+        };
+        /** SubmissionCodeEvidence */
+        SubmissionCodeEvidence: {
+            comparison?: components["schemas"]["CodeDiffEvidence"] | null;
+            compiler_correction?: components["schemas"]["CompilerCorrection"] | null;
+            /** Compiler Locations */
+            compiler_locations: components["schemas"]["CompilerLocation"][];
+            /** Diagnostics Truncated */
+            diagnostics_truncated: boolean;
+            /** Line Count */
+            line_count: number | null;
+            /**
+             * Method
+             * @default kf-code-evidence-v1
+             * @constant
+             */
+            method: "kf-code-evidence-v1";
+            source: components["schemas"]["CodeSubmissionRef"];
+            /** Source Available */
+            source_available: boolean;
         };
         /** SubmissionComparison */
         SubmissionComparison: {
@@ -1896,6 +3523,38 @@ export interface components {
              */
             window_limit: 10000;
         };
+        /** SubmissionReviewResult */
+        SubmissionReviewResult: {
+            /** Anchor Submission Id */
+            anchor_submission_id?: string | null;
+            code?: components["schemas"]["SubmissionCodeEvidence"] | null;
+            /** Comparisons */
+            comparisons: components["schemas"]["ReviewComparison"][];
+            /** Evidence As Of */
+            evidence_as_of?: string | null;
+            /** Gaps */
+            gaps: string[];
+            model_focus?: components["schemas"]["ReviewEvidenceFocus"] | null;
+            model_hint?: components["schemas"]["ModelHint"] | null;
+            /** Model Review Basis */
+            model_review_basis?: ("evaluations" | "evaluations_and_code_counts" | "evaluations_and_control_flow" | "evaluations_and_comparison_cases" | "source_excerpt") | null;
+            /** Model Status */
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "insufficient_evidence" | "source_model_unavailable") | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            purpose: "submission_review";
+            /** Records */
+            records: components["schemas"]["LearningEvidence"][];
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /** Truncated */
+            truncated: boolean;
+        };
         /** SubmissionSource */
         SubmissionSource: {
             language: components["schemas"]["kf_oj__contracts__judging_v2__Language"];
@@ -1906,6 +3565,16 @@ export interface components {
              * Format: uuid
              */
             submission_id: string;
+        };
+        /** SubmissionSourceExcerpt */
+        SubmissionSourceExcerpt: {
+            /** End Line */
+            end_line: number;
+            source: components["schemas"]["CodeSubmissionRef"];
+            /** Start Line */
+            start_line: number;
+            /** Text */
+            text: string;
         };
         /** SubmissionSummary */
         SubmissionSummary: {
@@ -1944,6 +3613,28 @@ export interface components {
              */
             updated_at: string;
             verdict: components["schemas"]["Verdict"] | null;
+        };
+        /** SubmitSkillReport */
+        SubmitSkillReport: {
+            /** Details */
+            details: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "incorrect_content" | "privacy" | "licensing" | "other";
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+        };
+        /** SubmitSkillVersion */
+        SubmitSkillVersion: {
+            /** Confirmed Public */
+            confirmed_public: boolean;
+            /** Revision */
+            revision: number;
         };
         /** TagStatistic */
         TagStatistic: {
@@ -1989,6 +3680,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            goal_coverage?: components["schemas"]["TrainingGoalCoverage"] | null;
             /**
              * Id
              * Format: uuid
@@ -1999,10 +3691,67 @@ export interface components {
             /** Items */
             items: components["schemas"]["TrainingItem"][];
             parameters: components["schemas"]["LearningParameters"];
+            /** Previous Plan Id */
+            previous_plan_id?: string | null;
             /** Rule Version */
             rule_version: string;
+            /** Schedule */
+            schedule?: (components["schemas"]["FocusedTrainingSchedule"] | components["schemas"]["PeriodicReviewSchedule"]) | null;
             /** Title */
             title: string;
+        };
+        /** TrainingFeedback */
+        TrainingFeedback: {
+            /**
+             * Rated At
+             * Format: date-time
+             */
+            rated_at: string;
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "too_easy" | "appropriate" | "too_hard";
+        };
+        /** TrainingFeedbackEvidence */
+        TrainingFeedbackEvidence: {
+            /**
+             * Preferred Difficulty
+             * @enum {string}
+             */
+            preferred_difficulty: "easy" | "medium" | "hard";
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * Rated At
+             * Format: date-time
+             */
+            rated_at: string;
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "too_easy" | "appropriate" | "too_hard";
+            /**
+             * Training Id
+             * Format: uuid
+             */
+            training_id: string;
+            /**
+             * Training Item Id
+             * Format: uuid
+             */
+            training_item_id: string;
+        };
+        /** TrainingGoalCoverage */
+        TrainingGoalCoverage: {
+            /** Covered */
+            covered: string[];
+            /** Missing */
+            missing: string[];
         };
         /** TrainingItem */
         TrainingItem: {
@@ -2010,8 +3759,12 @@ export interface components {
             available: boolean;
             /** Difficulty */
             difficulty: ("easy" | "medium" | "hard") | null;
+            /** Estimated Minutes */
+            estimated_minutes?: number | null;
             /** Evidence */
             evidence: components["schemas"]["LearningEvidence"][];
+            feedback?: components["schemas"]["TrainingFeedback"] | null;
+            feedback_evidence?: components["schemas"]["TrainingFeedbackEvidence"] | null;
             /**
              * Id
              * Format: uuid
@@ -2025,6 +3778,11 @@ export interface components {
             note: string;
             /** Position */
             position: number;
+            /**
+             * Prerequisites
+             * @default []
+             */
+            prerequisites: components["schemas"]["TrainingPrerequisite"][];
             /** Previously Accepted */
             previously_accepted: boolean;
             /**
@@ -2050,6 +3808,7 @@ export interface components {
             slug: string;
             /** Tags */
             tags: string[];
+            timing?: components["schemas"]["TrainingTiming"] | null;
             /** Title */
             title: string;
         };
@@ -2067,6 +3826,14 @@ export interface components {
              * @default false
              */
             truncated: boolean;
+        };
+        /** TrainingPrerequisite */
+        TrainingPrerequisite: {
+            evidence: components["schemas"]["LearningEvidence"];
+            /** Metadata Revision */
+            metadata_revision: number;
+            /** Tag */
+            tag: string;
         };
         /** TrainingSummary */
         TrainingSummary: {
@@ -2088,6 +3855,40 @@ export interface components {
             rule_version: string;
             /** Title */
             title: string;
+        };
+        /** TrainingTiming */
+        TrainingTiming: {
+            /** Last Accepted At */
+            last_accepted_at?: string | null;
+            /** Last Attempt At */
+            last_attempt_at?: string | null;
+            /** Last Planned At */
+            last_planned_at?: string | null;
+            /** Review Due At */
+            review_due_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "review_due" | "practice" | "review_later" | "recent_attempt" | "recent_plan";
+        };
+        /** UpdateRunFeedback */
+        UpdateRunFeedback: {
+            /** Rating */
+            rating: ("helpful" | "partly_helpful" | "not_helpful") | null;
+            /** Reason */
+            reason?: ("unclear_next_step" | "unrelated_hint" | "insufficient_evidence") | null;
+        };
+        /** UpdateSkillDraft */
+        UpdateSkillDraft: {
+            document: components["schemas"]["SkillDraftDocument"];
+            /** Revision */
+            revision: number;
+        };
+        /** UpdateTrainingFeedback */
+        UpdateTrainingFeedback: {
+            /** Rating */
+            rating: ("too_easy" | "appropriate" | "too_hard") | null;
         };
         /** UpdateTrainingNote */
         UpdateTrainingNote: {
@@ -2606,6 +4407,37 @@ export interface operations {
             };
         };
     };
+    editor_api_v1_admin_problems__problem_id__editor_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemEditor"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     restore_api_v1_admin_problems__problem_id__restore_post: {
         parameters: {
             query?: never;
@@ -2623,6 +4455,41 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revise_api_v1_admin_problems__problem_id__revisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviseProblem"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2662,6 +4529,173 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MaintainedVersionPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    skill_report_reviews_api_v1_admin_skill_reports_get: {
+        parameters: {
+            query?: {
+                state?: "pending" | "confirmed" | "dismissed";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillReportReviewPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_skill_report_api_v1_admin_skill_reports__report_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewSkillReport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillReportReviewView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_queue_api_v1_admin_skill_reviews_get: {
+        parameters: {
+            query?: {
+                state?: "pending" | "published" | "archived" | "rejected" | "withdrawn" | "disabled";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionReviewPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_version_api_v1_admin_skill_reviews__version_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewSkillVersion"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionReview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disable_skill_version_api_v1_admin_skill_reviews__version_id__disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisableSkillVersion"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionReview"];
                 };
             };
             /** @description Validation Error */
@@ -2837,6 +4871,863 @@ export interface operations {
             };
         };
     };
+    run_history_api_v1_learning_agent_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentHistoryPage"];
+                };
+            };
+        };
+    };
+    read_run_api_v1_learning_agent_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_run_api_v1_learning_agent_runs__run_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_feedback_api_v1_learning_agent_runs__run_id__feedback_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRunFeedback"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_trace_api_v1_learning_agent_runs__run_id__trace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunTrace"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_training_api_v1_learning_agent_runs__run_id__training_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    new_session_api_v1_learning_agent_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLearningSession"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_run_api_v1_learning_agent_sessions__session_id__runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartAgentRun"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_drafts_api_v1_learning_agent_skill_drafts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDraftPage"];
+                };
+            };
+        };
+    };
+    create_draft_api_v1_learning_agent_skill_drafts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSkillDraft"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_draft_api_v1_learning_agent_skill_drafts__draft_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_draft_api_v1_learning_agent_skill_drafts__draft_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSkillDraft"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    author_versions_api_v1_learning_agent_skill_drafts__draft_id__releases_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionReviewPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_version_api_v1_learning_agent_skill_drafts__draft_id__releases_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitSkillVersion"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionReview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_trial_api_v1_learning_agent_skill_drafts__draft_id__trials_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSkillTrial"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillTrialView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discover_skills_api_v1_learning_agent_skill_library_get: {
+        parameters: {
+            query?: {
+                search?: string;
+                purpose?: components["schemas"]["AgentPurpose"] | null;
+                favorites_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishedSkillPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_favorite_api_v1_learning_agent_skill_library__skill_id__favorite_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeSkillFavorite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSkillFavorite"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    published_skill_api_v1_learning_agent_skill_library__version_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishedSkill"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    version_rating_api_v1_learning_agent_skill_library__version_id__rating_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionRating"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rate_version_api_v1_learning_agent_skill_library__version_id__rating_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeSkillRating"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionRating"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retract_rating_api_v1_learning_agent_skill_library__version_id__rating_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionRating"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    own_skill_reports_api_v1_learning_agent_skill_library__version_id__reports_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillReportPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_skill_report_api_v1_learning_agent_skill_library__version_id__reports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitSkillReport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillReportView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_version_api_v1_learning_agent_skill_versions__version_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionReview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdraw_version_api_v1_learning_agent_skill_versions__version_id__withdraw_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionReview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    skills_api_v1_learning_agent_skills_get: {
+        parameters: {
+            query?: {
+                version_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillCatalogView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    configure_skill_api_v1_learning_agent_skills__version_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigureSkill"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillBindingView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     overview_api_v1_learning_overview_get: {
         parameters: {
             query?: never;
@@ -2895,6 +5786,9 @@ export interface operations {
             query?: {
                 after?: string | null;
                 limit?: number;
+                search?: string | null;
+                difficulty?: ("easy" | "medium" | "hard") | null;
+                tag?: string | null;
             };
             header?: never;
             path?: never;
@@ -3084,6 +5978,37 @@ export interface operations {
             };
         };
     };
+    problem_status_api_v1_submissions_problem_status__problem_version_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemSubmissionStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     detail_api_v1_submissions__submission_id__get: {
         parameters: {
             query?: never;
@@ -3240,6 +6165,40 @@ export interface operations {
             };
         };
     };
+    excerpt_api_v1_submissions__submission_id__source_excerpt_get: {
+        parameters: {
+            query: {
+                start_line: number;
+                end_line: number;
+            };
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionSourceExcerpt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     trainings_api_v1_trainings_get: {
         parameters: {
             query?: never;
@@ -3324,6 +6283,41 @@ export interface operations {
             };
         };
     };
+    create_follow_up_api_v1_trainings__training_id__follow_ups_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                training_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTrainingFollowUp"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_note_api_v1_trainings__training_id__items__item_id__patch: {
         parameters: {
             query?: never;
@@ -3337,6 +6331,42 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UpdateTrainingNote"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_feedback_api_v1_trainings__training_id__items__item_id__feedback_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                training_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTrainingFeedback"];
             };
         };
         responses: {

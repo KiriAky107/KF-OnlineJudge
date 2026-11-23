@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "runtime_version": 1,
+  "slug": "submission-review",
+  "release": 1,
+  "author": "KF-OnlineJudge",
+  "license": "MIT",
+  "title": "提交复盘",
+  "description": "根据本人提交、评测结果和后续修改整理复盘线索。",
+  "purpose": "submission_review",
+  "method": "按题目和时间对齐提交，区分未通过、通过与基础设施故障。仅比较已授权的证据。描述观察到的修改，单独列出可能原因，并给出下一次练习可验证的假设。缺少代码差异或判定时明确说明。",
+  "requested_tools": [{"name":"submission_history","version":1}],
+  "parameters": {"days":30,"problem_ids":[],"detail":"normal"}
+}

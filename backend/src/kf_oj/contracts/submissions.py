@@ -87,6 +87,11 @@ class SubmissionPage(WireModel):
     next_after: str | None
 
 
+class ProblemSubmissionStatus(WireModel):
+    solved: bool
+    latest: SubmissionSummary | None
+
+
 class SubmissionSource(WireModel):
     submission_id: Identifier
     language: Language

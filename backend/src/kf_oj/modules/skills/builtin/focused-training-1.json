@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "runtime_version": 1,
+  "slug": "focused-training",
+  "release": 1,
+  "author": "KF-OnlineJudge",
+  "license": "MIT",
+  "title": "专项训练",
+  "description": "按目标知识点和每日时间安排巩固与迁移练习。",
+  "purpose": "focused_training",
+  "method": "根据已选知识点和可用题目安排先修检查、巩固和迁移。选择的题目必须来自当前授权的题库候选并保留题目版本。解释每道题对应的训练目标。候选不足时列出缺口。",
+  "requested_tools": [{"name":"submission_history","version":1},{"name":"training_candidates","version":1}],
+  "parameters": {"tags":[],"goal":"","daily_minutes":30,"minimum_difficulty":"easy","maximum_difficulty":"hard"}
+}

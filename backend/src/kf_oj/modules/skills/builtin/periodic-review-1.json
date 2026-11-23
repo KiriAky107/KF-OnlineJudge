@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "runtime_version": 1,
+  "slug": "periodic-review",
+  "release": 1,
+  "author": "KF-OnlineJudge",
+  "license": "MIT",
+  "title": "阶段复习",
+  "description": "结合历史表现和复习间隔安排诊断与回顾。",
+  "purpose": "periodic_review",
+  "method": "按最近练习和待验证目标挑选短诊断，再按用户的复习周期分配任务。用实际提交或练习反馈解释安排，样本不足时先收集证据。已有通过记录只说明对应题目版本的既往结果。",
+  "requested_tools": [{"name":"submission_history","version":1},{"name":"training_candidates","version":1}],
+  "parameters": {"cycle_days":14,"sessions_per_week":3,"stage_goal":""}
+}
