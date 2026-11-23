@@ -12,6 +12,8 @@ import {
 import { ApiError } from '../api/transport'
 import { boundedPoll } from '../api/polling'
 import { auditActionLabels, importStateLabels } from './presentation'
+import StatementMarkdown from '../components/StatementMarkdown.vue'
+import StatementAuthor from './StatementAuthor.vue'
 import { displayRuntimeVersion, displayTime } from '../lib/presentation'
 import { sha256Fingerprint } from '../lib/requestCrypto'
 import {
@@ -27,7 +29,18 @@ const session = useSession()
 const metadata = ref<Awaited<ReturnType<typeof api.learningMetadata>> | null>(null)
 const metadataVersion = ref<number | null>(null)
 const metadataTags = ref('')
+const prerequisiteTags = ref('')
 const metadataDifficulty = ref<'' | 'easy' | 'medium' | 'hard'>('')
+function learningTags(value: string) {
+  return [
+    ...new Set(
+      value
+        .split(/[,，]/)
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    ),
+  ]
+}
 async function editMetadata(version: Version) {
   await run(async () => {
     const current = generation
@@ -37,6 +50,7 @@ async function editMetadata(version: Version) {
     metadata.value = value
     metadataVersion.value = version.revision
     metadataTags.value = value.tags.join(', ')
+    prerequisiteTags.value = (value.prerequisite_tags ?? []).join(', ')
     metadataDifficulty.value = value.difficulty ?? ''
   })
 }
@@ -48,14 +62,8 @@ async function saveMetadata() {
       api.updateLearningMetadata(
         metadata.value!.problem_version_id,
         {
-          tags: [
-            ...new Set(
-              metadataTags.value
-                .split(/[,，]/)
-                .map((v) => v.trim())
-                .filter(Boolean),
-            ),
-          ],
+          tags: learningTags(metadataTags.value),
+          prerequisite_tags: learningTags(prerequisiteTags.value),
           difficulty: metadataDifficulty.value || null,
         },
         s,
@@ -505,7 +513,17 @@ function sampleText(encoded: string) {
                   p.enabled ? '已上架' : '已下架'
                 }}</span>
               </td>
-              <td><button :disabled="busy" @click="chooseProblem(p)">版本与状态</button></td>
+              <td>
+                <div class="admin-actions">
+                  <RouterLink
+                    v-if="p.active_version_id"
+                    :to="{ name: 'admin-problem-editor', params: { id: p.id } }"
+                    class="text-link"
+                    >编辑题目</RouterLink
+                  >
+                  <button :disabled="busy" @click="chooseProblem(p)">版本与状态</button>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -548,6 +566,10 @@ function sampleText(encoded: string) {
             :disabled="busy"
         /></label>
         <label
+          >先修知识点（逗号分隔，最多 8 个）<input v-model="prerequisiteTags" :disabled="busy"
+        /></label>
+        <p class="admin-muted">训练推荐会检查学员本人是否有这些知识点的通过记录。</p>
+        <label
           >难度<select v-model="metadataDifficulty" :disabled="busy">
             <option value="">未标注</option>
             <option value="easy">简单</option>
@@ -563,6 +585,7 @@ function sampleText(encoded: string) {
     <section class="admin-real-panel">
       <h2>导入新候选</h2>
       <p>单层 ZIP，problem.json 清单；最大 64 MiB；不运行上传内容。修改题目请上传新包。</p>
+      <StatementAuthor />
       <p v-if="!importHistoryAvailable">当前站点未启用题包导入。</p>
       <p v-else-if="!uploadAvailable">上传或校验服务尚未就绪。可查询已有任务。</p>
       <input
@@ -626,7 +649,7 @@ function sampleText(encoded: string) {
       </div>
       <article v-if="candidate" class="admin-candidate">
         <h3>{{ candidate.title }} / {{ candidate.slug }}</h3>
-        <pre>{{ candidate.statement }}</pre>
+        <StatementMarkdown :source="candidate.statement" />
         <p>{{ candidate.languages.join(' / ') }} · {{ candidate.case_count }} 个隐藏测试</p>
         <p>
           当前版本：{{
