@@ -8,7 +8,7 @@ import { boundedPoll } from '../api/polling'
 import { csrfHeaders, errorText, unwrap } from '../api/transport'
 import PageHeading from '../components/PageHeading.vue'
 import { useSession } from '../composables/useSession'
-import { trainingTurn } from '../lib/trainingSetChat'
+import { trainingTurn, type TrainingSetConditions } from '../lib/trainingSetChat'
 
 type Run = components['schemas']['AgentRunView']
 type Skill = components['schemas']['SkillVersionView']
@@ -17,6 +17,7 @@ const router = useRouter()
 const { user, refresh } = useSession()
 const skills = ref<Skill[]>([])
 const input = ref('')
+const awaitingTopic = ref<TrainingSetConditions>()
 const messages = ref<{ from: '你' | '学习助手'; text: string }[]>([])
 const run = ref<Run>()
 const active = ref<string>()
@@ -83,7 +84,10 @@ function selectRun(id: string | undefined) {
   monitor.pause()
   active.value = id
   if (run.value?.run_id !== id) run.value = undefined
-  if (!id) messages.value = []
+  if (!id) {
+    messages.value = []
+    awaitingTopic.value = undefined
+  }
   if (id && (!run.value || !terminal(run.value))) monitor.start()
 }
 
@@ -96,6 +100,7 @@ watch(
     error.value = notice.value = ''
     input.value = ''
     messages.value = []
+    awaitingTopic.value = undefined
     skills.value = []
     selectRun(undefined)
     if (!owner) return
@@ -157,9 +162,14 @@ function send() {
   if (!owner || !selected || !authorized.value || pending.value || busy.value || !text) return
   const options = draft.value?.training_set
   const source = options ? run.value : undefined
-  const turn = trainingTurn(text, source && options ? { runId: source.run_id, options } : undefined)
+  const turn = trainingTurn(
+    text,
+    source && options ? { runId: source.run_id, options } : undefined,
+    awaitingTopic.value,
+  )
   messages.value.push({ from: '你', text })
   if ('reply' in turn) {
+    if (turn.awaitingTopic) awaitingTopic.value = turn.awaitingTopic
     messages.value.push({ from: '学习助手', text: turn.reply })
     input.value = ''
     return
@@ -202,6 +212,7 @@ function send() {
     if (signal.aborted) return
     intent.complete()
     input.value = ''
+    awaitingTopic.value = undefined
     run.value = receipt
     selectRun(receipt.run_id)
     await router.replace({ query: { run: receipt.run_id } })

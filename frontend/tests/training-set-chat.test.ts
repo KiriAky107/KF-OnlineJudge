@@ -23,5 +23,29 @@ test('a replacement references the reviewed draft and does not change the count'
   assert.ok('draft' in turn)
   assert.equal(turn.draft.count, 4)
   assert.deepEqual(turn.draft.revision, { run_id: 'previous', replace_position: 2 })
+  const newCount = trainingTurn('改成 3 道题', { runId: 'revised', options: turn.draft })
+  assert.ok('draft' in newCount)
+  assert.equal(newCount.draft.count, 3)
+  assert.equal(newCount.draft.revision, undefined)
   assert.ok('reply' in trainingTurn('做一个训练集'))
+})
+
+test('a topic clarification keeps conditions from the previous turn', () => {
+  const first = trainingTurn('来两道入门题，名称：周末练习')
+  assert.ok('reply' in first && first.awaitingTopic)
+
+  const topic = trainingTurn('数组。', undefined, first.awaitingTopic)
+  assert.ok('draft' in topic)
+  assert.equal(topic.draft.title, '周末练习')
+  assert.equal(topic.draft.count, 2)
+  assert.equal(topic.draft.difficulty, 'easy')
+  assert.deepEqual(topic.draft.tags, ['数组'])
+
+  const unrestricted = trainingTurn('知识点不限', undefined, first.awaitingTopic)
+  assert.ok('draft' in unrestricted)
+  assert.deepEqual(unrestricted.draft.tags, [])
+  assert.equal(unrestricted.draft.count, 2)
+
+  const withoutContext = trainingTurn('数组。')
+  assert.ok('reply' in withoutContext)
 })
