@@ -325,7 +325,8 @@ pub fn judge_submission<P: CompilationPort + RunPort + ExpectedPort + ControlPor
 }
 pub(crate) fn capture_output(o: &Observation) -> SelfTestOutput {
     fn decode(bytes: &[u8], truncated: bool) -> (String, bool) {
-        let mut text = String::from_utf8_lossy(bytes).into_owned();
+        // Report text is stored in PostgreSQL jsonb, which rejects U+0000.
+        let mut text = String::from_utf8_lossy(bytes).replace('\0', "�");
         let truncated = truncated || text.len() > 16384;
         let mut end = text.len().min(16384);
         while !text.is_char_boundary(end) {
