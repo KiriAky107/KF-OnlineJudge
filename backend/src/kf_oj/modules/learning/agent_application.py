@@ -50,6 +50,7 @@ from kf_oj.modules.learning.public import (
     scoped_agent_tools,
 )
 from kf_oj.modules.learning.service import LearningService
+from kf_oj.modules.problems import public as problems
 from kf_oj.modules.skills.public import (
     BuiltinSkills,
     SkillBindings,
@@ -133,8 +134,8 @@ class AgentLearning:
         await self._authenticate(principal)
         return await self._store(principal).create_session(purpose)
 
-    @staticmethod
     async def _training_source(
+        self,
         storage: PostgresAgentStorage,
         session_id: UUID,
         skill_version_id: UUID,
@@ -161,7 +162,26 @@ class AgentLearning:
             item.position == revision.replace_position for item in source.result.items
         ):
             raise ValueError("training set exercise position is unavailable")
+        async with self._sessions() as db:
+            if not await self._training_draft_is_current(db, source.result):
+                raise LearningUnavailable("training set draft contains unavailable problems")
         return source.result
+
+    @staticmethod
+    async def _training_draft_is_current(db: AsyncSession, draft: FocusedTrainingResult) -> bool:
+        versions = await problems.learning_versions(
+            db, {item.problem_version_id for item in draft.items}
+        )
+        for item in draft.items:
+            version = versions.get(item.problem_version_id)
+            if (
+                version is None
+                or version.problem_id != item.problem_id
+                or not version.available
+                or not version.is_current_version
+            ):
+                return False
+        return True
 
     async def prepare(
         self,
@@ -235,7 +255,7 @@ class AgentLearning:
         if existing is not None:
             if not same_request(existing):
                 raise AgentRecordConflict("Agent request already has different inputs")
-            return await storage.execution(existing.run_id)
+            return await self.execution(principal, existing.run_id)
 
         await self._training_source(storage, session_id, skill_version_id, body.training_set)
         configuration = await self.skills.freeze(
@@ -310,7 +330,7 @@ class AgentLearning:
             if existing is None or not same_request(existing):
                 raise
             run = existing
-        return await storage.execution(run.run_id)
+        return await self.execution(principal, run.run_id)
 
     async def history(self, principal: Principal) -> AgentHistoryPage:
         await self._authenticate(principal)
@@ -324,26 +344,47 @@ class AgentLearning:
         async with self._sessions.begin() as db:
             await self._identity.require_active_session(db, principal)
             execution = await self._store(principal).execution_in(db, run_id)
-            if (
-                isinstance(execution.result, FocusedTrainingResult)
-                and execution.result.training_set
-            ):
-                saved = await LearningService.saved_agent_plan_id(db, principal, run_id)
-                return execution.model_copy(update={"training_id": saved})
+            return await self._project_execution(db, principal, execution)
+
+    async def _project_execution(
+        self, db: AsyncSession, principal: Principal, execution: AgentExecution
+    ) -> AgentExecution:
+        draft = execution.result
+        if not isinstance(draft, FocusedTrainingResult) or draft.training_set is None:
             return execution
+        saved = await LearningService.saved_agent_plan_id(db, principal, execution.run.run_id)
+        if saved is not None:
+            return execution.model_copy(update={"training_id": saved})
+        if await self._training_draft_is_current(db, draft):
+            return execution
+        return execution.model_copy(
+            update={
+                "result": draft.model_copy(
+                    update={
+                        "items": (),
+                        "goal_coverage": None,
+                        "model_hint": None,
+                        "model_status": None,
+                        "gaps": ("题库已变更。请调整条件重新生成，或新建训练集。",),
+                    }
+                )
+            }
+        )
 
     async def cancel(self, principal: Principal, run_id: UUID) -> AgentExecution:
         async with self._sessions.begin() as db:
             await self._identity.require_active_session(db, principal)
             await AgentQueue(self._sessions).cancel(db, principal.account_id, run_id)
-        return await self._store(principal).execution(run_id)
+            execution = await self._store(principal).execution_in(db, run_id)
+            return await self._project_execution(db, principal, execution)
 
     async def save_feedback(
         self, principal: Principal, run_id: UUID, body: UpdateRunFeedback
     ) -> AgentExecution:
         async with self._sessions.begin() as db:
             await self._identity.require_active_session(db, principal)
-            return await self._store(principal).save_feedback(db, run_id, body)
+            execution = await self._store(principal).save_feedback(db, run_id, body)
+            return await self._project_execution(db, principal, execution)
 
     async def save_plan(self, principal: Principal, run_id: UUID) -> TrainingDetail:
         async with self._sessions.begin() as db:

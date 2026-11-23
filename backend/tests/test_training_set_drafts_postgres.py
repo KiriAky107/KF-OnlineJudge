@@ -2,10 +2,10 @@
 
 import asyncio
 import secrets
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_problems import import_fixture
 from test_submission_create import setup_app
@@ -98,18 +98,18 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                     "count": 2,
                 }
 
-                async def send_draft(target, value):
+                async def send_draft(target, value, request_id=None):
                     return await browser.post(
                         target,
                         json={
-                            "request_id": str(uuid4()),
+                            "request_id": str(request_id or uuid4()),
                             "skill_version_id": skill_id,
                             "training_set": value,
                         },
                     )
 
-                async def complete(value):
-                    accepted = await send_draft(path, value)
+                async def complete(value, request_id=None):
+                    accepted = await send_draft(path, value, request_id)
                     assert accepted.status_code == 202, accepted.text
                     run = f"{AGENT}/runs/{accepted.json()['run_id']}"
                     assert await worker.run_once()
@@ -117,7 +117,8 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                     assert result["state"] == "succeeded", result
                     return run, result
 
-                original_path, original = await complete(draft)
+                original_request = uuid4()
+                original_path, original = await complete(draft, original_request)
                 selected = [item["problem_version_id"] for item in original["result"]["items"]]
                 assert len(selected) == 2 and set(selected) < versions
                 revision = draft | {
@@ -159,6 +160,37 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                     item["problem_version_id"] for item in renamed["result"]["items"]
                 ] == selected
                 assert (await browser.get(f"{rename_path}/trace")).json()["tool_calls"] == 0
+
+                stale = await send_draft(path, rename | {"title": "旧草案待修改"})
+                assert stale.status_code == 202, stale.text
+                retired_version = UUID(selected[0])
+                async with app.state.sessions.begin() as db:
+                    await db.execute(
+                        text("UPDATE problems SET enabled=FALSE WHERE active_version_id=:version"),
+                        {"version": retired_version},
+                    )
+                reopened = (await browser.get(original_path)).json()
+                assert reopened["result"]["items"] == []
+                assert reopened["result"]["gaps"] == [
+                    "题库已变更。请调整条件重新生成，或新建训练集。"
+                ]
+                replay = await send_draft(path, draft, original_request)
+                assert replay.status_code == 202 and replay.json() == reopened
+                assert (await send_draft(path, rename)).status_code == 409
+                assert (await browser.post(f"{original_path}/training")).status_code == 409
+                assert await worker.run_once()
+                stopped = (await browser.get(f"{AGENT}/runs/{stale.json()['run_id']}")).json()
+                assert stopped["failure_code"] == "evidence_unavailable"
+                assert stopped["result"] is None
+                historical = (await browser.get(f"/api/v1/trainings/{plan['id']}")).json()
+                assert [item["problem_version_id"] for item in historical["items"]] == reviewed
+                assert not historical["items"][0]["available"]
+                async with app.state.sessions.begin() as db:
+                    await db.execute(
+                        text("UPDATE problems SET enabled=TRUE WHERE active_version_id=:version"),
+                        {"version": retired_version},
+                    )
+
                 queued = await send_draft(path, rename | {"title": "下次练习"})
                 assert queued.status_code == 202, queued.text
 
