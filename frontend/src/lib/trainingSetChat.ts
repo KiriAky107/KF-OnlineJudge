@@ -52,7 +52,8 @@ const difficultyOf = (text: string): TrainingSetDraft['difficulty'] | undefined 
   if (/困难|高级/i.test(text)) return 'hard'
   return undefined
 }
-const difficultySuffix = /(?:入门|简单|初级|中等|中级|困难|高级)$/g
+const topicDifficulty =
+  /^(?:入门|简单|初级|中等|中级|困难|高级)(?:难度)?\s*的?|(?:入门|简单|初级|中等|中级|困难|高级)$/g
 
 function splitTags(text: string): string[] {
   return [
@@ -92,12 +93,16 @@ export function trainingTurn(
     /(?:创建|建立|建|生成|做|出|安排|来)\s*(?:(?:一|1)(?:套|个|组|份)\s*)?([^，。；！?？:“"「」《》\n]+?)\s*(?:的)?训练(?:集|题单)/.exec(
       input,
     )?.[1]
-  const topic = namedTopic
+  const topicText = namedTopic
     ?.trim()
     .replace(/^(?:一|1)(?:套|个|组|份)\s*/, '')
-    .replace(difficultySuffix, '')
+    .replace(countPattern, '')
     .trim()
-  const unrestrictedTopic = /不限(?:知识点|主题)|(?:知识点|主题)不限/.test(input)
+    .replace(/(?:题目|题)$/, '')
+    .trim()
+  const topic = topicText?.replace(topicDifficulty, '').trim()
+  const difficultyOnly = !explicitTags && difficulty != null && !!topicText && topic === ''
+  const unrestrictedTopic = difficultyOnly || /不限(?:知识点|主题)|(?:知识点|主题)不限/.test(input)
   const shortTopic =
     awaitingTopic &&
     !explicitTitle &&

@@ -72,6 +72,33 @@ test('a named training request keeps explicit tags, count and difficulty', () =>
   assert.equal(two.draft.cover_each_goal, true)
 })
 
+test('difficulty-only training selects across topics and clears an earlier topic filter', () => {
+  const text = '给我创建一个简单题的训练集'
+  const turn = trainingTurn(text)
+  assert.ok('draft' in turn)
+  assert.equal(turn.draft.count, 5)
+  assert.equal(turn.draft.difficulty, 'easy')
+  assert.deepEqual(turn.draft.tags, [])
+
+  const revised = trainingTurn(text, {
+    runId: 'previous',
+    options: { ...turn.draft, tags: ['简单题'] },
+  })
+  assert.ok('draft' in revised)
+  assert.deepEqual(revised.draft.tags, [])
+  assert.equal(revised.draft.revision, undefined)
+
+  const withTopic = trainingTurn('建一套 4 道入门数组题的训练集')
+  assert.ok('draft' in withTopic)
+  assert.equal(withTopic.draft.count, 4)
+  assert.equal(withTopic.draft.difficulty, 'easy')
+  assert.deepEqual(withTopic.draft.tags, ['数组'])
+
+  const explicit = trainingTurn('创建简单题的训练集，知识点：数组')
+  assert.ok('draft' in explicit)
+  assert.deepEqual(explicit.draft.tags, ['数组'])
+})
+
 test('a replacement references the reviewed draft and does not change the count', () => {
   const turn = trainingTurn('换第 2 题', {
     runId: 'previous',
