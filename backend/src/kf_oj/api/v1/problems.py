@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from kf_oj.contracts.difficulty import DifficultyKey, DifficultyLevel
 from kf_oj.contracts.problems import ProblemDetail, ProblemDifficulty, ProblemPage
 from kf_oj.modules.problems.public import ProblemUnavailable
 from kf_oj.modules.problems.service import ProblemService
@@ -24,6 +25,7 @@ async def list_problems(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     search: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
     difficulty: ProblemDifficulty | None = None,
+    difficulty_key: DifficultyKey | None = None,
     tag: Annotated[str | None, Query(min_length=1, max_length=40)] = None,
 ) -> ProblemPage:
     return await service(request).list(
@@ -31,8 +33,14 @@ async def list_problems(
         limit=limit,
         search=search.strip() if search else None,
         difficulty=difficulty,
+        difficulty_key=difficulty_key,
         tag=tag,
     )
+
+
+@router.get("/difficulty-levels", response_model=tuple[DifficultyLevel, ...])
+async def list_difficulty_levels(request: Request):
+    return await service(request).levels()
 
 
 @router.get("/versions/{version_id}", response_model=ProblemDetail)

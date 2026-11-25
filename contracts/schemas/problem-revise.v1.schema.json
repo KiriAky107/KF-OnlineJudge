@@ -1,5 +1,9 @@
 {
   "$defs": {
+    "DifficultyKey": {
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+      "type": "string"
+    },
     "LearningLabel": {
       "maxLength": 40,
       "minLength": 1,
@@ -23,6 +27,17 @@
             }
           ],
           "title": "Difficulty"
+        },
+        "difficulty_key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DifficultyKey"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "prerequisite_tags": {
           "anyOf": [

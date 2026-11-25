@@ -29,7 +29,9 @@ from kf_oj.contracts.problems import (
 from kf_oj.infra.artifacts.models import Artifact
 from kf_oj.infra.artifacts.repository import ArtifactRepository
 from kf_oj.modules.problems import repository
+from kf_oj.modules.problems.difficulty import difficulty_levels
 from kf_oj.modules.problems.import_format import ImportEnvelope, ProblemImport
+from kf_oj.modules.problems.learning_models import ProblemLearningMetadata
 from kf_oj.modules.problems.local_files import LocalImportFiles
 from kf_oj.modules.problems.models import Problem
 from kf_oj.modules.problems.public import JudgingVersion, ProblemUnavailable
@@ -136,17 +138,32 @@ class ProblemService:
         limit: int = 20,
         search: str | None = None,
         difficulty: str | None = None,
+        difficulty_key: str | None = None,
         tag: str | None = None,
     ) -> ProblemPage:
         if not 1 <= limit <= 100:
             raise ValueError("invalid page limit")
         async with self.sessions() as session:
             rows = await repository.list_public(
-                session, after, limit + 1, search=search, difficulty=difficulty, tag=tag
+                session,
+                after,
+                limit + 1,
+                search=search,
+                difficulty=difficulty,
+                difficulty_key=difficulty_key,
+                tag=tag,
             )
             visible = rows[:limit]
             counts = await catalog_statistics(
                 session, tuple(problem.id for problem, _, _ in visible)
+            )
+            levels = await difficulty_levels(
+                session,
+                {
+                    metadata.difficulty_key or metadata.difficulty
+                    for _, _, metadata in visible
+                    if metadata is not None and metadata.difficulty is not None
+                },
             )
             items = []
             for problem, version, metadata in visible:
@@ -156,6 +173,9 @@ class ProblemService:
                     CatalogProblem(
                         **self._summary(problem, version).model_dump(),
                         difficulty=metadata.difficulty if metadata else None,
+                        difficulty_level=levels.get(metadata.difficulty_key or metadata.difficulty)
+                        if metadata
+                        else None,
                         tags=tuple(metadata.tags) if metadata else (),
                         accepted_submissions=verdicts.get(Verdict.ACCEPTED, 0),
                         judged_submissions=sum(verdicts.values()),
@@ -168,13 +188,22 @@ class ProblemService:
                 next_after=visible[-1][0].slug if len(rows) > limit else None,
             )
 
+    async def levels(self):
+        async with self.sessions() as session:
+            return tuple((await difficulty_levels(session)).values())
+
     async def detail(self, version_id: UUID) -> ProblemDetail:
         async with self.sessions() as session:
             row = await repository.public_version(session, version_id)
             if row is None:
                 raise ProblemUnavailable("problem version unavailable")
             version, problem = row
-            return self._detail(problem, version)
+            metadata = await session.get(ProblemLearningMetadata, version.id)
+            key = (metadata.difficulty_key or metadata.difficulty) if metadata else None
+            levels = await difficulty_levels(session, {key}) if key else {}
+            return self._detail(problem, version).model_copy(
+                update={"difficulty_level": levels.get(key)}
+            )
 
     @classmethod
     def _detail(cls, problem, version):

@@ -1,7 +1,7 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import array
 
-from kf_oj.modules.problems.learning_models import ProblemLearningMetadata
+from kf_oj.modules.problems.learning_models import ProblemDifficultyLevel, ProblemLearningMetadata
 from kf_oj.modules.problems.models import Problem, ProblemVersion
 from kf_oj.modules.problems.public import LearningCandidate
 
@@ -40,11 +40,19 @@ def project(row):
         row.slug,
         row.active_version_id == row.version_id,
         tuple(row.prerequisite_tags or ()),
+        getattr(row, "difficulty_score", None),
     )
 
 
 async def candidates(
-    session, *, tags=(), difficulty=None, allowed_difficulties=(), match_any_tag=False, limit=500
+    session,
+    *,
+    tags=(),
+    difficulty=None,
+    allowed_difficulties=(),
+    match_any_tag=False,
+    score_range: tuple[int | None, int | None] | None = None,
+    limit=500,
 ):
     if not 1 <= limit <= 500:
         raise ValueError("invalid candidate limit")
@@ -66,6 +74,22 @@ async def candidates(
         q = q.where(ProblemLearningMetadata.difficulty == difficulty)
     if allowed_difficulties:
         q = q.where(ProblemLearningMetadata.difficulty.in_(allowed_difficulties))
+    if score_range is not None:
+        score = ProblemDifficultyLevel.score
+        q = q.outerjoin(
+            ProblemDifficultyLevel,
+            ProblemDifficultyLevel.key
+            == func.coalesce(
+                ProblemLearningMetadata.difficulty_key, ProblemLearningMetadata.difficulty
+            ),
+        ).add_columns(score.label("difficulty_score"))
+        minimum, maximum = score_range
+        if minimum is not None:
+            q = q.where(score >= minimum)
+        if maximum is not None:
+            q = q.where(score <= maximum)
+        if minimum is not None or maximum is not None:
+            q = q.order_by(None).order_by(score, Problem.id)
     rows = await session.execute(q.limit(limit + 1))
     return tuple(project(row) for row in rows)
 

@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import Field, field_validator
 
+from kf_oj.contracts.difficulty import DifficultyKey
 from kf_oj.contracts.judging import WireModel
 
 type LearningLabel = Annotated[str, Field(min_length=1, max_length=40)]
@@ -13,6 +14,9 @@ class LearningMetadataUpdate(WireModel):
     tags: Annotated[tuple[LearningLabel, ...], Field(max_length=16)]
     difficulty: Literal["easy", "medium", "hard"] | None
     prerequisite_tags: PrerequisiteTags | None = None
+    difficulty_key: DifficultyKey | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @field_validator("tags", "prerequisite_tags")
     @classmethod
