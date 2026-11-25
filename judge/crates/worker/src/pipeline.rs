@@ -143,34 +143,26 @@ pub fn compiler_spec(
     run_id: String,
     budget: &RunLimits,
 ) -> ExecutionSpec {
-    let (profile, compiler, standard, name) = match language {
-        Language::C17 => (
-            ExecutionProfile::CompileC,
-            "/usr/bin/gcc",
-            "-std=c17",
-            "main.c",
-        ),
-        Language::Cpp20 => (
-            ExecutionProfile::CompileCpp,
-            "/usr/bin/g++",
-            "-std=c++20",
-            "main.cpp",
-        ),
+    let profile = match language {
+        Language::C17 => ExecutionProfile::CompileC,
+        Language::Cpp20 => ExecutionProfile::CompileCpp,
     };
-    ExecutionSpec {
+    gnu_compiler_spec(profile, source, run_id, budget).expect("GNU compilation profile")
+}
+
+pub(crate) fn gnu_compiler_spec(
+    profile: ExecutionProfile,
+    source: String,
+    run_id: String,
+    budget: &RunLimits,
+) -> Option<ExecutionSpec> {
+    let (argv, name) = kf_sandbox::profiles::gnu_compile_command(profile)?;
+    Some(ExecutionSpec {
         schema_version: kf_contracts::SchemaVersion,
         runtime_identity: None,
         run_id,
         profile,
-        argv: vec![
-            compiler.into(),
-            standard.into(),
-            "-O2".into(),
-            "-pipe".into(),
-            format!("/work/{name}"),
-            "-o".into(),
-            "/work/main".into(),
-        ],
+        argv: argv.into_iter().map(String::from).collect(),
         env: Default::default(),
         cwd: ".".into(),
         inputs: vec![InputArtifact {
@@ -180,7 +172,7 @@ pub fn compiler_spec(
         stdin_artifact: None,
         outputs: vec!["main".into()],
         limits: limits(budget),
-    }
+    })
 }
 type StageControl<'a> = Box<dyn FnMut(Stage, Option<u16>) -> Result<(), StageFailure> + 'a>;
 pub struct Attempt<'a, A: ArtifactPort> {

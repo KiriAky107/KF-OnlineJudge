@@ -1,7 +1,8 @@
 //! Ordinary v2 admission and closed specifications. This module neither reads
 //! user files nor executes source; every stage still goes through Root gates.
-use crate::pipeline::{compiler_spec, limits};
+use crate::pipeline::{compiler_spec, gnu_compiler_spec, limits, verify};
 use kf_contracts::{judging as v1, judging_v2 as v2, judging_versions as versions};
+use kf_engine::diagnostic::{OptimizationLevel, OptimizationRequest};
 use kf_sandbox::spec::{ExecutionProfile as P, ExecutionSpec, InputArtifact, SpecPolicy};
 use sha2::{Digest as _, Sha256};
 
@@ -164,6 +165,39 @@ fn checked(spec: ExecutionSpec) -> Result<ExecutionSpec, &'static str> {
     Ok(spec)
 }
 
+/// Construct a compile stage for the diagnostic worker from the admitted task.
+/// This only binds inputs; execution must still obtain approval from Root.
+pub fn diagnostic_preparation_spec(
+    request: &OptimizationRequest<'_>,
+    level: OptimizationLevel,
+    run_id: String,
+    source: &[u8],
+) -> Result<ExecutionSpec, &'static str> {
+    use OptimizationLevel::{O0, O2};
+
+    let config = request.configuration;
+    let profile = match (config.language, level) {
+        (v2::Language::C17, O0) => P::CompileCDiagnostic,
+        (v2::Language::Cpp20, O0) => P::CompileCppDiagnostic,
+        (v2::Language::C17, O2) => P::CompileC,
+        (v2::Language::Cpp20, O2) => P::CompileCpp,
+        _ => return Err("diagnostic compilation requires C17 or C++20"),
+    };
+    config.validate()?;
+    config.compile_limits.validate()?;
+    request.binding.validate()?;
+    request.source.validate()?;
+    if request.source.bytes == 0 || request.source.bytes > v1::MAX_SOURCE_BYTES {
+        return Err("invalid diagnostic source size");
+    }
+    verify(request.source, source)
+        .map_err(|_| "diagnostic source differs from admitted artifact")?;
+    let mut spec = gnu_compiler_spec(profile, "source".into(), run_id, &config.compile_limits)
+        .ok_or("invalid diagnostic compiler profile")?;
+    spec.runtime_identity = Some(config.toolchain.clone());
+    Ok(spec)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +217,49 @@ mod tests {
         let job = AuthorizedJob::admit(m, report.binding, digest, 1, &policy).unwrap();
         (job, report.compilation.program.unwrap())
     }
+    #[test]
+    fn diagnostic_compile_specs_share_source_pin_and_compile_budget() {
+        let (job, _) = authorized("cpp20");
+        let m = job.manifest();
+        let configuration = v2::LanguageConfiguration {
+            language: m.language,
+            toolchain: m.toolchain.clone(),
+            compile_limits: m.compile_limits.clone(),
+            run_limits: m.run_limits.clone(),
+            job_wall_time_us: m.job_wall_time_us,
+        };
+        let source = b"synthetic source fixture";
+        let artifact = v1::ArtifactReference {
+            digest: format!("{:x}", Sha256::digest(source)).try_into().unwrap(),
+            bytes: source.len() as u64,
+        };
+        let request = OptimizationRequest {
+            configuration: &configuration,
+            binding: job.binding(),
+            source: &artifact,
+            public_sample: &m.cases[0],
+            expected: b"",
+        };
+        let o0 = diagnostic_preparation_spec(&request, OptimizationLevel::O0, "o0".into(), source)
+            .unwrap();
+        let o2 = diagnostic_preparation_spec(&request, OptimizationLevel::O2, "o2".into(), source)
+            .unwrap();
+        assert_eq!(o0.profile, P::CompileCppDiagnostic);
+        assert_eq!(o2.profile, P::CompileCpp);
+        assert_eq!((o0.argv[2].as_str(), o2.argv[2].as_str()), ("-O0", "-O2"));
+        assert_eq!(o0.runtime_identity.as_ref(), Some(&configuration.toolchain));
+        assert_eq!(o0.runtime_identity, o2.runtime_identity);
+        assert_eq!(o0.inputs, o2.inputs);
+        assert_eq!(o0.limits, o2.limits);
+        assert!(o0.stdin_artifact.is_none());
+        let mut different = *source;
+        different[0] = b'x';
+        assert!(
+            diagnostic_preparation_spec(&request, OptimizationLevel::O0, "o0".into(), &different)
+                .is_err()
+        );
+    }
+
     #[test]
     fn all_four_languages_use_exact_pins_fixed_commands_and_private_points() {
         for (language, prepare, run) in [
