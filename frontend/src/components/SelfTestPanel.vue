@@ -245,8 +245,8 @@ onBeforeUnmount(() => {
       <el-input
         v-model="input"
         type="textarea"
-        :rows="3"
-        resize="none"
+        :rows="5"
+        resize="vertical"
         aria-label="自测输入"
         placeholder="输入自测数据（可留空）"
         @input="sampleIndex = null"
@@ -358,8 +358,7 @@ onBeforeUnmount(() => {
 </template>
 <style scoped>
 .self-test-panel {
-  height: 100%;
-  min-height: 0;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -379,12 +378,10 @@ onBeforeUnmount(() => {
   background: var(--el-fill-color-lighter);
 }
 .test-body {
-  padding: 10px 14px;
+  padding: 14px 16px;
   flex: 1;
-  min-height: 0;
-  overflow: auto;
   background: var(--el-bg-color, #fff);
-  font-size: 13px;
+  font-size: 14px;
 }
 .test-input {
   display: flex;
@@ -397,8 +394,7 @@ onBeforeUnmount(() => {
 }
 .test-input :deep(textarea),
 .test-output pre {
-  font-family: ui-monospace, monospace;
-  font-size: 13px;
+  font: 0.9375rem / 1.65 var(--judge-sample-font, ui-monospace, monospace);
 }
 .input-budget {
   align-self: flex-end;
@@ -406,23 +402,23 @@ onBeforeUnmount(() => {
   font-variant-numeric: tabular-nums;
 }
 .input-budget--exceeded {
-  color: #a32d48;
+  color: var(--danger-ink);
 }
 .test-status {
   margin-bottom: 10px;
   padding: 8px 12px;
   border-radius: 7px;
   border-inline-start: 4px solid currentColor;
-  background: #edf5ff;
-  color: #285783;
+  background: var(--accent-bg);
+  color: var(--accent-ink);
 }
 .test-status[data-tone='success'] {
-  background: #e9f7ee;
-  color: #155f46;
+  background: var(--success-soft);
+  color: var(--success-ink);
 }
 .test-status[data-tone='error'] {
-  background: #fff0f1;
-  color: #922f49;
+  background: var(--danger-soft);
+  color: var(--danger-ink);
 }
 .test-status-title {
   font-size: 14px;
@@ -476,7 +472,7 @@ onBeforeUnmount(() => {
 }
 .test-output pre {
   padding: 6px 9px;
-  max-height: 8rem;
+  max-height: 16rem;
   overflow: auto;
   background: var(--el-fill-color-lighter);
   border: 1px solid var(--el-border-color);

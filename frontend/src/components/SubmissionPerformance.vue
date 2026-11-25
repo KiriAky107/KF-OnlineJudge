@@ -261,7 +261,7 @@ onBeforeUnmount(() => {
 }
 .performance-metrics button[aria-pressed='true'] {
   border-color: #87b5e0;
-  background: #edf5ff;
+  background: var(--accent-bg);
 }
 .performance-metrics button strong {
   font-size: 20px;
@@ -303,15 +303,15 @@ onBeforeUnmount(() => {
   fill: #2467ac;
 }
 .chart-marker {
-  stroke: #137355;
+  stroke: var(--success-ink);
   stroke-dasharray: 4 3;
   stroke-width: 2;
   pointer-events: none;
 }
 .chart-marker-dot,
 .current-dot {
-  fill: #137355;
-  background: #137355;
+  fill: var(--success-ink);
+  background: var(--success-ink);
 }
 .current-dot {
   display: inline-block;
