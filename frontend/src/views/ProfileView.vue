@@ -9,6 +9,7 @@ import { displayTime } from '../lib/presentation'
 import EmptyState from '../components/EmptyState.vue'
 import JudgementStatus from '../components/JudgementStatus.vue'
 import PanelCard from '../components/PanelCard.vue'
+import SubmissionHeatmap from '../components/SubmissionHeatmap.vue'
 
 const route = useRoute()
 const session = useSession()
@@ -19,6 +20,10 @@ const owner = computed(() => {
 const page = ref<components['schemas']['SubmissionPage'] | null>(null)
 const titles = ref<Record<string, string>>({})
 const error = ref('')
+const activity = ref<components['schemas']['SubmissionActivity']>()
+const activityError = ref('')
+const rating = ref<components['schemas']['ContestRating']>()
+const ratingError = ref('')
 const limit = 100
 const languages = { c17: 'C17', cpp20: 'C++20', python313: 'Python 3.13', java21: 'Java 21' }
 const records = computed(() => page.value?.items ?? [])
@@ -34,25 +39,6 @@ const rate = computed(() =>
       )
     : '—',
 )
-const dateFormat = new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' })
-const dayKey = (date: Date) => [date.getFullYear(), date.getMonth(), date.getDate()].join('-')
-const activity = computed(() => {
-  const counts = new Map<string, number>()
-  for (const row of records.value) {
-    const day = dayKey(new Date(row.created_at))
-    counts.set(day, (counts.get(day) ?? 0) + 1)
-  }
-  const today = new Date()
-  return Array.from({ length: 28 }, (_, index) => {
-    const date = new Date(today)
-    date.setDate(today.getDate() - 27 + index)
-    return {
-      key: dayKey(date),
-      label: dateFormat.format(date),
-      count: counts.get(dayKey(date)) ?? 0,
-    }
-  })
-})
 function problemTitle(version: string) {
   return titles.value[version] ?? `题目版本 ${version.slice(0, 8)}`
 }
@@ -63,11 +49,33 @@ watch(
     page.value = null
     titles.value = {}
     error.value = ''
+    activity.value = undefined
+    activityError.value = ''
+    rating.value = undefined
+    ratingError.value = ''
     if (!user) return
 
     const request = new AbortController()
     onCleanup(() => request.abort())
     const { signal } = request
+    const loadRating = api
+      .GET('/api/v1/contests/my-rating', { signal })
+      .then(unwrap)
+      .then((result) => {
+        if (!signal.aborted) rating.value = result
+      })
+      .catch((cause) => {
+        if (!signal.aborted) ratingError.value = errorText(cause)
+      })
+    const loadActivity = api
+      .GET('/api/v1/submissions/activity', { signal })
+      .then(unwrap)
+      .then((result) => {
+        if (!signal.aborted) activity.value = result
+      })
+      .catch((cause) => {
+        if (!signal.aborted) activityError.value = errorText(cause)
+      })
     try {
       const result = unwrap(
         await api.GET('/api/v1/submissions', { params: { query: { limit } }, signal }),
@@ -87,6 +95,8 @@ watch(
       }
     } catch (cause) {
       if (!signal.aborted && page.value === null) error.value = errorText(cause)
+    } finally {
+      await Promise.all([loadActivity, loadRating])
     }
   },
   { immediate: true },
@@ -109,6 +119,72 @@ watch(
         <RouterLink class="el-button el-button--primary" to="/submissions">全部提交</RouterLink>
       </div>
     </div>
+    <PanelCard class="profile-calendar" title="交题热力图" icon="rankings">
+      <SubmissionHeatmap v-if="activity" :activity="activity" />
+      <p v-else-if="activityError" role="alert">{{ activityError }}</p>
+      <p v-else role="status">正在读取交题活动…</p>
+    </PanelCard>
+    <PanelCard class="profile-calendar" title="比赛评分" icon="contests">
+      <p v-if="ratingError" role="alert">{{ ratingError }}</p>
+      <p v-else-if="!rating" role="status">正在读取比赛评分…</p>
+      <p v-else-if="rating.rating === null" class="muted">
+        未定级 · 完成首场正式计分赛并结算后显示评分。
+      </p>
+      <template v-else>
+        <dl class="rating-summary">
+          <div>
+            <dt>当前评分</dt>
+            <dd>{{ rating.rating }}</dd>
+          </div>
+          <div>
+            <dt>最高评分</dt>
+            <dd>{{ rating.highest_rating }}</dd>
+          </div>
+          <div>
+            <dt>计分比赛</dt>
+            <dd>{{ rating.rated_contests }}</dd>
+          </div>
+        </dl>
+        <div class="training-table">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">比赛</th>
+                <th scope="col">时间</th>
+                <th scope="col">名次</th>
+                <th scope="col">赛前 → 赛后</th>
+                <th scope="col">变化</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="entry in rating.history" :key="entry.contest_key">
+                <th scope="row">{{ entry.title }}</th>
+                <td>
+                  <time :datetime="entry.ended_at">{{ displayTime(entry.ended_at) }}</time>
+                </td>
+                <td>{{ entry.rank }}</td>
+                <td>{{ entry.old_rating }} → {{ entry.new_rating }}</td>
+                <td
+                  :class="
+                    entry.new_rating > entry.old_rating
+                      ? 'rating-rise'
+                      : entry.new_rating < entry.old_rating
+                        ? 'rating-fall'
+                        : ''
+                  "
+                >
+                  {{ entry.new_rating > entry.old_rating ? '+' : ''
+                  }}{{ entry.new_rating - entry.old_rating }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-if="rating.rated_contests > rating.history.length" class="small muted">
+          显示最近 {{ rating.history.length }} 场。
+        </p>
+      </template>
+    </PanelCard>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-else-if="!page" role="status">正在读取提交记录…</p>
     <template v-else>
@@ -161,22 +237,6 @@ watch(
           </PanelCard>
         </div>
         <div class="stack">
-          <PanelCard title="最近 28 天提交活动" icon="rankings">
-            <div class="heatmap profile-activity" role="group" aria-label="最近 28 天每日提交次数">
-              <span
-                v-for="day in activity"
-                :key="day.key"
-                class="heat-cell"
-                :data-level="Math.min(day.count, 4)"
-                :title="`${day.label} · ${day.count} 次提交`"
-                :aria-label="`${day.label} · ${day.count} 次提交`"
-              />
-            </div>
-            <div class="detail-meta">
-              <span>{{ activity[0]?.label }}</span
-              ><span>{{ activity.at(-1)?.label }}</span>
-            </div>
-          </PanelCard>
           <PanelCard title="通过的题目版本" icon="problems">
             <p v-if="!solved.length" class="small muted">暂无通过记录</p>
             <ul v-else class="solved-versions">
@@ -210,8 +270,30 @@ watch(
 .profile-stats {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
-.profile-activity {
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+.profile-calendar {
+  margin-block: 0.9rem;
+}
+.rating-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 2rem;
+  margin: 0 0 0.8rem;
+}
+.rating-summary dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.rating-summary dd {
+  margin: 0.15rem 0 0;
+  font-weight: 700;
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+.rating-rise {
+  color: var(--success-ink);
+}
+.rating-fall {
+  color: var(--danger-ink);
 }
 .solved-versions {
   display: grid;

@@ -1,6 +1,7 @@
 """Owned submission projections. Infrastructure attempts never count as student attempts."""
 
 from sqlalchemy import and_, case, func, or_, select, tuple_
+from sqlalchemy.dialects.postgresql import distinct_on
 
 from kf_oj.modules.submissions.models import Evaluation, Submission
 from kf_oj.modules.submissions.public import (
@@ -19,6 +20,23 @@ ORDINARY = (
     "memory_limit_exceeded",
     "output_limit_exceeded",
 )
+
+
+async def recent_versions(session, principal, *, since):
+    latest = (
+        select(Submission.problem_version_id, Submission.created_at)
+        .where(Submission.account_id == principal.account_id, Submission.created_at >= since)
+        .ext(distinct_on(Submission.problem_id))
+        .order_by(Submission.problem_id, Submission.created_at.desc(), Submission.id.desc())
+        .subquery()
+    )
+    return tuple(
+        await session.scalars(
+            select(latest.c.problem_version_id)
+            .order_by(latest.c.created_at.desc(), latest.c.problem_version_id)
+            .limit(8)
+        )
+    )
 
 
 def owned(principal):
@@ -143,6 +161,7 @@ async def practice(session, principal, version_ids, *, as_of):
             Submission.problem_version_id,
             func.max(Submission.created_at),
             func.max(Submission.created_at).filter(Evaluation.verdict == "accepted"),
+            func.min(Submission.created_at).filter(Evaluation.verdict == "accepted"),
         )
         .join(Evaluation, Evaluation.submission_id == Submission.id)
         .where(
@@ -157,8 +176,8 @@ async def practice(session, principal, version_ids, *, as_of):
         .group_by(Submission.problem_version_id)
     )
     return {
-        version_id: LearningPractice(attempt, success)
-        for version_id, attempt, success in await session.execute(query)
+        version_id: LearningPractice(attempt, latest_pass, first_pass)
+        for version_id, attempt, latest_pass, first_pass in await session.execute(query)
     }
 
 

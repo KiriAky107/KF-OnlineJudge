@@ -5,6 +5,7 @@ import secrets
 from uuid import uuid4
 
 import httpx
+import pytest
 from conftest import connect
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -16,7 +17,10 @@ ROOT = "/api/v1/learning/agent"
 ORIGIN = "http://localhost:5173"
 
 
-def test_owner_can_save_replace_and_withdraw_hint_feedback(postgres_url, tmp_path, monkeypatch):
+@pytest.mark.parametrize("purpose", ["guided_help", "focused_training", "periodic_review"])
+def test_owner_can_save_replace_and_withdraw_run_feedback(
+    postgres_url, tmp_path, monkeypatch, purpose
+):
     async def exercise():
         app, engine, module = await setup_app(postgres_url, tmp_path)
         monkeypatch.setattr(module, "build_engine", lambda _: engine)
@@ -46,14 +50,14 @@ def test_owner_can_save_replace_and_withdraw_hint_feedback(postgres_url, tmp_pat
                     actor.headers["x-csrf-token"] = actor.cookies["kf_csrf"]
 
                 rows = (await owner.get(f"{ROOT}/skills")).json()["versions"]
-                skill = next(item for item in rows if item["purpose"] == "guided_help")
+                skill = next(item for item in rows if item["purpose"] == purpose)
                 skill_id = skill["version_id"]
                 binding = await owner.put(
                     f"{ROOT}/skills/{skill_id}",
                     json={"enabled": True, "authorized_tools": skill["available_tools"]},
                 )
                 assert binding.status_code == 200
-                created = await owner.post(f"{ROOT}/sessions", json={"purpose": "guided_help"})
+                created = await owner.post(f"{ROOT}/sessions", json={"purpose": purpose})
                 assert created.status_code == 201
                 receipt = await owner.post(
                     f"{ROOT}/sessions/{created.json()['session_id']}/runs",
@@ -69,6 +73,7 @@ def test_owner_can_save_replace_and_withdraw_hint_feedback(postgres_url, tmp_pat
                 assert await worker.run_once()
                 before = (await owner.get(path)).json()
                 assert before["state"] == "succeeded", before
+                assert before["result"]["purpose"] == purpose
                 assert "feedback" not in before
                 assert (await foreign.get(path)).status_code == 404
                 assert (await foreign.put(action, json=feedback)).status_code == 404

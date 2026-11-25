@@ -24,6 +24,7 @@ from kf_oj.modules.identity.public import ProblemMaintenancePort
 from kf_oj.modules.operations.public import MaintenanceAuditPort
 from kf_oj.modules.problems import repository
 from kf_oj.modules.problems.candidate_validation import validate_candidate
+from kf_oj.modules.problems.difficulty import save_difficulty, select_difficulty_key
 from kf_oj.modules.problems.import_format import ImportEnvelope
 from kf_oj.modules.problems.import_models import (
     CandidateCase,
@@ -61,6 +62,7 @@ def project_learning_metadata(version_id, row):
         tags=tuple(row.tags) if row else (),
         prerequisite_tags=tuple(row.prerequisite_tags) if row else (),
         difficulty=row.difficulty if row else None,
+        difficulty_key=row.difficulty_key if row else None,
         revision=row.revision if row else 0,
     )
 
@@ -389,6 +391,7 @@ class ProblemMaintenance:
             )
             await persist_published_version(session, problem, version, cases)
             tags, difficulty = request.metadata.tags, request.metadata.difficulty
+            difficulty_key = await select_difficulty_key(session, request.metadata, metadata)
             prerequisites = request.metadata.prerequisite_tags
             if prerequisites is None:
                 prerequisites = inherited.prerequisite_tags
@@ -399,6 +402,7 @@ class ProblemMaintenance:
                         tags=list(tags),
                         prerequisite_tags=list(prerequisites),
                         difficulty=difficulty,
+                        difficulty_key=difficulty_key,
                         revision=1,
                     )
                 )
@@ -428,6 +432,10 @@ class ProblemMaintenance:
             await session.flush()
             return await self._record(session, principal, request, action, digest, problem, version)
 
+    async def put_difficulty_level(self, principal, key, body):
+        async with self.transaction(principal) as session:
+            return await save_difficulty(session, key, body)
+
     async def learning_metadata(self, principal, version_id, body=None):
         async with self.transaction(principal) as session:
             version = await session.scalar(
@@ -437,6 +445,7 @@ class ProblemMaintenance:
                 raise ImportMissing("problem version unavailable")
             row = await session.get(ProblemLearningMetadata, version_id)
             if body is not None:
+                difficulty_key = await select_difficulty_key(session, body, row)
                 prerequisites = (
                     list(body.prerequisite_tags)
                     if body.prerequisite_tags is not None
@@ -450,16 +459,19 @@ class ProblemMaintenance:
                         tags=list(body.tags),
                         prerequisite_tags=prerequisites,
                         difficulty=body.difficulty,
+                        difficulty_key=difficulty_key,
                         revision=1,
                     )
                     session.add(row)
                 elif (
                     row.tags != list(body.tags)
                     or row.difficulty != body.difficulty
+                    or row.difficulty_key != difficulty_key
                     or row.prerequisite_tags != prerequisites
                 ):
                     row.tags, row.difficulty = list(body.tags), body.difficulty
                     row.prerequisite_tags = prerequisites
+                    row.difficulty_key = difficulty_key
                     row.revision += 1
                 await self.audit.record(
                     session,

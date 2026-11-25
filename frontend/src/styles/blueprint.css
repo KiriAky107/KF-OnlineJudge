@@ -8,14 +8,14 @@
   box-shadow: none;
 }
 .header-inner {
-  min-height: 76px;
-  max-width: 1360px;
+  min-height: 50px;
+  max-width: 1760px;
 }
 .brand-mark {
-  font-size: 25px;
-  padding: 10px 12px;
+  font-size: 21px;
+  padding: 6px 8px;
   border-radius: 11px;
-  background: #eaf4ff;
+  background: var(--accent-bg);
   letter-spacing: -1.5px;
 }
 .brand-dot {
@@ -33,58 +33,54 @@
 }
 .main-nav a {
   align-self: center;
-  padding: 10px 13px;
+  padding: 7px 9px;
   border: 0;
   border-radius: 8px;
   font-size: 13px;
 }
 .main-nav a.active {
   border: 0;
-  background: #edf6ff;
+  background: var(--accent-bg);
   font-weight: 650;
-}
-.main-nav .el-icon {
-  display: none;
 }
 .header-account .el-button {
   border-radius: 8px;
   padding: 8px 14px;
 }
 .app-main {
-  width: min(100% - 64px, 1360px);
-  margin-top: 30px;
-  margin-bottom: 50px;
+  width: min(calc(100% - clamp(24px, 3.5vw, 52px)), 1760px);
+  margin-block: 18px 28px;
 }
 .app-footer {
   background: transparent;
   box-shadow: none;
-  padding: 38px 0 22px;
+  padding: 24px 0 16px;
 }
 .footer-inner,
 .footer-bottom {
-  max-width: 1360px;
+  max-width: 1760px;
 }
 .footer-brand .brand-mark {
   display: inline-block;
-  background: #e3eefb;
+  background: var(--accent-bg);
 }
 .footer-inner h3 {
   font-size: 12px;
-  color: #657e9e;
+  color: var(--secondary-ink);
 }
 .panel {
   border-radius: 16px;
   box-shadow: none;
-  border: 1px solid #e1e8f1;
+  border: 1px solid var(--line);
 }
 .panel-heading {
   border: 0;
-  padding: 23px 24px 10px;
-  min-height: 68px;
-  align-items: flex-start;
+  padding: 14px 18px 6px;
+  min-height: 46px;
+  align-items: center;
 }
 .panel-heading h2 {
-  color: #455e80;
+  color: var(--secondary-ink);
   font-size: 17px;
   font-weight: 650;
   gap: 6px;
@@ -99,7 +95,7 @@
   letter-spacing: 0.3px;
 }
 .panel-body {
-  padding: 18px 24px 24px;
+  padding: 12px 18px 16px;
 }
 .panel-actions {
   padding-top: 4px;
@@ -111,18 +107,18 @@
   gap: 8px;
 }
 .page-heading {
-  margin: 8px 0 30px;
+  margin: 1px 0 16px;
   align-items: flex-end;
 }
 .page-heading h1 {
   font-size: 34px;
   letter-spacing: -1.2px;
-  color: #2e405b;
+  color: var(--strong-ink);
   font-weight: 700;
-  margin: 10px 0 10px;
+  margin: 4px 0 5px;
 }
 .page-heading .eyebrow {
-  color: #91a3bb;
+  color: var(--muted);
   font:
     10px ui-monospace,
     monospace;
@@ -135,19 +131,19 @@
   border-radius: 8px;
 }
 .el-table {
-  --el-table-header-bg-color: #f3f7fc;
-  --el-table-row-hover-bg-color: #f4f9ff;
-  --el-fill-color-lighter: #fff;
+  --el-table-header-bg-color: var(--surface-raised);
+  --el-table-row-hover-bg-color: var(--accent-bg);
+  --el-fill-color-lighter: var(--surface);
   font-size: 13px;
   border-radius: 8px;
 }
 .el-table .el-table__cell {
-  padding: 16px 0;
+  padding: 10px 0;
 }
 .el-table th.el-table__cell {
-  padding: 13px 0;
+  padding: 9px 0;
   font-size: 11px;
-  color: #8a99ac;
+  color: var(--muted);
   letter-spacing: 0.3px;
 }
 .el-table .cell {
@@ -157,11 +153,11 @@
   font-weight: 600;
 }
 .filters {
-  padding: 16px;
-  background: #f6f9fd;
+  padding: 12px;
+  background: var(--surface-soft);
   border-radius: 10px;
   gap: 10px;
-  margin-bottom: 22px;
+  margin-bottom: 14px;
 }
 .filters .el-input {
   width: 260px;
@@ -179,8 +175,8 @@
 .summary-card {
   border-radius: 14px;
   position: relative;
-  padding: 24px;
-  border-bottom: 3px solid #dbeaff;
+  padding: 14px 18px;
+  border-bottom: 3px solid var(--accent-border);
 }
 .summary-card strong {
   font:
@@ -245,19 +241,19 @@
   font-weight: 600;
 }
 .detail-prose h2 {
-  color: #455e80;
+  color: var(--secondary-ink);
   font-size: 18px;
   padding-left: 12px;
-  border-left: 3px solid #b5d5f7;
+  border-left: 3px solid var(--accent-border);
 }
 .sample-block {
   border-radius: 10px;
-  background: #f6f9fd;
-  border: 1px solid #e4edf7;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
 }
 .auth-shell {
   border-radius: 22px;
-  border: 1px solid #e1e8f1;
+  border: 1px solid var(--line);
   box-shadow: none;
 }
 .auth-art {
@@ -289,21 +285,21 @@
   align-items: center;
   gap: 26px;
   padding: 0 30px;
-  background: #fff;
-  border-bottom: 1px solid #e1e8f1;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
   z-index: 100;
 }
 .admin-app-label {
   font-size: 11px;
-  color: #91a3bb;
+  color: var(--muted);
   padding-left: 26px;
-  border-left: 1px solid #e1e8f1;
+  border-left: 1px solid var(--line);
 }
 .admin-return {
   font-size: 12px;
-  color: #657e9e;
+  color: var(--secondary-ink);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -315,8 +311,8 @@
   top: 80px;
   bottom: 0;
   width: 210px;
-  background: #fff;
-  border-right: 1px solid #e1e8f1;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
   padding: 30px 18px;
   display: flex;
   flex-direction: column;
@@ -328,11 +324,11 @@
   gap: 14px;
   padding: 14px 18px;
   font-size: 13px;
-  color: #7b8da5;
+  color: var(--secondary-ink);
   border-radius: 9px;
 }
 .admin-app-nav a.active {
-  background: #edf6ff;
+  background: var(--accent-bg);
   color: #409eff;
   font-weight: 600;
 }
@@ -346,12 +342,12 @@
 .admin-app-footer {
   margin-left: 242px;
   padding: 22px 32px 28px 0;
-  border-top: 1px solid #e1e8f1;
+  border-top: 1px solid var(--line);
   display: flex;
   gap: 12px;
   justify-content: space-between;
   flex-wrap: wrap;
-  color: #9aa5b5;
+  color: var(--muted);
   font-size: 10px;
 }
 @media (min-width: 1200px) {
@@ -375,10 +371,10 @@
 }
 @media (max-width: 960px) {
   .panel-body {
-    padding: 16px 20px 22px;
+    padding: 12px 16px 16px;
   }
   .panel-heading {
-    padding: 22px 20px 8px;
+    padding: 12px 16px 5px;
   }
   .page-heading h1 {
     font-size: 30px;
@@ -389,8 +385,8 @@
 }
 @media (max-width: 760px) {
   .header-inner {
-    min-height: 66px;
-    padding: 10px 0;
+    min-height: 50px;
+    padding: 5px 0;
   }
   .brand-name {
     display: block;
@@ -402,9 +398,6 @@
   .main-nav a {
     padding: 11px 15px;
   }
-  .main-nav .el-icon {
-    display: none;
-  }
   .header-account .el-button {
     padding: 8px 11px;
   }
@@ -414,7 +407,7 @@
   }
   .app-main {
     width: calc(100% - 28px);
-    margin-top: 22px;
+    margin-top: 12px;
   }
   .page-heading {
     align-items: flex-start;
@@ -423,8 +416,8 @@
     font-size: 28px;
   }
   .panel-heading {
-    padding: 20px 18px 8px;
-    min-height: 65px;
+    padding: 10px 14px 5px;
+    min-height: 42px;
   }
   .panel-heading h2 {
     font-size: 16px;
@@ -433,7 +426,7 @@
     display: block;
   }
   .panel-body {
-    padding: 16px 18px 20px;
+    padding: 10px 14px 14px;
   }
   .filters {
     padding: 12px;

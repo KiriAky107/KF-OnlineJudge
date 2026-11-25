@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from '../api/client'
 import type { components } from '../api/generated/schema'
 import { csrfHeaders, errorText, unwrap } from '../api/transport'
@@ -7,7 +7,11 @@ import { displayTime } from '../lib/presentation'
 
 type Run = components['schemas']['AgentRunView']
 type Input = components['schemas']['UpdateRunFeedback']
-const props = defineProps<{ runId: string; saved: Run['feedback'] }>()
+const props = defineProps<{
+  runId: string
+  purpose: NonNullable<Run['result']>['purpose']
+  saved: Run['feedback']
+}>()
 const emit = defineEmits<{ saved: [run: Run] }>()
 
 const ratingLabels: Record<NonNullable<Input['rating']>, string> = {
@@ -15,11 +19,14 @@ const ratingLabels: Record<NonNullable<Input['rating']>, string> = {
   partly_helpful: '部分有帮助',
   not_helpful: '没有帮助',
 }
-const reasonLabels: Record<NonNullable<Input['reason']>, string> = {
+const recommendation = computed(
+  () => props.purpose === 'focused_training' || props.purpose === 'periodic_review',
+)
+const reasonLabels = computed<Record<NonNullable<Input['reason']>, string>>(() => ({
   unclear_next_step: '下一步不明确',
-  unrelated_hint: '建议与问题不符',
+  unrelated_hint: recommendation.value ? '推荐与训练目标不符' : '建议与问题不符',
   insufficient_evidence: '依据不足',
-}
+}))
 const rating = ref<Input['rating']>(null)
 const reason = ref<NonNullable<Input['reason']> | ''>('')
 const saving = ref(false)
@@ -68,7 +75,7 @@ onBeforeUnmount(() => controller.abort())
 
 <template>
   <section class="stack hint-feedback native-form" aria-label="本人反馈">
-    <h3>这次建议有帮助吗？</h3>
+    <h3>{{ recommendation ? '这次推荐有帮助吗？' : '这次建议有帮助吗？' }}</h3>
     <form class="stack" @submit.prevent="save()">
       <label>
         我的反馈

@@ -5,7 +5,8 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text, update
+from sqlalchemy.dialects.postgresql import insert
 
 from kf_oj.contracts.agent_learning import (
     FocusedTrainingParameters,
@@ -14,7 +15,6 @@ from kf_oj.contracts.agent_learning import (
     PeriodicReviewResult,
 )
 from kf_oj.contracts.learning import (
-    PRACTICE_REASONS,
     CreateTraining,
     CreateTrainingFollowUp,
     Difficulty,
@@ -25,6 +25,7 @@ from kf_oj.contracts.learning import (
     LearningRecommendations,
     PeriodicReviewSchedule,
     PrerequisiteGap,
+    ProblemNoteView,
     RecommendedProblem,
     StoredTrainingParameters,
     TagStatistic,
@@ -38,7 +39,9 @@ from kf_oj.contracts.learning import (
     feedback_priority,
     focused_exercise_count,
     practice_priority,
+    practice_reason,
 )
+from kf_oj.contracts.learning_model import LearningHintCeiling
 from kf_oj.modules.problems import public as problems
 from kf_oj.modules.submissions import public as records
 
@@ -46,8 +49,8 @@ from .agent_models import AgentPlanLinkRow
 from .coverage import choose_for_coverage, goal_coverage, matches_goals
 from .feedback import matching_feedback, recent_feedback
 from .feedback import reason as feedback_reason
-from .models import LearningPlan, LearningPlanItem, TrainingFeedbackRow
-from .practice import recent_plan_dates, training_timing
+from .models import LearningPlan, LearningPlanItem, ProblemNote, TrainingFeedbackRow
+from .practice import first_hint_dates, recent_plan_dates, training_timing
 from .prerequisites import accepted_prerequisite_evidence
 from .public import (
     IdempotencyConflict,
@@ -68,6 +71,8 @@ COVERAGE_RULE_VERSION = "learning-rules-v5"
 AGENT_COVERAGE_RULE_VERSION = "agent-rules-v5"
 WEIGHTED_RULE_VERSION = "learning-rules-v6"
 AGENT_WEIGHTED_RULE_VERSION = "agent-rules-v6"
+ASSISTED_REVIEW_RULE_VERSION = "learning-rules-v7"
+AGENT_ASSISTED_REVIEW_RULE_VERSION = "agent-rules-v7"
 # Weights correspond to timing, difficulty self-assessment and unresolved submissions.
 RANKING_WEIGHTS: dict[TrainingRankingProfile, tuple[int, int, int]] = {
     "feedback_first": (2, 5, 1),
@@ -259,7 +264,7 @@ def rank_candidates(
         if own_prerequisites:
             reasons.append("本人已有符合条件的先修通过记录")
         if timing is not None:
-            reasons.append(PRACTICE_REASONS[timing.status])
+            reasons.append(practice_reason(timing))
         if cover_each_goal:
             matched = "、".join(tag for tag in dict.fromkeys(parameters.tags) if tag in c.tags)
             reasons.append(f"覆盖目标知识点 {matched}")
@@ -296,7 +301,9 @@ def rank_candidates(
     if any(not c.metadata_revision for c in candidates):
         gaps.append("部分题目缺少学习元数据，不能用于未知标签或难度的匹配")
     rule_version = RULE_VERSION
-    if weights is not None:
+    if any(timing.first_acceptance_kind == "assisted" for timing in practice.values()):
+        rule_version = ASSISTED_REVIEW_RULE_VERSION
+    elif weights is not None:
         rule_version = WEIGHTED_RULE_VERSION
     elif cover_each_goal:
         rule_version = COVERAGE_RULE_VERSION
@@ -341,6 +348,7 @@ class LearningService:
         parameters,
         *,
         allowed_difficulties: tuple[Difficulty, ...] = (),
+        exclude_problem_ids: tuple[UUID, ...] = (),
         as_of: datetime | None = None,
     ):
         now = as_of or datetime.now(UTC)
@@ -353,7 +361,10 @@ class LearningService:
             limit=500,
         )
         truncated = len(candidates) > 500
-        candidates = candidates[:500]
+        excluded = set(exclude_problem_ids)
+        candidates = [
+            candidate for candidate in candidates[:500] if candidate.problem_id not in excluded
+        ]
         history = await records.learning_records(
             session, principal, since=now - timedelta(days=90), as_of=now, limit=500
         )
@@ -364,10 +375,19 @@ class LearningService:
         last_planned = await recent_plan_dates(
             session, principal.account_id, {candidate.problem_id for candidate in candidates}, now
         )
+        first_hints = await first_hint_dates(
+            session,
+            principal.account_id,
+            accepted.intersection(candidate.version_id for candidate in candidates),
+            now,
+        )
         timings: dict[UUID, TrainingTiming] = {}
         for candidate in candidates:
             timing = training_timing(
-                practice.get(candidate.version_id), last_planned.get(candidate.problem_id), now
+                practice.get(candidate.version_id),
+                last_planned.get(candidate.problem_id),
+                now,
+                first_hint_at=first_hints.get(candidate.version_id),
             )
             if timing is not None:
                 timings[candidate.version_id] = timing
@@ -401,6 +421,7 @@ class LearningService:
         parameters,
         *,
         allowed_difficulties: tuple[Difficulty, ...] = (),
+        exclude_problem_ids: tuple[UUID, ...] = (),
         as_of: datetime | None = None,
     ):
         async with self.sessions() as session:
@@ -409,6 +430,7 @@ class LearningService:
                 principal,
                 parameters,
                 allowed_difficulties=allowed_difficulties,
+                exclude_problem_ids=exclude_problem_ids,
                 as_of=as_of,
             )
 
@@ -522,6 +544,7 @@ class LearningService:
                 title=title,
                 rule_version=result.rule_version,
                 parameters=parameters.model_dump(mode="json"),
+                max_hint_level=source.max_hint_level if source else "L3",
             )
             await self._persist_training(
                 session,
@@ -572,11 +595,17 @@ class LearningService:
             )
         await session.flush()
 
+    @staticmethod
+    async def saved_agent_plan_id(session, principal, run_id):
+        return await session.scalar(
+            select(AgentPlanLinkRow.plan_id)
+            .join(LearningPlan, LearningPlan.id == AgentPlanLinkRow.plan_id)
+            .where(AgentPlanLinkRow.run_id == run_id, LearningPlan.owner_id == principal.account_id)
+        )
+
     async def saved_agent_plan(self, session, principal, run_id):
-        link = await session.get(AgentPlanLinkRow, run_id)
-        if link is not None:
-            return await self._detail(session, principal, link.plan_id)
-        return None
+        plan_id = await self.saved_agent_plan_id(session, principal, run_id)
+        return None if plan_id is None else await self._detail(session, principal, plan_id)
 
     async def save_agent_plan(
         self,
@@ -602,6 +631,9 @@ class LearningService:
             config, FocusedTrainingParameters
         ):
             title = "专项训练"
+            if draft.training_set is not None:
+                title = draft.training_set.title.strip()
+                config = draft.training_set.parameters_for(config)
             tags = config.tags
             goals = set(tags)
             cover_each_goal = config.cover_each_goal and bool(goals)
@@ -627,12 +659,15 @@ class LearningService:
         elif isinstance(draft, PeriodicReviewResult) and isinstance(
             config, PeriodicReviewParameters
         ):
-            title, tags, difficulty = "阶段复习", (), None
+            title, tags, difficulty = "阶段复习", draft.tags, None
+            if any(not set(tags).issubset(candidate.tags) for candidate in current.values()):
+                raise LearningUnavailable("review selection no longer matches its topics")
             source_evidence = draft.evidence
             schedule = PeriodicReviewSchedule(
                 goal=config.stage_goal,
                 cycle_days=config.cycle_days,
                 sessions_per_week=config.sessions_per_week,
+                available_minutes=draft.available_minutes,
             )
         else:
             raise LearningUnavailable("training selection does not match its skill")
@@ -679,7 +714,12 @@ class LearningService:
             ranking_profile=config.ranking_profile,
         )
         rule_version = AGENT_PLAN_RULE_VERSION
-        if parameters.ranking_profile is not None:
+        if any(
+            item.timing is not None and item.timing.first_acceptance_kind == "assisted"
+            for item in items
+        ):
+            rule_version = AGENT_ASSISTED_REVIEW_RULE_VERSION
+        elif parameters.ranking_profile is not None:
             rule_version = AGENT_WEIGHTED_RULE_VERSION
         elif cover_each_goal:
             rule_version = AGENT_COVERAGE_RULE_VERSION
@@ -778,7 +818,21 @@ class LearningService:
             else None,
             schedule=stored.schedule,
             previous_plan_id=stored.previous_plan_id,
+            max_hint_level=plan.max_hint_level,
         )
+
+    async def set_hint_ceiling(self, principal, plan_id, policy: LearningHintCeiling, identity):
+        async with self.sessions.begin() as session:
+            await identity.require_active_session(session, principal)
+            updated = await session.scalar(
+                update(LearningPlan)
+                .where(LearningPlan.id == plan_id, LearningPlan.owner_id == principal.account_id)
+                .values(max_hint_level=policy.max_hint_level)
+                .returning(LearningPlan.id)
+            )
+            if updated is None:
+                raise LearningUnavailable("training unavailable")
+            return policy
 
     async def detail(self, principal, plan_id):
         async with self.sessions() as session:
@@ -842,6 +896,39 @@ class LearningService:
         if row is None:
             raise LearningUnavailable("plan item unavailable")
         return row
+
+    async def problem_note(self, principal, version_id: UUID) -> ProblemNoteView:
+        async with self.sessions() as session:
+            row = await session.get(ProblemNote, (principal.account_id, version_id))
+            if row is not None:
+                return ProblemNoteView(
+                    problem_version_id=version_id, note=row.note, updated_at=row.updated_at
+                )
+            versions = await problems.learning_versions(session, {version_id})
+            if version_id not in versions or not versions[version_id].available:
+                raise LearningUnavailable("problem note unavailable")
+            return ProblemNoteView(problem_version_id=version_id, note="", updated_at=None)
+
+    async def save_problem_note(self, principal, version_id: UUID, note: str) -> ProblemNoteView:
+        owner = principal.account_id
+        async with self.sessions.begin() as session:
+            versions = await problems.learning_versions(session, {version_id})
+            if version_id not in versions or not versions[version_id].available:
+                raise LearningUnavailable("problem note unavailable")
+            if not note:
+                await session.execute(
+                    delete(ProblemNote).where(
+                        ProblemNote.owner_id == owner, ProblemNote.version_id == version_id
+                    )
+                )
+                return ProblemNoteView(problem_version_id=version_id, note="", updated_at=None)
+            update = insert(ProblemNote).values(owner_id=owner, version_id=version_id, note=note)
+            saved = update.on_conflict_do_update(
+                index_elements=[ProblemNote.owner_id, ProblemNote.version_id],
+                set_={"note": update.excluded.note, "updated_at": func.clock_timestamp()},
+            ).returning(ProblemNote.note, ProblemNote.updated_at)
+            value, updated_at = (await session.execute(saved)).one()
+            return ProblemNoteView(problem_version_id=version_id, note=value, updated_at=updated_at)
 
     async def note(self, principal, plan_id, item_id, body):
         async with self.sessions.begin() as session:

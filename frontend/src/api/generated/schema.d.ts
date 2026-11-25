@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/api/v1/admin/contest-schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish */
+        post: operations["publish_api_v1_admin_contest_schedules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/contest-settlements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Settle */
+        post: operations["settle_api_v1_admin_contest_settlements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/maintenance-audit": {
         parameters: {
             query?: never;
@@ -14,6 +48,23 @@ export interface paths {
         /** Audit */
         get: operations["audit_api_v1_admin_maintenance_audit_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/problem-difficulty-levels/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Difficulty Level */
+        put: operations["update_difficulty_level_api_v1_admin_problem_difficulty_levels__key__put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -431,6 +482,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/contests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Contests */
+        get: operations["contests_api_v1_contests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contests/agent-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Learning Agent Access */
+        get: operations["learning_agent_access_api_v1_contests_agent_access_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contests/my-rating": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My Rating */
+        get: operations["my_rating_api_v1_contests_my_rating_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contests/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Schedule */
+        get: operations["schedule_api_v1_contests__key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contests/{key}/registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Registration */
+        get: operations["registration_api_v1_contests__key__registration_get"];
+        /** Confirm */
+        put: operations["confirm_api_v1_contests__key__registration_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health/live": {
         parameters: {
             query?: never;
@@ -485,6 +622,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/learning/agent/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent Conversations */
+        get: operations["recent_conversations_api_v1_learning_agent_conversations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/hint-ceiling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Hint Ceiling */
+        get: operations["hint_ceiling_api_v1_learning_agent_hint_ceiling_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/learning/agent/runs": {
         parameters: {
             query?: never;
@@ -530,6 +701,23 @@ export interface paths {
         put?: never;
         /** Cancel Run */
         post: operations["cancel_run_api_v1_learning_agent_runs__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/runs/{run_id}/conversation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Conversation */
+        get: operations["conversation_api_v1_learning_agent_runs__run_id__conversation_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -598,6 +786,23 @@ export interface paths {
         put?: never;
         /** New Session */
         post: operations["new_session_api_v1_learning_agent_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/sessions/{session_id}/conversation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Conversation Runs */
+        get: operations["conversation_runs_api_v1_learning_agent_sessions__session_id__conversation_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -865,6 +1070,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/learning/problem-notes/{problem_version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Problem Note */
+        get: operations["problem_note_api_v1_learning_problem_notes__problem_version_id__get"];
+        /** Save Problem Note */
+        put: operations["save_problem_note_api_v1_learning_problem_notes__problem_version_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/learning/recommendations": {
         parameters: {
             query?: never;
@@ -891,6 +1114,23 @@ export interface paths {
         };
         /** List Problems */
         get: operations["list_problems_api_v1_problems_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/problems/difficulty-levels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Difficulty Levels */
+        get: operations["list_difficulty_levels_api_v1_problems_difficulty_levels_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -962,6 +1202,23 @@ export interface paths {
         put?: never;
         /** Create */
         post: operations["create_api_v1_submissions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Activity */
+        get: operations["activity_api_v1_submissions_activity_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1139,6 +1396,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trainings/{training_id}/hint-ceiling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Training Hint Ceiling */
+        put: operations["set_training_hint_ceiling_api_v1_trainings__training_id__hint_ceiling_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trainings/{training_id}/items/{item_id}": {
         parameters: {
             query?: never;
@@ -1196,13 +1470,63 @@ export interface components {
              */
             schema_version: 1;
         };
-        /** AgentHistoryItem */
-        AgentHistoryItem: {
+        /** AgentConversationPage */
+        AgentConversationPage: {
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /** Next Before */
+            next_before: string | null;
+            /** Runs */
+            runs: components["schemas"]["AgentConversationRun"][];
+        };
+        /** AgentConversationRun */
+        AgentConversationRun: {
+            /** Answer */
+            answer: string | null;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            purpose: components["schemas"]["AgentPurpose"];
+            /** Question */
+            question: string | null;
+            /** Reasoning */
+            reasoning?: string | null;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            state: components["schemas"]["RunState"];
+            /** Training Id */
+            training_id?: string | null;
+            training_request?: components["schemas"]["TrainingSetDraft"] | null;
+        };
+        /** AgentHistoryItem */
+        AgentHistoryItem: {
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /** Conversation Title */
+            conversation_title?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Has Training Request
+             * @default false
+             */
+            has_training_request: boolean;
             purpose: components["schemas"]["AgentPurpose"];
             /**
              * Run Id
@@ -1220,6 +1544,8 @@ export interface components {
              */
             skill_version_id: string;
             state: components["schemas"]["RunState"];
+            /** Training Id */
+            training_id?: string | null;
         };
         /** AgentHistoryPage */
         AgentHistoryPage: {
@@ -1262,6 +1588,12 @@ export interface components {
         };
         /** AgentRunView */
         AgentRunView: {
+            chat?: components["schemas"]["LearningChatRequest"] | null;
+            /**
+             * Chat History
+             * @default []
+             */
+            chat_history: components["schemas"]["LearningChatTurn"][];
             /**
              * Created At
              * Format: date-time
@@ -1270,8 +1602,15 @@ export interface components {
             /** Failure Code */
             failure_code?: string | null;
             feedback?: components["schemas"]["RunFeedback"] | null;
+            /** Partial Answer */
+            partial_answer?: string | null;
+            /** Partial Reasoning */
+            partial_reasoning?: string | null;
+            periodic_review?: components["schemas"]["PeriodicReviewRequest"] | null;
             /** Result */
             result?: (components["schemas"]["SubmissionReviewResult"] | components["schemas"]["GuidedHelpResult"] | components["schemas"]["FocusedTrainingResult"] | components["schemas"]["PeriodicReviewResult"]) | null;
+            /** Review Question */
+            review_question?: string | null;
             /**
              * Run Id
              * Format: uuid
@@ -1288,6 +1627,9 @@ export interface components {
              */
             skill_version_id: string;
             state: components["schemas"]["RunState"];
+            /** Training Id */
+            training_id?: string | null;
+            training_request?: components["schemas"]["TrainingSetDraft"] | null;
         };
         /** AgentTraceStep */
         AgentTraceStep: {
@@ -1371,6 +1713,7 @@ export interface components {
             accepted_submissions: number;
             /** Difficulty */
             difficulty?: ("easy" | "medium" | "hard") | null;
+            difficulty_level?: components["schemas"]["DifficultyLevel"] | null;
             /**
              * Id
              * Format: uuid
@@ -1568,8 +1911,95 @@ export interface components {
                 [key: string]: components["schemas"]["JsonValue"];
             };
         };
+        /** ContestAgentAccess */
+        ContestAgentAccess: {
+            /** Blocked Until */
+            blocked_until: string | null;
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /** Next Start At */
+            next_start_at: string | null;
+        };
+        /** ContestRating */
+        ContestRating: {
+            /** Highest Rating */
+            highest_rating: number | null;
+            /** History */
+            history: components["schemas"]["RatingChange"][];
+            /** Rated Contests */
+            rated_contests: number;
+            /** Rating */
+            rating: number | null;
+        };
+        /** ContestRegistration */
+        ContestRegistration: {
+            /** Confirmed */
+            confirmed: boolean;
+        };
+        /** ContestSchedule */
+        ContestSchedule: {
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Key */
+            key: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /** Title */
+            title: string;
+        };
+        /** ContestSettlement */
+        ContestSettlement: {
+            /**
+             * Ended At
+             * Format: date-time
+             */
+            ended_at: string;
+            /** Key */
+            key: string;
+            /** Participants */
+            participants: number;
+            /**
+             * Settled At
+             * Format: date-time
+             */
+            settled_at: string;
+            /** Title */
+            title: string;
+        };
+        /** ConversationMessage */
+        ConversationMessage: {
+            /** Answer */
+            answer: string | null;
+            /** Question */
+            question: string | null;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            state: components["schemas"]["RunState"];
+            training_request?: components["schemas"]["TrainingSetDraft"] | null;
+        };
+        /** ConversationPage */
+        ConversationPage: {
+            /** Messages */
+            messages: components["schemas"]["ConversationMessage"][];
+            /** Next Before */
+            next_before: string | null;
+        };
         /** CreateLearningSession */
         CreateLearningSession: {
+            /** Conversation Session Id */
+            conversation_session_id?: string | null;
             purpose: components["schemas"]["AgentPurpose"];
         };
         /** CreateProblemImport */
@@ -1700,6 +2130,31 @@ export interface components {
             /** Username */
             username: string;
         };
+        DifficultyKey: string;
+        /** DifficultyLevel */
+        DifficultyLevel: {
+            /** Color */
+            color: string;
+            key: components["schemas"]["DifficultyKey"];
+            /** Label */
+            label: string;
+            /** Score */
+            score: number;
+            tier: components["schemas"]["DifficultyTier"];
+        };
+        DifficultyScore: number;
+        /** DifficultySettings */
+        DifficultySettings: {
+            /** Color */
+            color: string;
+            /** Label */
+            label: string;
+            /** Score */
+            score: number;
+            tier: components["schemas"]["DifficultyTier"];
+        };
+        /** @enum {string} */
+        DifficultyTier: "easy" | "medium" | "hard";
         /** DisableSkillVersion */
         DisableSkillVersion: {
             /** Reason */
@@ -1725,7 +2180,7 @@ export interface components {
             items: components["schemas"]["ProposedExercise"][];
             model_hint?: components["schemas"]["ModelHint"] | null;
             /** Model Status */
-            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "insufficient_evidence" | "source_model_unavailable") | null;
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1733,6 +2188,8 @@ export interface components {
             purpose: "focused_training";
             /** Ranking Profile */
             ranking_profile?: ("feedback_first" | "unresolved_first") | null;
+            replacement?: components["schemas"]["TrainingExerciseReplacement"] | null;
+            training_set?: components["schemas"]["TrainingSetDraft"] | null;
         };
         /** FocusedTrainingSchedule */
         FocusedTrainingSchedule: {
@@ -1768,7 +2225,7 @@ export interface components {
             /** Model Hint Basis */
             model_hint_basis?: "topic_and_verdict" | null;
             /** Model Status */
-            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "insufficient_evidence" | "source_model_unavailable") | null;
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1863,6 +2320,31 @@ export interface components {
          * @enum {string}
          */
         "Language-Input": "c17" | "cpp20" | "python313" | "java21";
+        /** LearningChatRequest */
+        LearningChatRequest: {
+            /** Hint Level */
+            hint_level?: ("L0" | "L1" | "L2" | "L3") | null;
+            /**
+             * Include Submission Details
+             * @default false
+             */
+            include_submission_details: boolean;
+            /** Previous Run Id */
+            previous_run_id?: string | null;
+            /** Problem Version Id */
+            problem_version_id?: string | null;
+            /** Question */
+            question: string;
+            /** Training Id */
+            training_id?: string | null;
+        };
+        /** LearningChatTurn */
+        LearningChatTurn: {
+            /** Answer */
+            answer: string;
+            /** Question */
+            question: string;
+        };
         /** LearningEvidence */
         LearningEvidence: {
             /**
@@ -1895,11 +2377,20 @@ export interface components {
             /** Verdict */
             verdict: string | null;
         };
+        /** LearningHintCeiling */
+        LearningHintCeiling: {
+            /**
+             * Max Hint Level
+             * @enum {string}
+             */
+            max_hint_level: "L0" | "L1" | "L2" | "L3";
+        };
         LearningLabel: string;
         /** LearningMetadataUpdate */
         LearningMetadataUpdate: {
             /** Difficulty */
             difficulty: ("easy" | "medium" | "hard") | null;
+            difficulty_key?: components["schemas"]["DifficultyKey"] | null;
             prerequisite_tags?: components["schemas"]["PrerequisiteTags"] | null;
             /** Tags */
             tags: components["schemas"]["LearningLabel"][];
@@ -1908,6 +2399,7 @@ export interface components {
         LearningMetadataView: {
             /** Difficulty */
             difficulty: ("easy" | "medium" | "hard") | null;
+            difficulty_key?: components["schemas"]["DifficultyKey"] | null;
             /** @default [] */
             prerequisite_tags: components["schemas"]["PrerequisiteTags"];
             /**
@@ -2016,6 +2508,8 @@ export interface components {
         };
         /** LearningSessionView */
         LearningSessionView: {
+            /** Conversation Session Id */
+            conversation_session_id?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -2221,6 +2715,8 @@ export interface components {
             latency_ms: number;
             /** Model */
             model: string;
+            /** Reasoning */
+            reasoning?: string | null;
             /** Response Id */
             response_id: string;
             /** Review Comparison Case */
@@ -2279,8 +2775,22 @@ export interface components {
             /** Window Truncated */
             window_truncated: boolean;
         };
+        /** PeriodicReviewRequest */
+        PeriodicReviewRequest: {
+            /** Available Minutes */
+            available_minutes: number;
+            /** Question */
+            question: string;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+        };
         /** PeriodicReviewResult */
         PeriodicReviewResult: {
+            /** Available Minutes */
+            available_minutes?: number | null;
             /** Cycle Days */
             cycle_days: number;
             /** Evidence */
@@ -2295,7 +2805,7 @@ export interface components {
             items: components["schemas"]["ProposedExercise"][];
             model_hint?: components["schemas"]["ModelHint"] | null;
             /** Model Status */
-            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "insufficient_evidence" | "source_model_unavailable") | null;
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2305,9 +2815,16 @@ export interface components {
             ranking_profile?: ("feedback_first" | "unresolved_first") | null;
             /** Sessions Per Week */
             sessions_per_week: number;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
         };
         /** PeriodicReviewSchedule */
         PeriodicReviewSchedule: {
+            /** Available Minutes */
+            available_minutes?: number | null;
             /** Cycle Days */
             cycle_days: number;
             /** Goal */
@@ -2337,6 +2854,7 @@ export interface components {
         PrerequisiteTags: components["schemas"]["LearningLabel"][];
         /** ProblemDetail */
         ProblemDetail: {
+            difficulty_level?: components["schemas"]["DifficultyLevel"] | null;
             /** Execution Available */
             execution_available?: boolean | null;
             /**
@@ -2625,6 +3143,18 @@ export interface components {
              */
             updated_at: string;
         };
+        /** ProblemNoteView */
+        ProblemNoteView: {
+            /** Note */
+            note: string;
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /** Updated At */
+            updated_at: string | null;
+        };
         /** ProblemPage */
         ProblemPage: {
             /** Items */
@@ -2642,6 +3172,7 @@ export interface components {
         ProposedExercise: {
             /** Difficulty */
             difficulty: ("easy" | "medium" | "hard") | null;
+            difficulty_score?: components["schemas"]["DifficultyScore"] | null;
             /** Estimated Minutes */
             estimated_minutes?: number | null;
             feedback_evidence?: components["schemas"]["TrainingFeedbackEvidence"] | null;
@@ -2654,6 +3185,8 @@ export interface components {
              * @default []
              */
             prerequisites: components["schemas"]["TrainingPrerequisite"][];
+            /** Previously Accepted */
+            previously_accepted?: boolean | null;
             /**
              * Problem Id
              * Format: uuid
@@ -2785,6 +3318,24 @@ export interface components {
             items: components["schemas"]["PublishedSkill"][];
             /** Truncated */
             truncated: boolean;
+        };
+        /** RatingChange */
+        RatingChange: {
+            /** Contest Key */
+            contest_key: string;
+            /**
+             * Ended At
+             * Format: date-time
+             */
+            ended_at: string;
+            /** New Rating */
+            new_rating: number;
+            /** Old Rating */
+            old_rating: number;
+            /** Rank */
+            rank: number;
+            /** Title */
+            title: string;
         };
         /** RecommendedProblem */
         RecommendedProblem: {
@@ -2997,6 +3548,20 @@ export interface components {
             stdout_truncated: boolean;
             /** Verdict */
             verdict: string | null;
+        };
+        /** SettleContest */
+        SettleContest: {
+            /**
+             * Ended At
+             * Format: date-time
+             */
+            ended_at: string;
+            /** Key */
+            key: string;
+            /** Standings */
+            standings: components["schemas"]["Standing"][];
+            /** Title */
+            title: string;
         };
         /** SkillBindingView */
         SkillBindingView: {
@@ -3324,8 +3889,16 @@ export interface components {
             /** Start Line */
             start_line: number;
         };
+        /** Standing */
+        Standing: {
+            /** Rank */
+            rank: number;
+            /** Username */
+            username: string;
+        };
         /** StartAgentRun */
         StartAgentRun: {
+            chat?: components["schemas"]["LearningChatRequest"] | null;
             /**
              * Include Model Code Context
              * @default false
@@ -3357,11 +3930,14 @@ export interface components {
             model_source_excerpt?: components["schemas"]["SourceLineRange"] | null;
             /** Model Topic */
             model_topic?: ("binary_search" | "graph_traversal" | "dynamic_programming") | null;
+            periodic_review?: components["schemas"]["PeriodicReviewRequest"] | null;
             /**
              * Request Id
              * Format: uuid
              */
             request_id: string;
+            /** Review Question */
+            review_question?: string | null;
             /**
              * Skill Version Id
              * Format: uuid
@@ -3369,6 +3945,38 @@ export interface components {
             skill_version_id: string;
             /** Submission Id */
             submission_id?: string | null;
+            training_set?: components["schemas"]["TrainingSetDraft"] | null;
+        };
+        /** SubmissionActivity */
+        SubmissionActivity: {
+            /** Days */
+            days: components["schemas"]["SubmissionActivityDay"][];
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * Time Zone
+             * @default Asia/Shanghai
+             * @constant
+             */
+            time_zone: "Asia/Shanghai";
+        };
+        /** SubmissionActivityDay */
+        SubmissionActivityDay: {
+            /** Count */
+            count: number;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
         };
         /** SubmissionCodeEvidence */
         SubmissionCodeEvidence: {
@@ -3539,7 +4147,7 @@ export interface components {
             /** Model Review Basis */
             model_review_basis?: ("evaluations" | "evaluations_and_code_counts" | "evaluations_and_control_flow" | "evaluations_and_comparison_cases" | "source_excerpt") | null;
             /** Model Status */
-            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "insufficient_evidence" | "source_model_unavailable") | null;
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -3690,6 +4298,12 @@ export interface components {
             item_count: number;
             /** Items */
             items: components["schemas"]["TrainingItem"][];
+            /**
+             * Max Hint Level
+             * @default L3
+             * @enum {string}
+             */
+            max_hint_level: "L0" | "L1" | "L2" | "L3";
             parameters: components["schemas"]["LearningParameters"];
             /** Previous Plan Id */
             previous_plan_id?: string | null;
@@ -3699,6 +4313,13 @@ export interface components {
             schedule?: (components["schemas"]["FocusedTrainingSchedule"] | components["schemas"]["PeriodicReviewSchedule"]) | null;
             /** Title */
             title: string;
+        };
+        /** TrainingExerciseReplacement */
+        TrainingExerciseReplacement: {
+            /** Position */
+            position: number;
+            /** Previous Title */
+            previous_title: string;
         };
         /** TrainingFeedback */
         TrainingFeedback: {
@@ -3835,6 +4456,56 @@ export interface components {
             /** Tag */
             tag: string;
         };
+        /** TrainingSearch */
+        TrainingSearch: {
+            maximum_score?: components["schemas"]["DifficultyScore"] | null;
+            minimum_score?: components["schemas"]["DifficultyScore"] | null;
+            /**
+             * Only Unsolved
+             * @default false
+             */
+            only_unsolved: boolean;
+        };
+        /** TrainingSetDraft */
+        TrainingSetDraft: {
+            /**
+             * Count
+             * @default 5
+             */
+            count: number;
+            /**
+             * Cover Each Goal
+             * @default false
+             */
+            cover_each_goal: boolean;
+            /** Difficulty */
+            difficulty?: ("easy" | "medium" | "hard") | null;
+            /** Message */
+            message?: string | null;
+            /** Previous Run Id */
+            previous_run_id?: string | null;
+            /** Ranking Profile */
+            ranking_profile?: ("feedback_first" | "unresolved_first") | null;
+            revision?: components["schemas"]["TrainingSetRevision"] | null;
+            search?: components["schemas"]["TrainingSearch"] | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            /** Title */
+            title: string;
+        };
+        /** TrainingSetRevision */
+        TrainingSetRevision: {
+            /** Replace Position */
+            replace_position?: number | null;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+        };
         /** TrainingSummary */
         TrainingSummary: {
             /** Completed Count */
@@ -3858,6 +4529,8 @@ export interface components {
         };
         /** TrainingTiming */
         TrainingTiming: {
+            /** First Acceptance Kind */
+            first_acceptance_kind?: ("independent" | "assisted") | null;
             /** Last Accepted At */
             last_accepted_at?: string | null;
             /** Last Attempt At */
@@ -3932,6 +4605,72 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    publish_api_v1_admin_contest_schedules_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContestSchedule"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestSchedule"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    settle_api_v1_admin_contest_settlements_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettleContest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestSettlement"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     audit_api_v1_admin_maintenance_audit_get: {
         parameters: {
             query?: {
@@ -3952,6 +4691,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MaintenanceAuditPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_difficulty_level_api_v1_admin_problem_difficulty_levels__key__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DifficultySettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DifficultyLevel"];
                 };
             };
             /** @description Validation Error */
@@ -4780,6 +5554,159 @@ export interface operations {
             };
         };
     };
+    contests_api_v1_contests_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestSchedule"][];
+                };
+            };
+        };
+    };
+    learning_agent_access_api_v1_contests_agent_access_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestAgentAccess"];
+                };
+            };
+        };
+    };
+    my_rating_api_v1_contests_my_rating_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestRating"];
+                };
+            };
+        };
+    };
+    schedule_api_v1_contests__key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestSchedule"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    registration_api_v1_contests__key__registration_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestRegistration"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_api_v1_contests__key__registration_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestRegistration"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     liveness: {
         parameters: {
             query?: never;
@@ -4871,9 +5798,11 @@ export interface operations {
             };
         };
     };
-    run_history_api_v1_learning_agent_runs_get: {
+    recent_conversations_api_v1_learning_agent_conversations_get: {
         parameters: {
-            query?: never;
+            query?: {
+                problem_version_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4887,6 +5816,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentHistoryPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    hint_ceiling_api_v1_learning_agent_hint_ceiling_get: {
+        parameters: {
+            query: {
+                problem_version_id: string;
+                training_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningHintCeiling"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_history_api_v1_learning_agent_runs_get: {
+        parameters: {
+            query?: {
+                group_chat?: boolean;
+                problem_version_id?: string | null;
+                training_drafts?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentHistoryPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -4940,6 +5943,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentRunView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    conversation_api_v1_learning_agent_runs__run_id__conversation_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationPage"];
                 };
             };
             /** @description Validation Error */
@@ -5070,6 +6106,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LearningSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    conversation_runs_api_v1_learning_agent_sessions__session_id__conversation_get: {
+        parameters: {
+            query?: {
+                before?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentConversationPage"];
                 };
             };
             /** @description Validation Error */
@@ -5748,6 +6818,72 @@ export interface operations {
             };
         };
     };
+    problem_note_api_v1_learning_problem_notes__problem_version_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemNoteView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_problem_note_api_v1_learning_problem_notes__problem_version_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTrainingNote"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemNoteView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     recommendations_api_v1_learning_recommendations_post: {
         parameters: {
             query?: never;
@@ -5788,6 +6924,7 @@ export interface operations {
                 limit?: number;
                 search?: string | null;
                 difficulty?: ("easy" | "medium" | "hard") | null;
+                difficulty_key?: components["schemas"]["DifficultyKey"] | null;
                 tag?: string | null;
             };
             header?: never;
@@ -5812,6 +6949,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_difficulty_levels_api_v1_problems_difficulty_levels_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DifficultyLevel"][];
                 };
             };
         };
@@ -5974,6 +7131,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activity_api_v1_submissions_activity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionActivity"];
                 };
             };
         };
@@ -6305,6 +7482,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrainingDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_training_hint_ceiling_api_v1_trainings__training_id__hint_ceiling_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                training_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LearningHintCeiling"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningHintCeiling"];
                 };
             };
             /** @description Validation Error */

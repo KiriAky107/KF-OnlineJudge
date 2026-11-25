@@ -9,21 +9,25 @@ export const editorThemePresets = {
 } as const
 export type EditorThemePreset = keyof typeof editorThemePresets
 export type EditorAppearance = 'light' | 'dark'
+export type EditorAppearancePreference = EditorAppearance | 'site'
 export type EditorTheme = (typeof editorThemePresets)[EditorThemePreset][EditorAppearance]
 
-export function savedEditorTheme(): { preset: EditorThemePreset; appearance: EditorAppearance } {
+export function savedEditorTheme(): {
+  preset: EditorThemePreset
+  appearance: EditorAppearancePreference
+} {
   try {
     const stored = localStorage.getItem('kf-editor-theme')?.split(':')
     if (stored?.[0] && Object.hasOwn(editorThemePresets, stored[0])) {
       return {
         preset: stored[0] as EditorThemePreset,
-        appearance: stored[1] === 'dark' ? 'dark' : 'light',
+        appearance: stored[1] === 'dark' || stored[1] === 'light' ? stored[1] : 'site',
       }
     }
   } catch {
     // Storage can be unavailable on this origin.
   }
-  return { preset: 'github-classic', appearance: 'light' }
+  return { preset: 'github-classic', appearance: 'site' }
 }
 
 // Only ship the grammars and themes offered by the code editor.

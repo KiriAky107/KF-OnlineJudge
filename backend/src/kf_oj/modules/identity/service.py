@@ -177,7 +177,13 @@ class IdentityService:
         if row is None or row[1].id != account.id:
             raise AdministrationDenied("administrator required")
 
-    async def require_active_session(self, session, principal: Principal) -> None:
+    async def contest_account_ids(self, session, usernames: tuple[str, ...]) -> dict[str, UUID]:
+        rows = await session.execute(
+            select(Account.username, Account.id).where(Account.username.in_(usernames))
+        )
+        return dict(rows.all())
+
+    async def require_active_session(self, session, principal: Principal) -> bool:
         if not session.in_transaction():
             raise ValueError("session authorization requires an active transaction")
         token_hash = principal.session_token_hash
@@ -193,6 +199,7 @@ class IdentityService:
         row = await repository.current_session(session, token_hash, lock_session=True)
         if row is None or row[1].id != account.id:
             raise AuthenticationFailed("invalid session")
+        return account.is_administrator
 
     async def logout(self, token: str, csrf_token: str) -> None:
         await self.authenticate(token, csrf_token=csrf_token)
@@ -224,7 +231,7 @@ class AcceptedSessionAccess:
         self._owner_id = owner_id
         self._receipt = receipt
 
-    async def require_active_session(self, session, principal: Principal) -> None:
+    async def require_active_session(self, session, principal: Principal) -> bool:
         if not session.in_transaction():
             raise ValueError("job authorization requires an active transaction")
         if (
@@ -232,13 +239,14 @@ class AcceptedSessionAccess:
             or principal.authorization_version != self._receipt.authorization_version
         ):
             raise AuthenticationFailed("learning authorization unavailable")
-        allowed = await session.scalar(
-            text("SELECT public.kf_lock_agent_session(:owner, :epoch, :proof)"),
+        administrator = await session.scalar(
+            text("SELECT public.kf_agent_session_administrator(:owner, :epoch, :proof)"),
             {
                 "owner": self._owner_id,
                 "epoch": self._receipt.authorization_version,
                 "proof": self._receipt.session_proof,
             },
         )
-        if not allowed:
+        if administrator is None:
             raise AuthenticationFailed("learning authorization unavailable")
+        return administrator

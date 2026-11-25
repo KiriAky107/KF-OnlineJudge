@@ -5,14 +5,16 @@ from collections.abc import Awaitable
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from kf_oj.api.dependencies import current_principal, unsafe_principal
 from kf_oj.contracts.agent_api import (
+    AgentConversationPage,
     AgentHistoryPage,
     AgentRunTrace,
     AgentRunView,
     ConfigureSkill,
+    ConversationPage,
     CreateLearningSession,
     LearningSessionView,
     SkillBindingView,
@@ -23,8 +25,11 @@ from kf_oj.contracts.agent_api import (
 )
 from kf_oj.contracts.agent_learning import AgentExecution, AgentLearningInput, UpdateRunFeedback
 from kf_oj.contracts.learning import TrainingDetail
+from kf_oj.contracts.learning_model import LearningHintCeiling
+from kf_oj.modules.contests.public import AgentUnavailableDuringContest
 from kf_oj.modules.identity.public import AuthenticationFailed, Principal
 from kf_oj.modules.learning.agent_application import AgentLearning
+from kf_oj.modules.learning.hint_policy import HintCeilingDenied
 from kf_oj.modules.learning.public import LearningQueueBusy, LearningUnavailable, NoCandidates
 from kf_oj.modules.skills.public import (
     RuntimeDeclaration,
@@ -37,9 +42,6 @@ from kf_oj.runtime.tools import ToolKey
 
 router = APIRouter(prefix="/learning/agent", tags=["learning-agent"])
 
-Reader = Annotated[Principal, Depends(current_principal)]
-Writer = Annotated[Principal, Depends(unsafe_principal)]
-
 
 def learning_agent(request: Request) -> AgentLearning:
     service = getattr(request.app.state, "agent_learning", None)
@@ -51,11 +53,33 @@ def learning_agent(request: Request) -> AgentLearning:
 Agent = Annotated[AgentLearning, Depends(learning_agent)]
 
 
+async def _contest_allowed(principal: Principal, agent: Agent) -> Principal:
+    try:
+        await agent.check_contest_access(principal)
+    except AgentUnavailableDuringContest:
+        raise HTTPException(403, "learning agent paused during contest") from None
+    return principal
+
+
+async def _reader(principal: Annotated[Principal, Depends(current_principal)], agent: Agent):
+    return await _contest_allowed(principal, agent)
+
+
+async def _writer(principal: Annotated[Principal, Depends(unsafe_principal)], agent: Agent):
+    return await _contest_allowed(principal, agent)
+
+
+Reader = Annotated[Principal, Depends(_reader)]
+Writer = Annotated[Principal, Depends(_writer)]
+
+
 async def _action[Result](operation: Awaitable[Result]) -> Result:
     try:
         return await operation
     except AuthenticationFailed:
         raise HTTPException(401, "authentication required") from None
+    except HintCeilingDenied:
+        raise HTTPException(403, "hint level unavailable") from None
     except (SkillBindingUnavailable, SkillVersionUnavailable, AgentRecordUnavailable):
         raise HTTPException(404, "learning resource unavailable") from None
     except (LearningUnavailable, AgentRecordConflict):
@@ -90,8 +114,16 @@ def _run(execution: AgentExecution) -> AgentRunView:
         state=execution.run.state,
         created_at=execution.run.created_at,
         result=execution.result,
+        partial_answer=execution.partial_answer,
+        partial_reasoning=execution.partial_reasoning,
+        training_request=execution.training_request,
+        chat=execution.chat,
+        review_question=execution.review_question,
+        periodic_review=execution.periodic_review,
+        chat_history=execution.chat_history,
         failure_code=execution.failure_code,
         feedback=execution.feedback,
+        training_id=execution.training_id,
     )
 
 
@@ -152,10 +184,21 @@ async def configure_skill(
 async def new_session(
     body: CreateLearningSession, agent: Agent, principal: Writer
 ) -> LearningSessionView:
-    session = await _action(agent.create_session(principal, body.purpose))
+    session = await _action(
+        agent.create_session(
+            principal, body.purpose, conversation_session_id=body.conversation_session_id
+        )
+    )
     return LearningSessionView(
         purpose=session.purpose, session_id=session.session_id, created_at=session.created_at
     )
+
+
+@router.get("/hint-ceiling", response_model=LearningHintCeiling)
+async def hint_ceiling(
+    agent: Agent, principal: Reader, problem_version_id: UUID, training_id: UUID | None = None
+) -> LearningHintCeiling:
+    return await _action(agent.hint_ceiling(principal, problem_version_id, training_id))
 
 
 @router.post("/sessions/{session_id}/runs", response_model=AgentRunView, status_code=202)
@@ -182,6 +225,10 @@ async def start_run(
                         include_model_evidence_focus=body.include_model_evidence_focus,
                         include_model_plan_explanation=body.include_model_plan_explanation,
                         model_source_excerpt=body.model_source_excerpt,
+                        training_set=body.training_set,
+                        chat=body.chat,
+                        review_question=body.review_question,
+                        periodic_review=body.periodic_review,
                     ),
                 )
             )
@@ -191,8 +238,46 @@ async def start_run(
 
 
 @router.get("/runs", response_model=AgentHistoryPage)
-async def run_history(agent: Agent, principal: Reader) -> AgentHistoryPage:
-    return await _action(agent.history(principal))
+async def run_history(
+    agent: Agent,
+    principal: Reader,
+    group_chat: bool = False,
+    problem_version_id: UUID | None = None,
+    training_drafts: bool = False,
+) -> AgentHistoryPage:
+    return await _action(
+        agent.history(
+            principal,
+            group_chat=group_chat,
+            problem_version_id=problem_version_id,
+            training_drafts=training_drafts,
+        )
+    )
+
+
+@router.get("/conversations", response_model=AgentHistoryPage)
+async def recent_conversations(
+    agent: Agent, principal: Reader, problem_version_id: UUID | None = None
+) -> AgentHistoryPage:
+    return await _action(agent.recent_conversations(principal, problem_version_id))
+
+
+@router.get("/sessions/{session_id}/conversation", response_model=AgentConversationPage)
+async def conversation_runs(
+    session_id: UUID,
+    agent: Agent,
+    principal: Reader,
+    before: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=30)] = 12,
+) -> AgentConversationPage:
+    return await _action(agent.conversation_runs(principal, session_id, before, limit))
+
+
+@router.get("/runs/{run_id}/conversation", response_model=ConversationPage)
+async def conversation(
+    run_id: UUID, agent: Agent, principal: Reader, limit: Annotated[int, Query(ge=1, le=12)] = 6
+) -> ConversationPage:
+    return await _action(agent.conversation(principal, run_id, limit))
 
 
 @router.get("/runs/{run_id}", response_model=AgentRunView)

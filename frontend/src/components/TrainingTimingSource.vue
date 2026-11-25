@@ -19,5 +19,8 @@ const source = computed(() => {
 </script>
 
 <template>
+  <p v-if="timing.first_acceptance_kind" class="small muted">
+    {{ timing.first_acceptance_kind === 'assisted' ? '首次通过前使用过提示' : '首次独立通过' }}
+  </p>
   <p v-if="source.date" class="small muted">{{ source.label }} · {{ displayTime(source.date) }}</p>
 </template>

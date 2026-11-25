@@ -1,8 +1,21 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useSession } from '../composables/useSession'
+import { assistantRouteName } from '../lib/assistantNavigation'
+
+const assistantQueryKeys = new Set(['helpRun', 'trainingRun', 'assistantTab'])
 export const router = createRouter({
   history: createWebHistory(),
-  scrollBehavior: (to, _from, saved) => saved ?? (to.hash ? { el: to.hash } : { top: 0 }),
+  scrollBehavior: (to, from, saved) => {
+    if (saved) return saved
+    if (to.path === from.path && to.hash === from.hash) {
+      const keys = new Set([...Object.keys(to.query), ...Object.keys(from.query)])
+      const changed = [...keys].filter(
+        (key) => JSON.stringify(to.query[key]) !== JSON.stringify(from.query[key]),
+      )
+      if (changed.length && changed.every((key) => assistantQueryKeys.has(key))) return false
+    }
+    return to.hash ? { el: to.hash } : { top: 0 }
+  },
   routes: [
     {
       path: '/',
@@ -17,6 +30,7 @@ export const router = createRouter({
     },
     {
       path: '/problems/:id',
+      name: 'problem-workspace',
       meta: { title: '题目详情' },
       component: () => import('../views/ProblemDetailView.vue'),
     },
@@ -27,8 +41,16 @@ export const router = createRouter({
     },
     {
       path: '/trainings/assistant',
+      name: assistantRouteName,
       meta: { title: '学习助手' },
       component: () => import('../views/LearningAgentView.vue'),
+    },
+    {
+      path: '/trainings/create',
+      redirect: (to) => ({
+        name: assistantRouteName,
+        query: { trainingRun: to.query.run ?? to.query.trainingRun, assistantTab: 'training' },
+      }),
     },
     {
       path: '/trainings/skill-drafts',
@@ -42,6 +64,7 @@ export const router = createRouter({
     },
     {
       path: '/trainings/:id',
+      name: 'training-detail',
       meta: { title: '训练详情' },
       component: () => import('../views/TrainingDetailView.vue'),
     },

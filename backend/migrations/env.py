@@ -9,6 +9,7 @@ from kf_oj.infra.artifacts import models as artifact_models  # noqa: F401
 from kf_oj.infra.db.base import Base
 from kf_oj.infra.db.session import build_engine
 from kf_oj.infra.messaging import models as messaging_models  # noqa: F401
+from kf_oj.modules.contests import models as contest_models  # noqa: F401
 from kf_oj.modules.identity import models as identity_models  # noqa: F401
 from kf_oj.modules.learning import agent_models, agent_tool_models  # noqa: F401
 from kf_oj.modules.learning import models as training_models  # noqa: F401

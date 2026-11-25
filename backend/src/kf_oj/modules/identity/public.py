@@ -40,8 +40,8 @@ class LoginThrottled(ValueError):
 
 
 class ActiveSessionPort(Protocol):
-    async def require_active_session(self, session, principal: Principal) -> None:
-        """Verify the current session and authority inside the caller's transaction."""
+    async def require_active_session(self, session, principal: Principal) -> bool:
+        """Verify the live session and return whether its account is an administrator."""
         ...
 
 
@@ -74,3 +74,7 @@ class AdministrationPort(ActiveSessionPort, Protocol):
     async def require_administrator(self, session, principal: Principal) -> None:
         """Recheck and lock the administrator account and login session."""
         ...
+
+
+class ContestAdministrationPort(AdministrationPort, Protocol):
+    async def contest_account_ids(self, session, usernames: tuple[str, ...]) -> dict[str, UUID]: ...

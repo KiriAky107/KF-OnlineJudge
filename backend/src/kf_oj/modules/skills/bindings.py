@@ -271,7 +271,12 @@ class SkillBindings:
         return tuple((version, personal.get(key)) for key, version in versions.items())
 
     async def freeze(
-        self, principal: Principal, version_id: UUID, *, purpose: AgentPurpose | None = None
+        self,
+        principal: Principal,
+        version_id: UUID,
+        *,
+        purpose: AgentPurpose | None = None,
+        required_tool: ToolKey | None = None,
     ) -> SkillConfiguration:
         async with self._sessions.begin() as db:
             await self._identity.require_active_session(db, principal)
@@ -281,12 +286,13 @@ class SkillBindings:
             row = await self._enabled_binding(db, principal, version)
             if row is None or row.version_id != version_id:
                 raise SkillBindingUnavailable("skill binding unavailable")
+            authorized_tools = _decode_tools(row.authorized_tools) & self.approved_tools(version)
+            if required_tool is not None and required_tool not in authorized_tools:
+                raise SkillBindingUnavailable("required skill tool unavailable")
             parameters = _preferences(version, row.preferences)
             values = {
                 "preferences": parameters.model_dump(mode="json"),
-                "authorized_tools": _encode_tools(
-                    _decode_tools(row.authorized_tools) & self.approved_tools(version)
-                ),
+                "authorized_tools": _encode_tools(authorized_tools),
                 "authorization_epoch": row.authorization_epoch,
             }
             digest = hashlib.sha256(
@@ -331,22 +337,48 @@ class SkillBindings:
         return binding, frozen
 
     async def require_execution_configuration(
-        self, db: AsyncSession, principal: Principal, version_id: UUID, digest: str
+        self,
+        db: AsyncSession,
+        principal: Principal,
+        version_id: UUID,
+        digest: str,
+        *,
+        required_tool: ToolKey | None = None,
     ) -> SkillConfiguration:
         """Read the already authorized account's configuration in a caller transaction."""
         version = await self._version(db, principal, version_id)
         saved = await self._current_configuration(db, principal, version, digest)
         if saved is None:
             raise SkillBindingUnavailable("skill configuration unavailable")
-        _, frozen = saved
+        binding, frozen = saved
+        if required_tool is not None and required_tool not in self._effective_tools(
+            version, binding, frozen
+        ):
+            raise SkillBindingUnavailable("required skill tool unavailable")
         return SkillConfiguration(version_id, digest, _preferences(version, frozen.preferences))
 
     async def configuration(
-        self, principal: Principal, version_id: UUID, digest: str
+        self,
+        principal: Principal,
+        version_id: UUID,
+        digest: str,
+        *,
+        required_tool: ToolKey | None = None,
     ) -> SkillConfiguration:
         async with self._sessions.begin() as db:
             await self._identity.require_active_session(db, principal)
-            return await self.require_execution_configuration(db, principal, version_id, digest)
+            return await self.require_execution_configuration(
+                db, principal, version_id, digest, required_tool=required_tool
+            )
+
+    def _effective_tools(
+        self, version: RuntimeSkillVersion, binding: SkillBindingRow, frozen: SkillConfigurationRow
+    ) -> frozenset[ToolKey]:
+        return (
+            _decode_tools(frozen.authorized_tools)
+            & _decode_tools(binding.authorized_tools)
+            & self.approved_tools(version)
+        )
 
     async def for_current_skill(
         self, db: AsyncSession, principal: Principal, version_id: UUID, configuration_digest: str
@@ -360,9 +392,5 @@ class SkillBindings:
         if saved is None:
             return None
         binding, frozen = saved
-        tools = (
-            _decode_tools(frozen.authorized_tools)
-            & _decode_tools(binding.authorized_tools)
-            & self.approved_tools(version)
-        )
+        tools = self._effective_tools(version, binding, frozen)
         return AgentToolGrant(tools, frozenset(self._tool_scopes[tool] for tool in tools))

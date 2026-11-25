@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import type { components } from '../api/generated/schema'
+import StatementMarkdown from './StatementMarkdown.vue'
 
 type Hint = components['schemas']['ModelHint']
 type State = components['schemas']['GuidedHelpResult']['model_status']
 
 type Context = 'concept' | 'review' | 'plan' | 'source'
-withDefaults(defineProps<{ hint?: Hint | null; status?: State; context?: Context }>(), {
-  hint: null,
-  status: null,
-  context: 'concept',
-})
+withDefaults(
+  defineProps<{ hint?: Hint | null; status?: State; context?: Context; markdown?: boolean }>(),
+  { hint: null, status: null, context: 'concept' },
+)
 
 const labels = {
   concept: { title: '模型提示', fallback: '规则提示', insufficient: '缺少可用的提示依据。' },
@@ -34,7 +34,8 @@ const labels = {
 <template>
   <section v-if="hint" :aria-label="labels[context].title" class="model-hint">
     <h4>{{ labels[context].title }}</h4>
-    <p>{{ hint.text }}</p>
+    <StatementMarkdown v-if="markdown" :source="hint.text" :links="false" highlight-code />
+    <p v-else>{{ hint.text }}</p>
     <p class="small muted">
       {{ hint.model }}
       <template v-if="hint.usage">

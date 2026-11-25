@@ -4,10 +4,18 @@ import { displayRuntimeVersion } from '../lib/presentation'
 import {
   editorThemePresets,
   savedEditorTheme,
-  type EditorAppearance,
+  type EditorAppearancePreference,
   type EditorThemePreset,
 } from '../lib/editorHighlighting'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api/client'
@@ -20,31 +28,43 @@ import { useCodeDraft, codeTemplates, languageLabels } from '../composables/useC
 import { languageCapability, preparationName } from '../composables/judgingLanguage'
 import CodeEditor from '../components/CodeEditor.vue'
 import EmptyState from '../components/EmptyState.vue'
+import DifficultyTag from '../components/DifficultyTag.vue'
 import UiIcon from '../components/UiIcon.vue'
 import ProblemSubmissionList from '../components/ProblemSubmissionList.vue'
 import SubmissionInspector from '../components/SubmissionInspector.vue'
 import SelfTestPanel from '../components/SelfTestPanel.vue'
 import StatementMarkdown from '../components/StatementMarkdown.vue'
 import JudgementStatus from '../components/JudgementStatus.vue'
+import ProblemDock from '../components/ProblemDock.vue'
+import ProblemNotePanel from '../components/ProblemNotePanel.vue'
+import { useSiteTheme } from '../composables/useSiteTheme'
+
+const props = defineProps<{ versionId?: string; trainingId?: string }>()
+const LearningAgent = defineAsyncComponent(() => import('./LearningAgentView.vue'))
 const route = useRoute()
 const router = useRouter()
-const id = String(route.params.id)
+const id = props.versionId ?? String(route.params.id)
 const problem = ref<components['schemas']['ProblemDetail'] | null>(null)
 const { language, code, state, save } = useCodeDraft(id)
 const session = useSession()
-const statementTab = ref<'statement' | 'submissions'>('statement')
-const workbench = ref<'editor' | 'submission'>('editor')
+const dock = ref<InstanceType<typeof ProblemDock>>()
 const selectedSubmission = ref<string | null>(null)
 const detailPane = ref<HTMLDivElement>()
 function selectSubmission(id: string) {
   selectedSubmission.value = id
-  workbench.value = 'submission'
+  dock.value?.open('result')
   void nextTick(() => detailPane.value?.focus())
 }
 const preferences = savedEditorTheme()
 const themePreset = ref<EditorThemePreset>(preferences.preset)
-const appearance = ref<EditorAppearance>(preferences.appearance)
-const theme = computed(() => editorThemePresets[themePreset.value][appearance.value])
+const appearance = ref<EditorAppearancePreference>(preferences.appearance)
+const { theme: siteTheme } = useSiteTheme()
+const theme = computed(
+  () =>
+    editorThemePresets[themePreset.value][
+      appearance.value === 'site' ? siteTheme.value : appearance.value
+    ],
+)
 watch([themePreset, appearance], ([preset, mode]) => {
   try {
     localStorage.setItem('kf-editor-theme', `${preset}:${mode}`)
@@ -67,12 +87,7 @@ const submissionNotice = ref('')
 let submissionPoll: ReturnType<typeof boundedPoll<Submission>> | undefined
 let statusRequest: AbortController | undefined
 const loading = ref(true)
-const testingOpen = ref(false)
 const settingsOpen = ref(false)
-const split = ref(50)
-const testingSplit = ref(40)
-const workspace = ref<HTMLDivElement>()
-const editorBody = ref<HTMLDivElement>()
 const request = new AbortController()
 let alive = true
 const intents = new Map<string, ReturnType<typeof submissionIntent>>()
@@ -90,35 +105,6 @@ const draftText = computed(
       unavailable: '浏览器无法保存草稿',
     })[state.value],
 )
-let stopDrag: (() => void) | undefined
-function resizeTesting(value: number) {
-  testingSplit.value = Math.max(25, Math.min(75, value))
-}
-function beginDrag(event: PointerEvent, testing = false) {
-  const container = testing ? editorBody.value : workspace.value
-  if (!container || event.button !== 0 || !event.isPrimary) return
-  event.preventDefault()
-  const splitter = event.currentTarget as HTMLElement
-  const bounds = container.getBoundingClientRect()
-  const start = testingSplit.value
-  const usableHeight = bounds.height - splitter.offsetHeight
-  function move(e: PointerEvent) {
-    if (testing) resizeTesting(start + ((event.clientY - e.clientY) / usableHeight) * 100)
-    else split.value = Math.max(30, Math.min(70, ((e.clientX - bounds.left) / bounds.width) * 100))
-  }
-  function stop() {
-    splitter.removeEventListener('pointermove', move)
-    splitter.removeEventListener('lostpointercapture', stop)
-    if (splitter.hasPointerCapture(event.pointerId)) splitter.releasePointerCapture(event.pointerId)
-    stopDrag = undefined
-  }
-  stopDrag?.()
-  splitter.focus()
-  splitter.setPointerCapture(event.pointerId)
-  splitter.addEventListener('pointermove', move)
-  splitter.addEventListener('lostpointercapture', stop)
-  stopDrag = stop
-}
 async function load() {
   loading.value = true
   error.value = ''
@@ -169,9 +155,8 @@ async function copySample(value: string) {
   }
 }
 function submissionVisibility() {
-  submissionPoll?.visible(document.visibilityState === 'visible' && workbench.value === 'editor')
+  submissionPoll?.visible(document.visibilityState === 'visible')
 }
-watch(workbench, submissionVisibility)
 async function restoreSubmissionStatus(versionId: string) {
   statusRequest?.abort()
   const controller = new AbortController()
@@ -229,7 +214,7 @@ function followSubmission(submissionId: string) {
 }
 watch([() => session.user.value?.id, () => problem.value?.version_id], ([owner, versionId]) => {
   selectedSubmission.value = null
-  workbench.value = 'editor'
+  dock.value?.open('editor')
   statusRequest?.abort()
   submissionPoll?.dispose()
   recentSubmission.value = null
@@ -304,104 +289,79 @@ onBeforeUnmount(() => {
   statusRequest?.abort()
   submissionPoll?.dispose()
   request.abort()
-  stopDrag?.()
 })
 </script>
 <template>
-  <div
+  <ProblemDock
     v-if="problem"
-    ref="workspace"
+    ref="dock"
+    :start-with-assistant="!!(route.query.helpRun || route.query.trainingRun)"
     class="problem-workspace"
-    :style="{ '--problem-split': split + '%' }"
+    :class="{ 'embedded-workspace': versionId }"
   >
-    <section class="panel statement-panel">
-      <div class="statement-content">
-        <nav class="workspace-tabs" aria-label="题目内容">
-          <el-button
-            :aria-pressed="statementTab === 'statement'"
-            @click="statementTab = 'statement'"
-            >题面</el-button
-          >
-          <el-button
-            :aria-pressed="statementTab === 'submissions'"
-            @click="statementTab = 'submissions'"
-            >本题我的提交</el-button
-          >
-        </nav>
-        <ProblemSubmissionList
-          v-if="statementTab === 'submissions'"
-          :problem-version-id="id"
-          @select="selectSubmission"
-        />
-        <div v-show="statementTab === 'statement'">
-          <div class="problem-title-row">
-            <div>
-              <p class="small muted mono">{{ problem.slug }} · 版本 {{ problem.revision }}</p>
-              <h1>{{ problem.title }}</h1>
-            </div>
-          </div>
-          <div class="problem-limits">
-            <span>CPU 限制：{{ runLimits ? runLimits.cpu_time_us / 1000 + ' ms' : '未提供' }}</span
-            ><span
-              >墙钟限制：{{ runLimits ? runLimits.wall_time_us / 1000 + ' ms' : '未提供' }}</span
-            ><span
-              >内存限制：{{
-                runLimits ? runLimits.memory_bytes / 1048576 + ' MiB' : '未提供'
-              }}</span
-            ><span>精确字节比较</span>
-          </div>
-          <div class="detail-prose">
-            <h2>题目描述</h2>
-            <StatementMarkdown :source="problem.statement" />
-            <div v-for="(item, index) in problem.samples" :key="index" class="sample-grid">
-              <div>
-                <h2>
-                  样例输入 {{ index + 1 }}
-                  <el-button link @click="copySample(item.input)">复制</el-button>
-                </h2>
-                <pre class="sample-block">{{ sample(item.input) }}</pre>
-              </div>
-              <div>
-                <h2>
-                  样例输出 {{ index + 1 }}
-                  <el-button link @click="copySample(item.output)">复制</el-button>
-                </h2>
-                <pre class="sample-block">{{ sample(item.output) }}</pre>
-              </div>
-            </div>
-            <h2>提交说明</h2>
-            <p>
-              使用标准输入 / 标准输出。支持语言：{{
-                problem.languages.join(' / ')
-              }}。隐藏测试数据不会公开。
-            </p>
-            <RouterLink to="/submissions" class="text-link">查看个人提交记录</RouterLink>
+    <template #toolbar>
+      <div class="workspace-identity">
+        <RouterLink v-if="!versionId" class="text-link" to="/problems">题库</RouterLink>
+        <span v-if="!versionId" aria-hidden="true">/</span>
+        <span>{{ problem.title }}</span>
+      </div>
+    </template>
+    <template #statement>
+      <section class="statement-content" aria-label="题目描述与样例">
+        <div class="problem-title-row">
+          <div>
+            <p class="small muted mono">{{ problem.slug }} · 版本 {{ problem.revision }}</p>
+            <h1>{{ problem.title }}</h1>
+            <DifficultyTag
+              v-if="problem.difficulty_level"
+              :level="problem.difficulty_level"
+              :value="problem.difficulty_level.label"
+            />
           </div>
         </div>
+        <div class="problem-limits">
+          <span>CPU 限制：{{ runLimits ? runLimits.cpu_time_us / 1000 + ' ms' : '未提供' }}</span
+          ><span>墙钟限制：{{ runLimits ? runLimits.wall_time_us / 1000 + ' ms' : '未提供' }}</span
+          ><span
+            >内存限制：{{ runLimits ? runLimits.memory_bytes / 1048576 + ' MiB' : '未提供' }}</span
+          ><span>精确字节比较</span>
+        </div>
+        <div class="detail-prose">
+          <h2>题目描述</h2>
+          <StatementMarkdown :source="problem.statement" />
+          <div v-for="(item, index) in problem.samples" :key="index" class="sample-grid">
+            <div>
+              <h2>
+                样例输入 {{ index + 1 }}
+                <el-button link @click="copySample(item.input)">复制</el-button>
+              </h2>
+              <pre class="sample-block">{{ sample(item.input) }}</pre>
+            </div>
+            <div>
+              <h2>
+                样例输出 {{ index + 1 }}
+                <el-button link @click="copySample(item.output)">复制</el-button>
+              </h2>
+              <pre class="sample-block">{{ sample(item.output) }}</pre>
+            </div>
+          </div>
+          <h2>提交说明</h2>
+          <p>
+            使用标准输入 / 标准输出。支持语言：{{
+              problem.languages.join(' / ')
+            }}。隐藏测试数据不会公开。
+          </p>
+          <RouterLink to="/submissions" class="text-link">查看个人提交记录</RouterLink>
+        </div>
+      </section>
+    </template>
+    <template #submissions>
+      <div class="workbench-detail">
+        <ProblemSubmissionList :problem-version-id="id" @select="selectSubmission" />
       </div>
-    </section>
-    <button
-      class="pane-splitter"
-      role="separator"
-      aria-label="调整题面与编辑器宽度"
-      aria-orientation="vertical"
-      :aria-valuenow="Math.round(split)"
-      aria-valuemin="30"
-      aria-valuemax="70"
-      @pointerdown="beginDrag($event)"
-      @keydown.left.prevent="split = Math.max(30, split - 2)"
-      @keydown.right.prevent="split = Math.min(70, split + 2)"
-    />
-    <section class="panel workbench-panel">
-      <nav class="workspace-tabs" aria-label="工作台">
-        <el-button :aria-pressed="workbench === 'editor'" @click="workbench = 'editor'">
-          {{ workbench === 'editor' ? '代码编辑器' : '返回代码编辑器' }}
-        </el-button>
-        <el-button :aria-pressed="workbench === 'submission'" @click="workbench = 'submission'"
-          >提交详情</el-button
-        >
-      </nav>
-      <div v-show="workbench === 'editor'" class="editor-panel">
+    </template>
+    <template #editor>
+      <div class="editor-panel">
         <header class="editor-toolbar">
           <span class="small muted">语言</span
           ><el-select v-model="language" aria-label="编程语言" size="small"
@@ -432,6 +392,7 @@ onBeforeUnmount(() => {
               </el-select>
               <label>主题外观</label>
               <el-select v-model="appearance" aria-label="主题外观">
+                <el-option label="跟随站点" value="site" />
                 <el-option label="亮色" value="light" />
                 <el-option label="暗色" value="dark" />
               </el-select>
@@ -440,45 +401,8 @@ onBeforeUnmount(() => {
             </div>
           </el-popover>
         </header>
-        <div
-          ref="editorBody"
-          class="editor-body"
-          :class="{ 'editor-body--collapsed': !testingOpen }"
-          :style="{
-            '--code-size': `${100 - testingSplit}fr`,
-            '--testing-size': `${testingSplit}fr`,
-          }"
-        >
-          <div class="editor-area">
-            <CodeEditor v-model="code" :language="language" :theme="theme" :font-size="fontSize" />
-          </div>
-          <button
-            v-show="testingOpen"
-            class="testing-splitter"
-            type="button"
-            role="separator"
-            aria-label="调整自测与提交区高度"
-            title="上下拖动调整自测与提交区高度"
-            aria-orientation="horizontal"
-            :aria-valuenow="Math.round(testingSplit)"
-            aria-valuemin="25"
-            aria-valuemax="75"
-            @pointerdown="beginDrag($event, true)"
-            @keydown.up.prevent="resizeTesting(testingSplit + 5)"
-            @keydown.down.prevent="resizeTesting(testingSplit - 5)"
-            @keydown.home.prevent="resizeTesting(25)"
-            @keydown.end.prevent="resizeTesting(75)"
-          />
-          <div v-show="testingOpen" id="self-test-panel" class="testing-panel">
-            <div class="editor-testing">
-              <SelfTestPanel
-                :problem="problem"
-                :language="executionUnavailable ? null : wireLanguage"
-                :source="code"
-                @run="save"
-              />
-            </div>
-          </div>
+        <div class="editor-area">
+          <CodeEditor v-model="code" :language="language" :theme="theme" :font-size="fontSize" />
         </div>
         <div
           v-if="executionUnavailable || !supported || capability?.configuration || submitError"
@@ -563,14 +487,7 @@ onBeforeUnmount(() => {
             }}</span>
           </div>
           <el-button size="small" @click="save">保存草稿</el-button>
-          <el-button
-            size="small"
-            :aria-expanded="testingOpen"
-            aria-controls="self-test-panel"
-            @click="testingOpen = !testingOpen"
-          >
-            {{ testingOpen ? '收起自测' : '在线自测' }}
-          </el-button>
+          <el-button size="small" @click="dock?.open('selftest', true)">在线自测</el-button>
           <el-button
             size="small"
             type="primary"
@@ -581,8 +498,9 @@ onBeforeUnmount(() => {
           >
         </footer>
       </div>
+    </template>
+    <template #result>
       <div
-        v-if="workbench === 'submission'"
         ref="detailPane"
         class="workbench-detail"
         aria-label="提交详情"
@@ -596,10 +514,34 @@ onBeforeUnmount(() => {
           :theme="theme"
           embedded
         />
-        <p v-else>从“本题我的提交”选择一条记录。</p>
+        <p v-else>从提交记录选择一条查看。</p>
       </div>
-    </section>
-  </div>
+    </template>
+    <template #selftest>
+      <SelfTestPanel
+        :problem="problem"
+        :language="executionUnavailable ? null : wireLanguage"
+        :source="code"
+        @run="save"
+      />
+    </template>
+    <template #notes>
+      <slot name="notes">
+        <ProblemNotePanel :version-id="problem.version_id" :title="problem.title" />
+      </slot>
+    </template>
+    <template #assistant>
+      <LearningAgent
+        embedded
+        :context-problem-version="problem?.version_id"
+        :context-training-id="trainingId"
+        :context-submission="
+          selectedSubmission ??
+          (recentSubmission?.state === 'finished' ? recentSubmission.submission_id : undefined)
+        "
+      />
+    </template>
+  </ProblemDock>
   <EmptyState v-else :title="loading ? '正在加载题目…' : '题目暂时无法读取'" :description="error"
     ><el-button v-if="!loading" @click="load">重试</el-button
     ><RouterLink to="/problems"><el-button>返回题库</el-button></RouterLink></EmptyState
@@ -607,52 +549,43 @@ onBeforeUnmount(() => {
 </template>
 <style>
 .app-main:has(.problem-workspace) {
-  width: calc(100% - 48px);
-  max-width: 1900px;
-  margin: 20px auto;
+  width: calc(100% - 16px);
+  max-width: none;
+  margin: 6px auto 8px;
 }
-.app-shell:has(.problem-workspace) .app-footer {
+.app-shell:has(.problem-workspace) .header-inner {
+  width: calc(100% - 24px);
+  max-width: none;
+}
+.app-shell:has(.problem-workspace:not(.embedded-workspace)) .app-footer {
   display: none;
 }
+</style>
+<style scoped>
 .problem-workspace {
-  display: grid;
-  grid-template-columns: minmax(0, var(--problem-split)) 12px minmax(0, 1fr);
-  height: calc(100dvh - 117px);
-  min-height: 600px;
+  --workspace-height: max(34rem, calc(100svh - 96px));
+  --judge-sample-font: 'JetBrains Mono', 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
 }
-.statement-panel,
+.embedded-workspace {
+  --workspace-height: max(34rem, calc(100svh - 245px));
+}
+.workspace-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--secondary-ink);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.statement-content {
+  padding: clamp(1rem, 2vw, 1.7rem);
+}
 .editor-panel {
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-height: 0;
-  border-radius: 14px;
-}
-.statement-tabs {
-  padding: 8px 20px 0;
-  background: #fff;
-  border-bottom: 1px solid #edf0f5;
-}
-.statement-tabs .el-tabs__header {
-  margin: 0;
-}
-.statement-tabs .el-tabs__active-bar,
-.statement-tabs .el-tabs__nav-wrap::after {
-  display: none;
-}
-.statement-tabs .el-tabs__item {
-  font-size: 12px;
-  height: 36px;
-  padding: 0 12px;
-  margin: 0 4px 8px 0;
-  border-radius: 7px;
-}
-.statement-tabs .el-tabs__item.is-active {
-  background: #edf6ff;
-}
-.statement-content {
-  padding: 30px;
-  overflow: auto;
-  flex: 1;
+  container-type: inline-size;
 }
 .problem-title-row {
   display: flex;
@@ -673,137 +606,80 @@ onBeforeUnmount(() => {
   gap: 8px 20px;
   margin: 20px 0;
   padding: 16px 18px;
-  background: #f3f7fc;
+  background: var(--surface-raised);
   border: 0;
   border-radius: 10px;
   font-size: 12px;
-  color: #8b9cb2;
+  color: var(--muted);
 }
 .statement-content .detail-prose h2 {
   font-size: 16px;
-  color: #455e80;
-  border-left: 3px solid #b5d5f7;
+  color: var(--secondary-ink);
+  border-left: 3px solid var(--accent-border);
   padding-left: 12px;
   margin: 25px 0 12px;
 }
 .statement-content .detail-prose {
-  font-size: 13px;
-  line-height: 1.9;
+  font-size: 14px;
+  line-height: 1.85;
 }
 .sample-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 18px;
 }
+.sample-grid .sample-block {
+  font: 0.9375rem / 1.65 var(--judge-sample-font);
+}
 .sample-grid h2 {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-.pane-splitter {
-  background: none;
-  border: 0;
-  cursor: col-resize;
-  position: relative;
-  padding: 0;
-  touch-action: none;
-}
-.pane-splitter::after {
-  content: '';
-  width: 3px;
-  height: 32px;
-  background: #9eb7d7;
-  border-radius: 3px;
-  position: absolute;
-  left: 4px;
-  top: 48%;
-}
-.pane-splitter:hover {
-  background: #e0eaff;
 }
 .editor-toolbar {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: 8px;
-  padding: 12px 18px;
-  background: #f8fafd;
-  border-bottom: 1px solid #e4ebf4;
-  min-height: 61px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+  background: var(--surface-soft);
+  border-bottom: 1px solid var(--line);
+  min-height: 45px;
 }
 .editor-toolbar .el-select {
-  width: 120px;
+  width: 110px;
+}
+.editor-toolbar > span {
+  white-space: nowrap;
+}
+@container (max-width: 460px) {
+  .draft-label {
+    display: none;
+  }
+  .workbench-status {
+    flex-basis: 100%;
+  }
 }
 .draft-label {
   font-size: 11px;
-  color: #9aabc0;
+  color: var(--muted);
   margin-left: auto;
 }
-.editor-body {
-  display: grid;
-  grid-template-rows: minmax(140px, var(--code-size)) 20px minmax(115px, var(--testing-size));
-  flex: 1;
-  min-height: 0;
-}
-.editor-body--collapsed {
-  grid-template-rows: minmax(140px, 1fr);
-}
 .editor-area {
-  min-height: 0;
+  min-height: 95px;
+  flex: 1;
   overflow: hidden;
 }
-.testing-splitter {
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-block: 1px solid var(--el-border-color);
-  background: #f3f7fc;
-  color: #587799;
-  cursor: row-resize;
-  touch-action: none;
-}
-.testing-splitter::after {
-  content: '';
-  width: 36px;
-  height: 4px;
-  border-radius: 4px;
-  background: currentColor;
-}
-.testing-splitter:hover,
-.testing-splitter:focus-visible {
-  background: #e4effd;
-  color: #35678f;
-}
-.testing-splitter:focus-visible {
-  outline: 2px solid var(--el-color-primary);
-  outline-offset: -2px;
-}
-.testing-panel {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: #f8fafd;
-}
-.editor-testing {
-  flex: 1;
-  min-height: 0;
-}
-.test-result-placeholder {
-  font-size: 12px;
-  color: #93a4ba;
-  padding: 16px 0;
-  min-height: 90px;
-}
 .editor-buttons {
-  border-top: 1px solid #edf0f5;
+  border-top: 1px solid var(--line);
   display: flex;
   flex-shrink: 0;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  padding: 14px 18px;
-  min-height: 55px;
+  padding: 8px 12px;
+  min-height: 46px;
 }
 .editor-buttons .el-button + .el-button {
   margin-inline-start: 0;
@@ -814,98 +690,38 @@ onBeforeUnmount(() => {
   gap: 12px;
   font-size: 12px;
 }
-@media (max-width: 960px) {
+@media (max-width: 980px) {
   .draft-label {
     display: none;
   }
-  .statement-content {
-    padding: 22px;
-  }
-  .problem-title-row h1 {
-    font-size: 24px;
-  }
   .editor-toolbar {
-    padding: 10px;
-  }
-  .editor-buttons {
-    padding: 10px;
-    gap: 5px;
-  }
-  .sample-grid {
-    grid-template-columns: 1fr;
-  }
-  .statement-tabs .el-tabs__item {
-    padding: 0 10px;
-  }
-}
-@media (max-width: 760px) {
-  .problem-workspace {
-    display: flex;
-    flex-direction: column;
-    height: auto;
-    gap: 16px;
-    min-height: 0;
-  }
-  .pane-splitter {
-    display: none;
-  }
-  .statement-content {
-    overflow: visible;
-  }
-  .editor-body {
-    height: clamp(36rem, 86dvh, 48rem);
-    flex: none;
-  }
-  .editor-buttons {
     flex-wrap: wrap;
   }
-  .editor-buttons > .workbench-status {
-    width: 100%;
-  }
   .sample-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-  .statement-content {
-    padding: 22px;
-  }
-  .app-main:has(.problem-workspace) {
-    width: calc(100% - 24px);
-    margin-top: 14px;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
-</style>
-
-<style scoped>
-.workbench-panel {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-.workspace-tabs {
-  display: flex;
-  gap: 8px;
-  padding: 12px;
-  border-bottom: 1px solid var(--el-border-color);
-}
-.workbench-panel > .editor-panel {
-  flex: 1;
-  overflow: hidden;
+@media (max-width: 880px) {
+  .editor-panel {
+    height: var(--dock-editor-height, clamp(28rem, 71svh, 40rem));
+  }
 }
 .workbench-detail {
   flex: 1;
   min-height: 0;
-  overflow: auto;
-  padding: 16px;
+  padding: clamp(1rem, 2vw, 1.5rem);
 }
 .workbench-notes {
   flex-shrink: 0;
-  padding: 4px 18px;
+  padding: 0 12px 4px;
   font-size: 13px;
 }
 .workbench-notes .notice-strip {
   margin: 0;
-  padding: 5px 10px;
+  padding: 4px 8px;
+  color: var(--secondary-ink);
+  background: var(--surface-soft);
+  border-color: var(--line);
 }
 .solved-badge {
   display: inline-flex;

@@ -114,12 +114,12 @@ h3 {
   margin-bottom: 8px;
 }
 .stack-list strong {
-  color: #526b8e;
+  color: var(--secondary-ink);
   font-size: 14px;
 }
 .stack-list p,
 .developer-copy {
-  color: #7185a3;
+  color: var(--secondary-ink);
   line-height: 1.8;
   margin-top: 8px;
   font-size: 13px;
@@ -128,7 +128,7 @@ h3 {
   display: block;
   padding: 15px;
   border-radius: 8px;
-  background: #edf6ff;
+  background: var(--accent-bg);
   color: var(--blue);
   font-weight: 600;
 }
@@ -140,13 +140,13 @@ h3 {
   display: grid;
   gap: 6px;
   padding: 14px 0;
-  border-bottom: 1px solid #edf0f5;
+  border-bottom: 1px solid var(--line);
 }
 .document-list strong {
-  color: #526b8e;
+  color: var(--secondary-ink);
 }
 .document-list span {
-  color: #7185a3;
+  color: var(--secondary-ink);
   font-size: 13px;
 }
 .contribution-links {

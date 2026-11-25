@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from itertools import islice
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -28,6 +29,7 @@ from kf_oj.modules.learning.public import (
     TRAINING_CANDIDATES,
 )
 from kf_oj.modules.learning.service import LearningService, evidence
+from kf_oj.modules.problems import public as problems
 from kf_oj.modules.submissions import public as records
 from kf_oj.runtime.tools import Tool, ToolContext, ToolKey, ToolRegistry
 
@@ -76,8 +78,49 @@ def _scoped_agent_tools(
         )
 
     async def candidates(arguments: TrainingCandidatesArguments) -> TrainingCandidatesResult:
+        if (search := arguments.search) is not None:
+            async with sessions() as db:
+                matches = await problems.learning_candidates(
+                    db,
+                    tags=arguments.tags,
+                    difficulty=arguments.difficulty,
+                    score_range=(search.minimum_score, search.maximum_score),
+                )
+                bounded = matches[:500]
+                practice = await records.learning_practice(
+                    db,
+                    principal,
+                    {item.version_id for item in bounded},
+                    as_of=as_of or datetime.now(UTC),
+                )
+            solved = {version for version, history in practice.items() if history.last_accepted_at}
+            eligible = (
+                item
+                for item in bounded
+                if not search.only_unsolved or item.version_id not in solved
+            )
+            return TrainingCandidatesResult(
+                items=tuple(
+                    TrainingCandidate(
+                        problem_id=item.problem_id,
+                        problem_version_id=item.version_id,
+                        title=item.title,
+                        tags=item.tags,
+                        difficulty=item.difficulty,
+                        difficulty_score=item.difficulty_score,
+                        previously_accepted=item.version_id in solved,
+                    )
+                    for item in islice(eligible, arguments.count)
+                ),
+                candidate_limit=500,
+                candidates_truncated=len(matches) > 500,
+            )
         result = await service.recommend(
-            principal, arguments, allowed_difficulties=arguments.allowed_difficulties, as_of=as_of
+            principal,
+            arguments,
+            allowed_difficulties=arguments.allowed_difficulties,
+            exclude_problem_ids=arguments.exclude_problem_ids,
+            as_of=as_of,
         )
         return TrainingCandidatesResult(
             items=tuple(

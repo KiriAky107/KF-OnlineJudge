@@ -7,12 +7,80 @@ import httpx
 import pytest
 
 from kf_oj.contracts.learning_model import (
+    GuidedChatModelFacts,
     ModelHintUnavailable,
     ReviewCodeFacts,
     ReviewComparisonCases,
     ReviewModelFacts,
 )
 from kf_oj.infra.responses_model import ResponsesLearningHint
+
+
+def test_deepseek_chat_keeps_the_default_thinking_and_full_stream(monkeypatch):
+    original_client = httpx.AsyncClient
+    requests = []
+    previews = {}
+    answer = "检查区间的两个端点。" * 1000
+    reasoning = "先考虑搜索区间。" * 1200
+
+    def output(text):
+        return {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": text}],
+        }
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        requests.append(body)
+        result = {
+            "id": "fixture-response",
+            "model": "deepseek-flash",
+            "object": "response",
+            "status": "completed",
+            "output": [output("检查区间的两个端点。")],
+        }
+        if not body.get("stream"):
+            return httpx.Response(200, json=result)
+        result["output"] = [output(answer)]
+        events = (
+            {"type": "response.reasoning_text.delta", "delta": reasoning},
+            {"type": "response.output_text.delta", "delta": answer},
+            {"type": "response.completed", "response": result},
+        )
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            text="".join("data: " + json.dumps(event) + "\n\n" for event in events),
+        )
+
+    def local_client(**kwargs):
+        return original_client(transport=httpx.MockTransport(respond), **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", local_client)
+    adapter = ResponsesLearningHint(
+        "https://api.deepseek.com", "deepseek-flash", None, reasoning_effort="none"
+    )
+
+    async def publish(channel, text):
+        previews[channel] = text
+
+    async def run():
+        short_hint = await adapter.hint("binary_search")
+        chat_hint = await adapter.stream_hint(
+            GuidedChatModelFacts(question="二分查找怎么写？"), publish
+        )
+        assert short_hint.reasoning is None
+        assert chat_hint.text == answer
+        assert chat_hint.reasoning == reasoning
+
+    asyncio.run(run())
+    assert previews == {"answer": answer, "reasoning": reasoning}
+    short, chat = requests
+    assert short["reasoning"] == {"effort": "none"}
+    assert short["max_output_tokens"] == 128
+    assert "reasoning" not in chat and "max_output_tokens" not in chat
+    assert "答案简洁" not in chat["instructions"]
 
 
 @pytest.mark.parametrize(
@@ -40,6 +108,8 @@ def test_review_rejects_unoffered_categories_and_record_identifiers(monkeypatch,
             }
         assert body["max_output_tokens"] == 128 and body["store"] is False
         assert "最多45字" in body["instructions"] and "不复述计数" in body["instructions"]
+        assert "语言、提交是否相邻、改动行号和实际输出需要具体记录" in body["instructions"]
+        assert "later_accepted 只复核同版本后次通过的那条评测" in body["instructions"]
         return httpx.Response(
             200,
             json={

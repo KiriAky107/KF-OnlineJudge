@@ -137,11 +137,11 @@ onBeforeUnmount(() => {
 }
 .submission-row-action {
   margin-left: auto;
-  color: #2878ca;
+  color: var(--accent-ink);
 }
 .my-submission-row:hover {
-  background: #f0f7ff;
-  border-color: #a8cff8;
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
 }
 :is(.my-submission-row, select):focus-visible {
   outline: 2px solid #409eff;

@@ -65,7 +65,14 @@ async def ordered_cases(session: AsyncSession, version_id: UUID):
 
 
 async def list_public(
-    session: AsyncSession, after: str | None, limit: int, *, search=None, difficulty=None, tag=None
+    session: AsyncSession,
+    after: str | None,
+    limit: int,
+    *,
+    search=None,
+    difficulty=None,
+    difficulty_key=None,
+    tag=None,
 ):
     query = (
         select(Problem, ProblemVersion, ProblemLearningMetadata)
@@ -86,6 +93,13 @@ async def list_public(
         )
     if difficulty is not None:
         query = query.where(ProblemLearningMetadata.difficulty == difficulty)
+    if difficulty_key is not None:
+        query = query.where(
+            func.coalesce(
+                ProblemLearningMetadata.difficulty_key, ProblemLearningMetadata.difficulty
+            )
+            == difficulty_key
+        )
     if tag is not None:
         query = query.where(ProblemLearningMetadata.tags.contains([tag]))
     return list(await session.execute(query.order_by(Problem.slug).limit(limit)))

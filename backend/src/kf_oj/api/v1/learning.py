@@ -12,12 +12,14 @@ from kf_oj.contracts.learning import (
     LearningOverview,
     LearningParameters,
     LearningRecommendations,
+    ProblemNoteView,
     TrainingDetail,
     TrainingPage,
     UpdateTrainingFeedback,
     UpdateTrainingNote,
 )
-from kf_oj.modules.identity.public import Principal
+from kf_oj.contracts.learning_model import LearningHintCeiling
+from kf_oj.modules.identity.public import AuthenticationFailed, Principal
 from kf_oj.modules.learning.public import (
     IdempotencyConflict,
     LearningUnavailable,
@@ -47,6 +49,31 @@ async def recommendations(
     principal: Annotated[Principal, Depends(unsafe_principal)],
 ):
     return await service(request).recommend(principal, body)
+
+
+@router.get("/learning/problem-notes/{problem_version_id}", response_model=ProblemNoteView)
+async def problem_note(
+    problem_version_id: UUID,
+    request: Request,
+    principal: Annotated[Principal, Depends(current_principal)],
+):
+    try:
+        return await service(request).problem_note(principal, problem_version_id)
+    except LearningUnavailable:
+        raise HTTPException(404, "problem note unavailable") from None
+
+
+@router.put("/learning/problem-notes/{problem_version_id}", response_model=ProblemNoteView)
+async def save_problem_note(
+    problem_version_id: UUID,
+    body: UpdateTrainingNote,
+    request: Request,
+    principal: Annotated[Principal, Depends(unsafe_principal)],
+):
+    try:
+        return await service(request).save_problem_note(principal, problem_version_id, body.note)
+    except LearningUnavailable:
+        raise HTTPException(404, "problem note unavailable") from None
 
 
 @router.get("/trainings", response_model=TrainingPage)
@@ -99,6 +126,23 @@ async def create_follow_up(
         raise HTTPException(409, "recommendation changed; regenerate") from None
     except NoCandidates:
         raise HTTPException(422, "no available matching problems") from None
+
+
+@router.put("/trainings/{training_id}/hint-ceiling", response_model=LearningHintCeiling)
+async def set_training_hint_ceiling(
+    training_id: UUID,
+    body: LearningHintCeiling,
+    request: Request,
+    principal: Annotated[Principal, Depends(unsafe_principal)],
+):
+    try:
+        return await service(request).set_hint_ceiling(
+            principal, training_id, body, request.app.state.identity
+        )
+    except AuthenticationFailed:
+        raise HTTPException(401, "authentication required") from None
+    except LearningUnavailable:
+        raise HTTPException(404, "training unavailable") from None
 
 
 @router.patch("/trainings/{training_id}/items/{item_id}", response_model=TrainingDetail)

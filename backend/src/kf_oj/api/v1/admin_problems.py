@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import DBAPIError
 
 from kf_oj.api.admin_dependencies import maintenance_reader, maintenance_writer
+from kf_oj.contracts.difficulty import DifficultyKey, DifficultyLevel, DifficultySettings
 from kf_oj.contracts.problem_learning import LearningMetadataUpdate, LearningMetadataView
 from kf_oj.contracts.problem_maintenance import (
     AuditAction,
@@ -48,6 +49,16 @@ async def operation(awaitable):
         raise HTTPException(503, "problem maintenance unavailable") from None
     except ValueError:
         raise HTTPException(422, "invalid maintenance request") from None
+
+
+@router.put("/problem-difficulty-levels/{key}", response_model=DifficultyLevel)
+async def update_difficulty_level(
+    key: DifficultyKey,
+    body: DifficultySettings,
+    request: Request,
+    principal: Annotated[Principal, Depends(maintenance_writer)],
+):
+    return await operation(service(request).put_difficulty_level(principal, key, body))
 
 
 @router.get("/problems", response_model=MaintainedProblemPage)

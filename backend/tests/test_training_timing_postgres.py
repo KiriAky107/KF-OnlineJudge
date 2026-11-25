@@ -399,6 +399,76 @@ def test_recommendations_space_recent_practice_and_keep_fixed_dates(
                 )
                 assert successor.status_code == 201, successor.text
                 assert successor.json()["parameters"]["ranking_profile"] == "unresolved_first"
+
+                timed_due = await problem("timed-review-due", "medium", ["限时复习"])
+                timed_new = await problem("timed-review-new", "easy", ["限时复习"])
+                await grade(principal, timed_due, 22, "accepted")
+                review = next(entry for entry in catalog if entry["purpose"] == "periodic_review")
+                review_settings = await owner.put(
+                    f"{AGENT}/skills/{review['version_id']}",
+                    json={
+                        "enabled": True,
+                        "authorized_tools": [
+                            tool
+                            for tool in review["available_tools"]
+                            if tool["name"] == "training_candidates"
+                        ],
+                        "parameters": {"cycle_days": 21, "sessions_per_week": 3},
+                    },
+                )
+                assert review_settings.status_code == 200, review_settings.text
+                anchor = session.json()["session_id"]
+                attached = await owner.post(
+                    f"{AGENT}/sessions",
+                    json={"purpose": "periodic_review", "conversation_session_id": anchor},
+                )
+                assert attached.status_code == 201, attached.text
+                timed_request = {
+                    "question": "帮我用 40 分钟阶段复习，知识点：限时复习",
+                    "available_minutes": 40,
+                    "tags": ["限时复习"],
+                }
+                launch = await owner.post(
+                    f"{AGENT}/sessions/{attached.json()['session_id']}/runs",
+                    json={
+                        "skill_version_id": review["version_id"],
+                        "request_id": str(uuid4()),
+                        "periodic_review": timed_request,
+                    },
+                )
+                assert launch.status_code == 202, launch.text
+                assert await worker.run_once()
+                timed_path = f"{AGENT}/runs/{launch.json()['run_id']}"
+                timed = (await owner.get(timed_path)).json()
+                assert timed["state"] == "succeeded", timed
+                assert timed["periodic_review"] == timed_request
+                assert timed["result"]["available_minutes"] == 40
+                assert timed["result"]["sessions_per_week"] == 3
+                assert timed["result"]["evidence"] == []
+                items = timed["result"]["items"]
+                assert [item["problem_version_id"] for item in items] == [
+                    str(timed_due),
+                    str(timed_new),
+                ]
+                assert items[0]["timing"]["status"] == "review_due"
+                assert [item["estimated_minutes"] for item in items] == [20, 20]
+                trace = (await owner.get(timed_path + "/trace")).json()
+                assert [step["invocation_version"] for step in trace["steps"]] == [
+                    "training_candidates-v1",
+                ]
+                assert (await other.get(timed_path)).status_code == 404
+                thread = (await owner.get(f"{AGENT}/sessions/{anchor}/conversation")).json()
+                assert thread["runs"][-1]["question"] == timed_request["question"]
+                saved = await owner.post(timed_path + "/training")
+                assert saved.status_code == 200, saved.text
+                assert saved.json()["schedule"] == {
+                    "purpose": "periodic_review",
+                    "goal": "",
+                    "cycle_days": 21,
+                    "sessions_per_week": 3,
+                    "available_minutes": 40,
+                }
+                assert saved.json()["parameters"]["tags"] == ["限时复习"]
         finally:
             await worker_engine.dispose()
             await seed_engine.dispose()

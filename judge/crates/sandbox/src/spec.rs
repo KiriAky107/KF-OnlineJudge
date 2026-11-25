@@ -18,6 +18,8 @@ pub enum ExecutionProfile {
     Native,
     CompileC,
     CompileCpp,
+    CompileCDiagnostic,
+    CompileCppDiagnostic,
     PythonCheck,
     PythonRun,
     JavaCompile,
@@ -33,19 +35,23 @@ impl ExecutionProfile {
             | Self::PythonRun
             | Self::JavaCompile
             | Self::JavaRun => None,
-            Self::CompileC | Self::CompileCpp => Some("/usr/bin"),
+            Self::CompileC
+            | Self::CompileCpp
+            | Self::CompileCDiagnostic
+            | Self::CompileCppDiagnostic => Some("/usr/bin"),
         }
     }
 
     pub fn prepares_program(self) -> bool {
-        matches!(
-            self,
-            Self::CompileC | Self::CompileCpp | Self::PythonCheck | Self::JavaCompile
-        )
+        self.gnu_compiler() || matches!(self, Self::PythonCheck | Self::JavaCompile)
     }
 
     pub fn gnu_compiler(self) -> bool {
-        matches!(self, Self::CompileC | Self::CompileCpp)
+        matches!(self, Self::CompileC | Self::CompileCpp) || self.diagnostic_compiler()
+    }
+
+    pub(crate) fn diagnostic_compiler(self) -> bool {
+        matches!(self, Self::CompileCDiagnostic | Self::CompileCppDiagnostic)
     }
 
     pub fn managed_runtime(self) -> bool {
@@ -95,7 +101,10 @@ impl ResourceLimits {
             ExecutionProfile::Native
             | ExecutionProfile::PythonCheck
             | ExecutionProfile::PythonRun => Self::default(),
-            ExecutionProfile::CompileC | ExecutionProfile::CompileCpp => Self {
+            ExecutionProfile::CompileC
+            | ExecutionProfile::CompileCpp
+            | ExecutionProfile::CompileCDiagnostic
+            | ExecutionProfile::CompileCppDiagnostic => Self {
                 cpu_time_us: 10_000_000,
                 wall_time_us: 30_000_000,
                 memory_bytes: 512 * MIB,
@@ -177,6 +186,7 @@ pub struct SpecPolicy {
     limits_ceiling: ResourceLimits,
     image_kind: Option<crate::runtime::ImageKind>,
     runtime_identity: Option<kf_contracts::judging_v2::RuntimeIdentity>,
+    allow_diagnostic_compilation: bool,
 }
 
 impl Default for SpecPolicy {
@@ -185,6 +195,7 @@ impl Default for SpecPolicy {
             limits_ceiling: ResourceLimits::ceilings(),
             image_kind: None,
             runtime_identity: None,
+            allow_diagnostic_compilation: false,
         }
     }
 }
@@ -196,6 +207,7 @@ impl SpecPolicy {
             limits_ceiling: limits,
             image_kind: None,
             runtime_identity: None,
+            allow_diagnostic_compilation: false,
         })
     }
 
@@ -203,9 +215,11 @@ impl SpecPolicy {
         mut self,
         kind: crate::runtime::ImageKind,
         identity: Option<kf_contracts::judging_v2::RuntimeIdentity>,
+        allow_diagnostic_compilation: bool,
     ) -> Self {
         self.image_kind = Some(kind);
         self.runtime_identity = identity;
+        self.allow_diagnostic_compilation = allow_diagnostic_compilation;
         self
     }
 }
@@ -367,11 +381,17 @@ fn validate_limits(limits: &ResourceLimits, cap: &ResourceLimits) -> Result<(), 
 impl ExecutionSpec {
     pub fn validate(self, policy: &SpecPolicy) -> Result<ValidatedSpec, SpecError> {
         identifier(&self.run_id, "run_id")?;
+        let diagnostic = self.profile.diagnostic_compiler();
+        if diagnostic && !policy.allow_diagnostic_compilation {
+            return Err(error("profile", ValidationCode::UnsupportedExecutable));
+        }
         let language = match self.profile {
-            ExecutionProfile::Native | ExecutionProfile::CompileC => {
-                kf_contracts::judging_v2::Language::C17
+            ExecutionProfile::Native
+            | ExecutionProfile::CompileC
+            | ExecutionProfile::CompileCDiagnostic => kf_contracts::judging_v2::Language::C17,
+            ExecutionProfile::CompileCpp | ExecutionProfile::CompileCppDiagnostic => {
+                kf_contracts::judging_v2::Language::Cpp20
             }
-            ExecutionProfile::CompileCpp => kf_contracts::judging_v2::Language::Cpp20,
             ExecutionProfile::PythonCheck | ExecutionProfile::PythonRun => {
                 kf_contracts::judging_v2::Language::Python313
             }
@@ -379,7 +399,7 @@ impl ExecutionSpec {
                 kf_contracts::judging_v2::Language::Java21
             }
         };
-        if self.profile.managed_runtime() && self.runtime_identity.is_none()
+        if (diagnostic || self.profile.managed_runtime()) && self.runtime_identity.is_none()
             || self
                 .runtime_identity
                 .as_ref()
@@ -476,6 +496,12 @@ impl ExecutionSpec {
                 .is_some_and(|relative| input_paths.contains(relative)),
             ExecutionProfile::CompileC => executable == "/usr/bin/gcc",
             ExecutionProfile::CompileCpp => executable == "/usr/bin/g++",
+            ExecutionProfile::CompileCDiagnostic | ExecutionProfile::CompileCppDiagnostic => {
+                if !crate::profiles::matches_diagnostic_compile(&self) {
+                    return Err(error("profile", ValidationCode::InvalidArgv));
+                }
+                true
+            }
             ExecutionProfile::PythonCheck
             | ExecutionProfile::PythonRun
             | ExecutionProfile::JavaCompile

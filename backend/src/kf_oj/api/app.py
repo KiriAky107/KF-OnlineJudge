@@ -12,6 +12,8 @@ from kf_oj.api.dependency_errors import install_handlers
 from kf_oj.api.v1.admin_imports import router as import_router
 from kf_oj.api.v1.admin_problems import router as maintenance_router
 from kf_oj.api.v1.agent_learning import router as agent_learning_router
+from kf_oj.api.v1.contest_ratings import router as contest_rating_router
+from kf_oj.api.v1.contest_schedule import router as contest_schedule_router
 from kf_oj.api.v1.identity import router as identity_router
 from kf_oj.api.v1.learning import router as learning_router
 from kf_oj.api.v1.problems import router as problems_router
@@ -28,8 +30,11 @@ from kf_oj.infra.artifacts.staging import ImportStaging
 from kf_oj.infra.artifacts.store import ArtifactStore
 from kf_oj.infra.coordinator import CoordinatorControl
 from kf_oj.infra.db.session import build_engine, build_session_factory
+from kf_oj.modules.contests.schedule import ContestSchedules
+from kf_oj.modules.contests.service import ContestRatings
 from kf_oj.modules.identity.service import IdentityService
 from kf_oj.modules.learning.agent_application import AgentLearning
+from kf_oj.modules.learning.hint_policy import HintPolicy
 from kf_oj.modules.learning.public import AGENT_TOOL_SCOPES
 from kf_oj.modules.learning.service import LearningService
 from kf_oj.modules.operations.queries import MaintenanceAuditQueries
@@ -64,6 +69,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     app.state.sessions, lifetime_seconds=settings.session_lifetime_seconds
                 )
                 app.state.submission_performance = SubmissionPerformanceQueries(app.state.sessions)
+                app.state.contest_ratings = ContestRatings(app.state.sessions, app.state.identity)
+                app.state.contest_schedules = ContestSchedules(
+                    app.state.sessions, app.state.identity
+                )
                 app.state.learning = LearningService(app.state.sessions)
                 source_reader = None
                 artifacts = None
@@ -119,7 +128,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     source_reader = SubmissionQueries(app.state.sessions, artifacts, cancellation)
                     app.state.submission_queries = source_reader
                 app.state.agent_learning = AgentLearning(
-                    app.state.sessions, app.state.identity, source_reader=source_reader
+                    app.state.sessions,
+                    app.state.identity,
+                    source_reader=source_reader,
+                    hint_policy=HintPolicy(
+                        settings.learning_chat_max_hint_level,
+                        settings.learning_member_max_hint_level,
+                        settings.learning_admin_max_hint_level,
+                    ),
                 )
                 app.state.skill_drafts = SkillDrafts(
                     app.state.sessions,
@@ -193,6 +209,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_handlers(app)
 
     app.include_router(router, prefix="/api/v1")
+    app.include_router(contest_rating_router, prefix="/api/v1")
+    app.include_router(contest_schedule_router, prefix="/api/v1")
     app.include_router(identity_router, prefix="/api/v1")
     app.include_router(learning_router, prefix="/api/v1")
     app.include_router(agent_learning_router, prefix="/api/v1")

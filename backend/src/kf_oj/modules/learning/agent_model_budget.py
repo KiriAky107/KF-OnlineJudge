@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from kf_oj.contracts.learning_model import MODEL_REQUEST_SECONDS, ModelTokenUsage
+from kf_oj.contracts.learning_model import ModelTokenUsage
 from kf_oj.modules.learning.agent_models import AgentModelAttemptRow, AgentRunRow, AgentTaskRow
 from kf_oj.runtime.model import ModelBudgetExceeded
 from kf_oj.runtime.storage import AgentRecordConflict
@@ -27,7 +27,11 @@ DEFAULT_MODEL_LIMITS = AgentModelLimits()
 
 
 async def reserve_model_attempt(
-    db: AsyncSession, run: AgentRunRow, owner_id: UUID, limits: AgentModelLimits
+    db: AsyncSession,
+    run: AgentRunRow,
+    owner_id: UUID,
+    limits: AgentModelLimits,
+    request_seconds: int,
 ) -> None:
     # Use the same application lock namespace as tool budgets, with a separate slot.
     await db.execute(text("SELECT pg_advisory_xact_lock(1262907471, 1)"))
@@ -35,7 +39,7 @@ async def reserve_model_attempt(
     lease = await db.get(AgentTaskRow, run.id)
     if lease is None or lease.lease_expires_at is None or lease.lease_expires_at <= now:
         raise AgentRecordConflict("model call requires a current learning lease")
-    expires = now + timedelta(seconds=MODEL_REQUEST_SECONDS + 5)
+    expires = now + timedelta(seconds=request_seconds + 5)
     if expires > run.created_at + timedelta(minutes=5):
         raise ModelBudgetExceeded("learning run reached its model deadline")
 

@@ -19,6 +19,8 @@ export const adminRouter = createRouter({
     },
     { path: '/skill-reviews', component: () => import('./AdminSkillReviews.vue') },
     { path: '/skill-reports', component: () => import('./AdminSkillReports.vue') },
+    { path: '/contests', component: () => import('./AdminContestSettlement.vue') },
+    { path: '/problem-difficulties', component: () => import('./AdminDifficultyLevels.vue') },
     { path: '/problems', component: () => import('./AdminProblems.vue') },
     {
       path: '/problems/:id/edit',

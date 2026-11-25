@@ -104,10 +104,18 @@ class LearningCandidate:
     slug: str
     is_current_version: bool
     prerequisite_tags: tuple[str, ...] = ()
+    difficulty_score: int | None = None
 
 
 async def learning_candidates(
-    session, *, tags=(), difficulty=None, allowed_difficulties=(), match_any_tag=False, limit=500
+    session,
+    *,
+    tags=(),
+    difficulty=None,
+    allowed_difficulties=(),
+    match_any_tag=False,
+    score_range: tuple[int | None, int | None] | None = None,
+    limit=500,
 ) -> tuple[LearningCandidate, ...]:
     from .learning_metadata import candidates
 
@@ -117,6 +125,7 @@ async def learning_candidates(
         difficulty=difficulty,
         allowed_difficulties=allowed_difficulties,
         match_any_tag=match_any_tag,
+        score_range=score_range,
         limit=limit,
     )
 
@@ -131,3 +140,34 @@ async def learning_selected(session, version_ids: set[UUID]) -> dict[UUID, Learn
     from .learning_metadata import selected
 
     return await selected(session, version_ids)
+
+
+async def learning_difficulties(session, version_ids: set[UUID]):
+    from sqlalchemy import func, select
+
+    from .difficulty import difficulty_levels
+    from .learning_models import ProblemLearningMetadata
+
+    if not version_ids:
+        return {}
+    rows = await session.execute(
+        select(
+            ProblemLearningMetadata.problem_version_id,
+            func.coalesce(
+                ProblemLearningMetadata.difficulty_key, ProblemLearningMetadata.difficulty
+            ),
+        ).where(ProblemLearningMetadata.problem_version_id.in_(version_ids))
+    )
+    keys = {version_id: key for version_id, key in rows}
+    levels = await difficulty_levels(session, {key for key in keys.values() if key is not None})
+    return {version_id: levels[key] for version_id, key in keys.items() if key in levels}
+
+
+async def learning_statement(session, version_id: UUID) -> tuple[str, str, int] | None:
+    from .repository import public_version
+
+    row = await public_version(session, version_id)
+    if row is None:
+        return None
+    version, _ = row
+    return version.title, version.statement, len(version.public_samples)

@@ -1,5 +1,6 @@
 """Deterministic learning evidence and personal plans; no inferred mastery scores."""
 
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -7,12 +8,14 @@ from uuid import UUID
 from pydantic import AwareDatetime, Field, StrictBool
 
 from kf_oj.contracts.judging import WireModel
+from kf_oj.contracts.learning_model import ProgressiveHintLevel
 
 Difficulty = Literal["easy", "medium", "hard"]
 TrainingRankingProfile = Literal["feedback_first", "unresolved_first"]
 TrainingRating = Literal["too_easy", "appropriate", "too_hard"]
 Tag = Annotated[str, Field(min_length=1, max_length=64)]
 TrainingGoal = Annotated[str, Field(max_length=200)]
+TrainingTitle = Annotated[str, Field(min_length=1, max_length=120)]
 DailyTrainingMinutes = Annotated[int, Field(ge=5, le=180)]
 ReviewCycleDays = Annotated[int, Field(ge=7, le=90)]
 WeeklyTrainingSessions = Annotated[int, Field(ge=1, le=7)]
@@ -45,6 +48,9 @@ class PeriodicReviewSchedule(WireModel):
     goal: TrainingGoal
     cycle_days: ReviewCycleDays
     sessions_per_week: WeeklyTrainingSessions
+    available_minutes: DailyTrainingMinutes | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 TrainingSchedule = Annotated[
@@ -96,6 +102,17 @@ class TrainingGoalCoverage(WireModel):
     covered: Annotated[tuple[Tag, ...], Field(max_length=10)]
     missing: Annotated[tuple[Tag, ...], Field(max_length=10)]
 
+    @classmethod
+    def from_tags(
+        cls, goals: tuple[str, ...], selected_tags: Iterable[tuple[str, ...]]
+    ) -> "TrainingGoalCoverage":
+        covered = {tag for tags in selected_tags for tag in tags}
+        targets = dict.fromkeys(goals)
+        return cls(
+            covered=tuple(tag for tag in targets if tag in covered),
+            missing=tuple(tag for tag in targets if tag not in covered),
+        )
+
 
 class TagStatistic(WireModel):
     tag: str
@@ -137,6 +154,7 @@ class TrainingFeedbackEvidence(TrainingFeedback):
 
 
 PracticeStatus = Literal["review_due", "practice", "review_later", "recent_attempt", "recent_plan"]
+FirstAcceptanceKind = Literal["independent", "assisted"]
 
 
 class TrainingTiming(WireModel):
@@ -145,6 +163,9 @@ class TrainingTiming(WireModel):
     last_accepted_at: AwareDatetime | None = None
     last_planned_at: AwareDatetime | None = None
     review_due_at: AwareDatetime | None = None
+    first_acceptance_kind: FirstAcceptanceKind | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 PRACTICE_PRIORITY: dict[PracticeStatus, int] = {
@@ -161,6 +182,12 @@ PRACTICE_REASONS: dict[PracticeStatus, str] = {
     "recent_attempt": "最近 7 天已提交此版本",
     "recent_plan": "最近 7 天已纳入训练计划",
 }
+
+
+def practice_reason(timing: TrainingTiming) -> str:
+    if timing.status == "review_due" and timing.first_acceptance_kind == "assisted":
+        return "首个 AC 前已获得学习助手提示，距上次通过已满 7 天，适合复习"
+    return PRACTICE_REASONS[timing.status]
 
 
 def practice_priority(previously_accepted: bool, timing: TrainingTiming | None) -> int:
@@ -210,7 +237,7 @@ class LearningRecommendations(WireModel):
 
 class CreateTraining(LearningParameters):
     idempotency_key: UUID
-    title: Annotated[str, Field(min_length=1, max_length=120)] = "个人训练计划"
+    title: TrainingTitle = "个人训练计划"
 
 
 class CreateTrainingFollowUp(WireModel):
@@ -252,6 +279,7 @@ class TrainingDetail(TrainingSummary):
     goal_coverage: TrainingGoalCoverage | None = None
     schedule: TrainingSchedule | None = Field(default=None, exclude_if=lambda value: value is None)
     previous_plan_id: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
+    max_hint_level: ProgressiveHintLevel = "L3"
 
 
 class TrainingPage(WireModel):
@@ -262,6 +290,11 @@ class TrainingPage(WireModel):
 
 class UpdateTrainingNote(WireModel):
     note: Annotated[str, Field(max_length=1000)]
+
+
+class ProblemNoteView(UpdateTrainingNote):
+    problem_version_id: UUID
+    updated_at: AwareDatetime | None
 
 
 class UpdateTrainingFeedback(WireModel):

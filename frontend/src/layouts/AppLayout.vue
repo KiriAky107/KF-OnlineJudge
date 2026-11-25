@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import ThemeToggle from '../components/ThemeToggle.vue'
 import UiIcon from '../components/UiIcon.vue'
+import FloatingAssistant from '../components/FloatingAssistant.vue'
 import { useSession } from '../composables/useSession'
+import { assistantRouteName } from '../lib/assistantNavigation'
 const { user, refresh } = useSession()
 onMounted(() => {
   void refresh().catch(() => {})
@@ -29,13 +32,23 @@ const links = [
   { to: '/', label: '首页', icon: 'home' },
   { to: '/problems', label: '题库', icon: 'problems' },
   { to: '/trainings', label: '训练', icon: 'trainings' },
+  { to: '/trainings/assistant', label: '学习助手', icon: 'assistant' },
   { to: '/contests', label: '比赛', icon: 'contests' },
   { to: '/submissions', label: '评测', icon: 'submissions' },
   { to: '/rankings', label: '排名', icon: 'rankings' },
   { to: '/discussions', label: '讨论', icon: 'discussions' },
   { to: '/teams', label: '团队', icon: 'teams' },
 ]
-const activePath = computed(() => '/' + route.path.split('/')[1])
+const activePath = computed(() =>
+  route.name === assistantRouteName ? route.path : '/' + route.path.split('/')[1],
+)
+const showFloatingAssistant = computed(
+  () =>
+    route.name !== assistantRouteName &&
+    route.name !== 'problem-workspace' &&
+    !(route.name === 'training-detail' && route.query.tab === 'problems' && route.query.problem) &&
+    !['/login', '/register', '/logout'].includes(route.path),
+)
 </script>
 <template>
   <div class="app-shell">
@@ -43,9 +56,7 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
       <div class="header-inner">
         <RouterLink to="/" class="brand" aria-label="KF OnlineJudge 首页"
           ><span class="brand-mark">KF<span class="brand-dot">.</span></span
-          ><span class="brand-name"
-            >OnlineJudge<small>CODE · PRACTICE · GROW</small></span
-          ></RouterLink
+          ><span class="brand-name">OnlineJudge</span></RouterLink
         >
         <button
           class="mobile-toggle"
@@ -71,7 +82,7 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
           >
           <details ref="aboutMenu" class="about-menu" @keydown.esc.prevent="closeAbout">
             <summary :class="{ active: activePath === '/about' }">
-              关于 <span aria-hidden="true">⌄</span>
+              <UiIcon name="about" /> 关于 <span aria-hidden="true">⌄</span>
             </summary>
             <div class="about-menu-links">
               <RouterLink
@@ -90,6 +101,7 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
           </details>
         </nav>
         <div class="header-account">
+          <ThemeToggle />
           <details
             v-if="user"
             ref="accountMenu"
@@ -97,7 +109,8 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
             @keydown.esc.prevent="closeAccount"
           >
             <summary aria-label="账号菜单">
-              {{ user.username }} <span aria-hidden="true">⌄</span>
+              <span class="account-name">{{ user.username }}</span
+              ><span aria-hidden="true">⌄</span>
             </summary>
             <div class="about-menu-links account-links">
               <RouterLink
@@ -118,6 +131,7 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
       </div>
     </header>
     <main id="main-content" class="app-main"><slot /></main>
+    <FloatingAssistant v-if="showFloatingAssistant" />
     <footer class="app-footer">
       <div class="footer-inner">
         <div class="footer-brand">
@@ -155,12 +169,12 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
 <style scoped>
 .about-menu {
   position: relative;
-  color: #64748b;
+  color: var(--secondary-ink);
 }
 .about-menu summary {
   cursor: pointer;
   list-style: none;
-  padding: 10px 13px;
+  padding: 7px 9px;
   border-radius: 8px;
   font-size: 13px;
   display: flex;
@@ -172,7 +186,7 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
 }
 .about-menu summary.active,
 .about-menu[open] summary {
-  background: #edf6ff;
+  background: var(--accent-bg);
   color: var(--blue);
 }
 .about-menu summary:focus-visible {
@@ -185,16 +199,28 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
   top: calc(100% + 8px);
   min-width: 140px;
   padding: 6px;
-  background: white;
-  border: 1px solid #e4ebf4;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 10px;
   box-shadow: 0 8px 24px #263d5d18;
   z-index: 101;
 }
 .main-nav .about-menu-links a,
+.account-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: min(21vw, 10rem);
+}
 .account-links a {
   display: block;
   padding: 10px 14px;
+}
+.account-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: min(21vw, 10rem);
 }
 .account-links a {
   border-radius: 6px;
@@ -203,7 +229,7 @@ const activePath = computed(() => '/' + route.path.split('/')[1])
 }
 .about-menu-links a:hover,
 .about-menu-links a[aria-current='page'] {
-  background: #edf6ff;
+  background: var(--accent-bg);
   color: var(--blue);
 }
 </style>

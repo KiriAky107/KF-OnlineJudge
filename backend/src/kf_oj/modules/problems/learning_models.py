@@ -31,4 +31,15 @@ class ProblemLearningMetadata(Base):
     tags: Mapped[list[str]] = mapped_column(JSONB)
     prerequisite_tags: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     difficulty: Mapped[str | None] = mapped_column(String(8))
+    difficulty_key: Mapped[str | None] = mapped_column(ForeignKey("problem_difficulty_levels.key"))
     revision: Mapped[int] = mapped_column(Integer)
+
+
+class ProblemDifficultyLevel(Base):
+    __tablename__ = "problem_difficulty_levels"
+
+    key: Mapped[str] = mapped_column(String(32), primary_key=True)
+    label: Mapped[str] = mapped_column(String(24))
+    score: Mapped[int] = mapped_column(Integer)
+    color: Mapped[str] = mapped_column(String(7))
+    tier: Mapped[str] = mapped_column(String(8))

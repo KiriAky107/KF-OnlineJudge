@@ -4,10 +4,24 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, Field, JsonValue, StrictBool
 
-from kf_oj.contracts.agent_learning import AgentLearningInput, AgentLearningResult, RunFeedback
+from kf_oj.contracts.agent_learning import (
+    AgentLearningInput,
+    AgentLearningResult,
+    PeriodicReviewRequest,
+    RunFeedback,
+    TrainingSetDraft,
+)
 from kf_oj.contracts.agent_runtime import AgentPurpose, RunState
 from kf_oj.contracts.judging import Counter, Identifier, Label, Measurement, WireModel
-from kf_oj.contracts.learning_model import ModelTokenUsage
+from kf_oj.contracts.learning_model import (
+    ChatReasoning,
+    LearningChatHistory,
+    LearningChatRequest,
+    LearningQuestion,
+    ModelAnswer,
+    ModelTokenUsage,
+    PartialChatAnswer,
+)
 
 
 class SkillToolView(WireModel):
@@ -45,6 +59,9 @@ class SkillCatalogView(WireModel):
 
 class CreateLearningSession(WireModel):
     purpose: AgentPurpose
+    conversation_session_id: Identifier | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class LearningSessionView(CreateLearningSession):
@@ -64,8 +81,26 @@ class AgentRunView(WireModel):
     state: RunState
     created_at: AwareDatetime
     result: AgentLearningResult | None = None
+    training_request: TrainingSetDraft | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    chat: LearningChatRequest | None = Field(default=None, exclude_if=lambda value: value is None)
+    review_question: LearningQuestion | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    periodic_review: PeriodicReviewRequest | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    chat_history: LearningChatHistory = Field(default=(), exclude_if=lambda value: not value)
+    partial_answer: PartialChatAnswer | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    partial_reasoning: ChatReasoning | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     failure_code: Label | None = None
     feedback: RunFeedback | None = Field(default=None, exclude_if=lambda value: value is None)
+    training_id: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class AgentHistoryItem(WireModel):
@@ -75,11 +110,47 @@ class AgentHistoryItem(WireModel):
     purpose: AgentPurpose
     state: RunState
     created_at: AwareDatetime
+    conversation_title: Annotated[str, Field(max_length=120)] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    training_id: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)
+    conversation_id: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)
+    has_training_request: StrictBool = Field(default=False, exclude_if=lambda value: not value)
 
 
 class AgentHistoryPage(WireModel):
     items: tuple[AgentHistoryItem, ...]
     truncated: bool
+
+
+class ConversationMessage(WireModel):
+    run_id: Identifier
+    question: LearningQuestion | None
+    answer: ModelAnswer | None
+    state: RunState
+    training_request: TrainingSetDraft | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+
+class ConversationPage(WireModel):
+    messages: tuple[ConversationMessage, ...]
+    next_before: Identifier | None
+
+
+class AgentConversationRun(ConversationMessage):
+    session_id: Identifier
+    purpose: AgentPurpose
+    created_at: AwareDatetime
+    training_id: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)
+    reasoning: ChatReasoning | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class AgentConversationPage(WireModel):
+    conversation_id: Identifier
+    runs: tuple[AgentConversationRun, ...]
+    next_before: Identifier | None
 
 
 class AgentTraceStep(WireModel):

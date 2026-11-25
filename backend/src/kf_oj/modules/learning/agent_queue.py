@@ -8,7 +8,9 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from kf_oj.contracts.agent_runtime import AgentRun, RunState
+from kf_oj.modules.contests.public import AgentUnavailableDuringContest, require_agent_access
 from kf_oj.modules.identity.public import AcceptedSession
+from kf_oj.modules.learning.agent_model_budget import finish_model_attempt
 from kf_oj.modules.learning.agent_models import (
     AgentRunRow,
     AgentSessionRow,
@@ -16,7 +18,12 @@ from kf_oj.modules.learning.agent_models import (
     AgentTaskRow,
     AgentWorkflowRow,
 )
-from kf_oj.modules.learning.agent_store import _run_record, begin_timing, finish_timing
+from kf_oj.modules.learning.agent_store import (
+    _run_record,
+    begin_timing,
+    clear_partial_answer,
+    finish_timing,
+)
 from kf_oj.runtime.state import check_run_transition
 from kf_oj.runtime.storage import AgentRecordUnavailable
 
@@ -40,7 +47,14 @@ class AgentQueue:
         self._sessions = sessions
 
     @staticmethod
+    async def _request_cancel(db: AsyncSession, run: AgentRunRow) -> None:
+        await clear_partial_answer(db, run.id)
+        _move(run, RunState.CANCEL_REQUESTED)
+
+    @staticmethod
     async def _close_cancelled(db: AsyncSession, run: AgentRunRow, task: AgentTaskRow) -> None:
+        if run.state == RunState.CANCEL_REQUESTED:
+            await finish_model_attempt(db, run.id, usage=None)
         _move(run, RunState.CANCELLED)
         task.lease_expires_at = None
         await finish_timing(db, run.id)
@@ -87,6 +101,8 @@ class AgentQueue:
             if run.state == RunState.CANCEL_REQUESTED:
                 await self._close_cancelled(db, run, task)
                 return None
+            if run.state == RunState.RUNNING:
+                await clear_partial_answer(db, run.id)
             if task.attempts >= 3:
                 _move(run, RunState.FAILED)
                 task.lease_expires_at = None
@@ -136,6 +152,11 @@ class AgentQueue:
             now = await db.scalar(select(func.clock_timestamp()))
             if task is None or task.lease_expires_at is None or task.lease_expires_at <= now:
                 return False
+            try:
+                await require_agent_access(db, lease.owner_id)
+            except AgentUnavailableDuringContest:
+                await self._request_cancel(db, run)
+                return False
             task.lease_expires_at = now + timedelta(seconds=duration_seconds)
             return True
 
@@ -152,6 +173,7 @@ class AgentQueue:
             or task.lease_expires_at <= now
         ):
             return None
+        await clear_partial_answer(db, run.id)
         _move(run, RunState.RETRY_WAIT)
         task.available_at = now + timedelta(seconds=3 * task.attempts)
         task.lease_expires_at = None
@@ -173,7 +195,7 @@ class AgentQueue:
         if run.state in (RunState.QUEUED, RunState.RETRY_WAIT):
             await self._close_cancelled(db, run, task)
         elif run.state == RunState.RUNNING:
-            _move(run, RunState.CANCEL_REQUESTED)
+            await self._request_cancel(db, run)
         return _run_record(run)
 
     async def acknowledge_cancelled(self, lease: AgentLease) -> bool:

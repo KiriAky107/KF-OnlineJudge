@@ -1,7 +1,49 @@
-//! Closed interpreter/JDK commands. Operator image selection remains separate;
+//! Closed compiler and interpreter commands. Operator image selection remains separate;
 //! validation alone neither acquires authority nor proves OS isolation.
 use crate::spec::{ExecutionProfile as P, ExecutionSpec, ResourceLimits};
 use kf_contracts::{judging::RunLimits, judging_v2 as v2};
+
+/// Return the prepared command and the input path relative to /work.
+pub fn gnu_compile_command(profile: P) -> Option<([&'static str; 7], &'static str)> {
+    let (compiler, standard, source, path) = match profile {
+        P::CompileC | P::CompileCDiagnostic => {
+            ("/usr/bin/gcc", "-std=c17", "/work/main.c", "main.c")
+        }
+        P::CompileCpp | P::CompileCppDiagnostic => {
+            ("/usr/bin/g++", "-std=c++20", "/work/main.cpp", "main.cpp")
+        }
+        _ => return None,
+    };
+    let optimization = if profile.diagnostic_compiler() {
+        "-O0"
+    } else {
+        "-O2"
+    };
+    Some((
+        [
+            compiler,
+            standard,
+            optimization,
+            "-pipe",
+            source,
+            "-o",
+            "/work/main",
+        ],
+        path,
+    ))
+}
+
+pub(crate) fn matches_diagnostic_compile(spec: &ExecutionSpec) -> bool {
+    let Some((argv, source)) = gnu_compile_command(spec.profile) else {
+        return false;
+    };
+    spec.argv == argv
+        && spec.env.is_empty()
+        && spec.cwd == "."
+        && matches!(spec.inputs.as_slice(), [input] if input.path == source)
+        && spec.stdin_artifact.is_none()
+        && spec.outputs == ["main"]
+}
 
 fn contract_limits(r: &ResourceLimits) -> RunLimits {
     RunLimits {

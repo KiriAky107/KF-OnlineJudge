@@ -8,7 +8,7 @@
 }
 .admin-page-heading h1 {
   margin-bottom: 10px;
-  color: #2e405b;
+  color: var(--strong-ink);
   font-size: 26px;
 }
 .admin-page-heading > p:last-child,
@@ -23,8 +23,8 @@
   gap: 16px;
   min-width: 0;
   padding: 26px;
-  background: #fff;
-  border: 1px solid #e1e8f1;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 14px;
 }
 .admin-real-panel > * {
@@ -32,11 +32,11 @@
   max-width: 100%;
 }
 .admin-real-panel h1 {
-  color: #2e405b;
+  color: var(--strong-ink);
   font-size: 26px;
 }
 .admin-real-panel h2 {
-  color: #2e405b;
+  color: var(--strong-ink);
   font-size: 18px;
 }
 .admin-real-panel h3 {
@@ -56,22 +56,22 @@
 .admin-real-toolbar {
   width: 100%;
   padding: 14px;
-  background: #f6f9fd;
+  background: var(--surface-soft);
   border-radius: 10px;
 }
 .admin-real-panel label {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #566379;
+  color: var(--secondary-ink);
 }
 .admin-real-panel :is(input, select) {
   min-width: 0;
   min-height: 38px;
   padding: 8px 12px;
-  color: #354257;
-  background: #fff;
-  border: 1px solid #dce5ef;
+  color: var(--body-ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 7px;
   font: inherit;
 }
@@ -85,9 +85,9 @@
   min-height: 38px;
   max-width: 100%;
   padding: 8px 14px;
-  color: #566379;
-  background: #fff;
-  border: 1px solid #dce5ef;
+  color: var(--secondary-ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 7px;
   font: inherit;
   line-height: 1.5;
@@ -100,9 +100,9 @@
 .admin-real-panel button:not(:disabled):hover,
 .admin-link-button:hover,
 .admin-signout:hover {
-  color: #2878ca;
-  border-color: #a8cff8;
-  background: #f0f7ff;
+  color: var(--accent-ink);
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
 }
 .admin-real-panel button.admin-primary {
   color: #fff;
@@ -115,13 +115,13 @@
   background: #2786e7;
 }
 .admin-real-panel button.admin-danger {
-  color: #c45050;
+  color: var(--danger-ink);
   border-color: #f0cccc;
 }
 .admin-real-panel button.admin-danger:not(:disabled):hover {
-  color: #b33e3e;
+  color: var(--danger-ink);
   border-color: #e9abab;
-  background: #fff4f4;
+  background: var(--danger-soft);
 }
 .admin-real-panel :disabled {
   opacity: 0.55;
@@ -141,22 +141,22 @@
 .admin-feedback {
   width: 100%;
   padding: 12px 16px;
-  border: 1px solid #cfe5fc;
+  border: 1px solid var(--accent-border);
   border-radius: 9px;
-  color: #38628d;
-  background: #edf6ff;
+  color: var(--accent-ink);
+  background: var(--accent-bg);
 }
 .admin-application [role='alert'] {
   padding: 12px 16px;
   border: 1px solid #f3d0d0;
   border-radius: 9px;
-  color: #ae4444;
-  background: #fff4f4;
+  color: var(--danger-ink);
+  background: var(--danger-soft);
 }
 .admin-table-scroll {
   width: 100%;
   overflow-x: auto;
-  border: 1px solid #edf0f5;
+  border: 1px solid var(--line);
   border-radius: 10px;
 }
 .admin-real-panel table {
@@ -168,13 +168,13 @@
 }
 .admin-real-panel :is(th, td) {
   padding: 14px 16px;
-  border-bottom: 1px solid #edf0f5;
+  border-bottom: 1px solid var(--line);
   vertical-align: middle;
   overflow-wrap: anywhere;
 }
 .admin-real-panel th {
-  color: #65758b;
-  background: #f8fafc;
+  color: var(--secondary-ink);
+  background: var(--surface-soft);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -182,32 +182,32 @@
   border-bottom: 0;
 }
 .admin-real-panel tbody tr:hover {
-  background: #fafcff;
+  background: var(--surface-soft);
 }
 .admin-real-panel td small {
   display: block;
   margin-top: 4px;
-  color: #7e8a9c;
+  color: var(--muted);
 }
 .admin-status {
   display: inline-block;
   padding: 3px 9px;
   border-radius: 5px;
-  color: #65758b;
-  background: #f0f3f7;
+  color: var(--secondary-ink);
+  background: var(--canvas);
   font-size: 12px;
   white-space: nowrap;
 }
 .admin-status.is-positive {
-  color: #2c8664;
-  background: #edf8f2;
+  color: var(--success-ink);
+  background: var(--success-soft);
 }
 .admin-empty {
   justify-self: stretch;
   padding: 22px;
-  color: #65758b;
+  color: var(--secondary-ink);
   text-align: center;
-  background: #f8fafc;
+  background: var(--surface-soft);
   border-radius: 9px;
 }
 .admin-version-list,
@@ -221,7 +221,7 @@
 }
 .admin-version-list li {
   padding: 16px;
-  border: 1px solid #e7edf4;
+  border: 1px solid var(--line);
   border-radius: 10px;
 }
 .admin-version-heading {
@@ -232,7 +232,7 @@
   margin-bottom: 8px;
 }
 .admin-version-list time {
-  color: #7e8a9c;
+  color: var(--muted);
   font-size: 12px;
 }
 .admin-import-list {
@@ -248,21 +248,21 @@
 }
 .admin-import-list button[aria-pressed='true'] {
   border-color: #409eff;
-  background: #edf6ff;
+  background: var(--accent-bg);
 }
 .admin-real-panel .admin-file-input {
   width: 100%;
   padding: 14px;
   border-style: dashed;
-  background: #f8fafc;
+  background: var(--surface-soft);
   font-size: 13px;
 }
 .admin-file-input::file-selector-button {
   margin-right: 12px;
   padding: 8px 12px;
-  color: #2878ca;
-  background: #edf6ff;
-  border: 1px solid #cfe5fc;
+  color: var(--accent-ink);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
   border-radius: 6px;
   font: inherit;
   cursor: pointer;
@@ -272,7 +272,7 @@
   gap: 14px;
   width: 100%;
   padding-top: 20px;
-  border-top: 1px solid #edf0f5;
+  border-top: 1px solid var(--line);
 }
 .admin-candidate ul {
   padding-left: 20px;
@@ -285,9 +285,9 @@
   padding: 16px;
   margin: 0;
   overflow: auto;
-  border: 1px solid #e7edf4;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--surface-soft);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -329,7 +329,7 @@
     padding: 10px 12px;
     overflow-x: auto;
     border-right: 0;
-    border-bottom: 1px solid #e1e8f1;
+    border-bottom: 1px solid var(--line);
   }
   .admin-app-nav a {
     flex: 0 0 auto;

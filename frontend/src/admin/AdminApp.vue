@@ -5,6 +5,7 @@ import { useSession } from '../composables/useSession'
 import { clearIntents, hasMaintenance } from './intents'
 import { maintenanceError } from '../api/adminProblems'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import ThemeToggle from '../components/ThemeToggle.vue'
 import UiIcon from '../components/UiIcon.vue'
 import { adminSections } from './navigation'
 const route = useRoute(),
@@ -57,6 +58,7 @@ onUnmounted(() => {
         <button v-if="session.user.value" class="admin-signout" @click="logout">
           退出 {{ session.user.value.username }}
         </button>
+        <ThemeToggle />
         <a href="/" class="admin-return">返回前台 <UiIcon name="arrow" /></a>
       </header>
       <nav class="admin-app-nav" aria-label="管理导航">

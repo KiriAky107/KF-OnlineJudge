@@ -8,6 +8,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -20,6 +21,70 @@ from kf_oj.modules.learning.service import LearningService
 from kf_oj.modules.problems.learning_models import ProblemLearningMetadata
 from kf_oj.modules.problems.models import ProblemVersion
 from kf_oj.modules.submissions import public as records
+
+
+def test_problem_note_is_private_and_persistent(postgres_url, tmp_path, monkeypatch):
+    async def run():
+        app, engine, module = await setup_app(postgres_url, tmp_path)
+        monkeypatch.setattr(module, "build_engine", lambda _: engine)
+        operator = create_async_engine(postgres_url)
+        origin = "http://localhost:5173"
+
+        def client():
+            return httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url=origin, headers={"Origin": origin}
+            )
+
+        async def login(browser, username):
+            password = secrets.token_urlsafe(24)
+            await app.state.identity.create_account(username, password)
+            response = await browser.post(
+                "/api/v1/auth/login", json={"username": username, "password": password}
+            )
+            assert response.status_code == 200
+            browser.headers["x-csrf-token"] = browser.cookies["kf_csrf"]
+
+        try:
+            async with app.router.lifespan_context(app), client() as owner, client() as other:
+                version = await app.state.problems.import_directory(tmp_path / "import")
+                path = f"/api/v1/learning/problem-notes/{version}"
+                assert (await owner.get(path)).status_code == 401
+                await login(owner, "problem_note_owner")
+                await login(other, "problem_note_other")
+                assert (await owner.get(path)).json() == {
+                    "problem_version_id": str(version),
+                    "note": "",
+                    "updated_at": None,
+                }
+                draft = {"note": "## 边界\n\n注意 $l < r$。\n\n```cpp\nint l = 0;\n```"}
+                denied = await owner.put(path, json=draft, headers={"x-csrf-token": ""})
+                assert denied.status_code == 403
+                assert (await owner.put(path, json={"note": "字" * 1001})).status_code == 422
+                saved = await owner.put(path, json=draft)
+                assert saved.status_code == 200 and saved.json()["note"] == draft["note"]
+                assert saved.json()["updated_at"]
+                assert (await owner.get(path)).json() == saved.json()
+                assert (await other.get(path)).json()["note"] == ""
+                own_other = await other.put(path, json={"note": "另一份笔记"})
+                assert own_other.status_code == 200
+                assert (await owner.get(path)).json() == saved.json()
+                cleared = await owner.put(path, json={"note": ""})
+                assert cleared.status_code == 200 and cleared.json()["updated_at"] is None
+                assert (await owner.get(path)).json()["note"] == ""
+                assert (await other.get(path)).json() == own_other.json()
+                missing = "/api/v1/learning/problem-notes/" + str(uuid4())
+                assert (await owner.put(missing, json=draft)).status_code == 404
+                async with operator.connect() as db:
+                    assert not await db.scalar(
+                        text(
+                            "SELECT has_table_privilege("
+                            "'kf_oj_learning_worker', 'learning_problem_notes', 'SELECT')"
+                        )
+                    )
+        finally:
+            await operator.dispose()
+
+    asyncio.run(run())
 
 
 def test_real_plan_storage_scope_history_and_progress(postgres_url, tmp_path, monkeypatch):

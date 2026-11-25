@@ -25,13 +25,175 @@
         "title": "AccountCapabilities",
         "type": "object"
       },
-      "AgentHistoryItem": {
+      "AgentConversationPage": {
         "additionalProperties": false,
         "properties": {
+          "conversation_id": {
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/AgentConversationRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "runs",
+          "next_before"
+        ],
+        "title": "AgentConversationPage",
+        "type": "object"
+      },
+      "AgentConversationRun": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/AgentPurpose"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "minLength": 1,
+                "pattern": "^[^\\x00]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RunState"
+          },
+          "training_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Training Id"
+          },
+          "training_request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingSetDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "run_id",
+          "question",
+          "answer",
+          "state",
+          "session_id",
+          "purpose",
+          "created_at"
+        ],
+        "title": "AgentConversationRun",
+        "type": "object"
+      },
+      "AgentHistoryItem": {
+        "additionalProperties": false,
+        "properties": {
+          "conversation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "conversation_title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Title"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "has_training_request": {
+            "default": false,
+            "title": "Has Training Request",
+            "type": "boolean"
           },
           "purpose": {
             "$ref": "#/components/schemas/AgentPurpose"
@@ -53,6 +215,18 @@
           },
           "state": {
             "$ref": "#/components/schemas/RunState"
+          },
+          "training_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Training Id"
           }
         },
         "required": [
@@ -208,6 +382,25 @@
       "AgentRunView": {
         "additionalProperties": false,
         "properties": {
+          "chat": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearningChatRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chat_history": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LearningChatTurn"
+            },
+            "maxItems": 3,
+            "title": "Chat History",
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -229,6 +422,40 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/RunFeedback"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "partial_answer": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Partial Answer"
+          },
+          "partial_reasoning": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Partial Reasoning"
+          },
+          "periodic_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PeriodicReviewRequest"
               },
               {
                 "type": "null"
@@ -268,6 +495,20 @@
             ],
             "title": "Result"
           },
+          "review_question": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "minLength": 1,
+                "pattern": "^[^\\x00]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Question"
+          },
           "run_id": {
             "format": "uuid",
             "title": "Run Id",
@@ -285,6 +526,28 @@
           },
           "state": {
             "$ref": "#/components/schemas/RunState"
+          },
+          "training_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Training Id"
+          },
+          "training_request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingSetDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -515,6 +778,16 @@
               }
             ],
             "title": "Difficulty"
+          },
+          "difficulty_level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DifficultyLevel"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "format": "uuid",
@@ -996,9 +1269,279 @@
         "title": "ConfigureSkill",
         "type": "object"
       },
+      "ContestAgentAccess": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Until"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "next_start_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Start At"
+          }
+        },
+        "required": [
+          "blocked_until",
+          "next_start_at",
+          "checked_at"
+        ],
+        "title": "ContestAgentAccess",
+        "type": "object"
+      },
+      "ContestRating": {
+        "additionalProperties": false,
+        "properties": {
+          "highest_rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highest Rating"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/RatingChange"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "rated_contests": {
+            "title": "Rated Contests",
+            "type": "integer"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          }
+        },
+        "required": [
+          "rating",
+          "highest_rating",
+          "rated_contests",
+          "history"
+        ],
+        "title": "ContestRating",
+        "type": "object"
+      },
+      "ContestRegistration": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmed": {
+            "title": "Confirmed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirmed"
+        ],
+        "title": "ContestRegistration",
+        "type": "object"
+      },
+      "ContestSchedule": {
+        "additionalProperties": false,
+        "properties": {
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "key": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,79}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "starts_at",
+          "ends_at"
+        ],
+        "title": "ContestSchedule",
+        "type": "object"
+      },
+      "ContestSettlement": {
+        "additionalProperties": false,
+        "properties": {
+          "ended_at": {
+            "format": "date-time",
+            "title": "Ended At",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "participants": {
+            "title": "Participants",
+            "type": "integer"
+          },
+          "settled_at": {
+            "format": "date-time",
+            "title": "Settled At",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "ended_at",
+          "settled_at",
+          "participants"
+        ],
+        "title": "ContestSettlement",
+        "type": "object"
+      },
+      "ConversationMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "minLength": 1,
+                "pattern": "^[^\\x00]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RunState"
+          },
+          "training_request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingSetDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "run_id",
+          "question",
+          "answer",
+          "state"
+        ],
+        "title": "ConversationMessage",
+        "type": "object"
+      },
+      "ConversationPage": {
+        "additionalProperties": false,
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before"
+          }
+        },
+        "required": [
+          "messages",
+          "next_before"
+        ],
+        "title": "ConversationPage",
+        "type": "object"
+      },
       "CreateLearningSession": {
         "additionalProperties": false,
         "properties": {
+          "conversation_session_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Session Id"
+          },
           "purpose": {
             "$ref": "#/components/schemas/AgentPurpose"
           }
@@ -1321,6 +1864,93 @@
         "title": "CurrentUser",
         "type": "object"
       },
+      "DifficultyKey": {
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+        "type": "string"
+      },
+      "DifficultyLevel": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "title": "Color",
+            "type": "string"
+          },
+          "key": {
+            "$ref": "#/components/schemas/DifficultyKey"
+          },
+          "label": {
+            "maxLength": 24,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "score": {
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/DifficultyTier"
+          }
+        },
+        "required": [
+          "label",
+          "score",
+          "color",
+          "tier",
+          "key"
+        ],
+        "title": "DifficultyLevel",
+        "type": "object"
+      },
+      "DifficultyScore": {
+        "maximum": 10000.0,
+        "minimum": 1.0,
+        "type": "integer"
+      },
+      "DifficultySettings": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "title": "Color",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 24,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "score": {
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/DifficultyTier"
+          }
+        },
+        "required": [
+          "label",
+          "score",
+          "color",
+          "tier"
+        ],
+        "title": "DifficultySettings",
+        "type": "object"
+      },
+      "DifficultyTier": {
+        "enum": [
+          "easy",
+          "medium",
+          "hard"
+        ],
+        "type": "string"
+      },
       "DisableSkillVersion": {
         "additionalProperties": false,
         "properties": {
@@ -1415,6 +2045,7 @@
                   "unavailable",
                   "uncertain",
                   "budget_exhausted",
+                  "output_limit",
                   "insufficient_evidence",
                   "source_model_unavailable"
                 ],
@@ -1445,6 +2076,26 @@
               }
             ],
             "title": "Ranking Profile"
+          },
+          "replacement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingExerciseReplacement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "training_set": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingSetDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1583,6 +2234,7 @@
                   "unavailable",
                   "uncertain",
                   "budget_exhausted",
+                  "output_limit",
                   "insufficient_evidence",
                   "source_model_unavailable"
                 ],
@@ -1788,6 +2440,105 @@
         "title": "Language",
         "type": "string"
       },
+      "LearningChatRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "hint_level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "L0",
+                  "L1",
+                  "L2",
+                  "L3"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint Level"
+          },
+          "include_submission_details": {
+            "default": false,
+            "title": "Include Submission Details",
+            "type": "boolean"
+          },
+          "previous_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Run Id"
+          },
+          "problem_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Version Id"
+          },
+          "question": {
+            "maxLength": 1200,
+            "minLength": 1,
+            "pattern": "^[^\\x00]+$",
+            "title": "Question",
+            "type": "string"
+          },
+          "training_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Training Id"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "LearningChatRequest",
+        "type": "object"
+      },
+      "LearningChatTurn": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "maxLength": 6000,
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 1200,
+            "minLength": 1,
+            "pattern": "^[^\\x00]+$",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "answer"
+        ],
+        "title": "LearningChatTurn",
+        "type": "object"
+      },
       "LearningEvidence": {
         "additionalProperties": false,
         "properties": {
@@ -1844,6 +2595,26 @@
         "title": "LearningEvidence",
         "type": "object"
       },
+      "LearningHintCeiling": {
+        "additionalProperties": false,
+        "properties": {
+          "max_hint_level": {
+            "enum": [
+              "L0",
+              "L1",
+              "L2",
+              "L3"
+            ],
+            "title": "Max Hint Level",
+            "type": "string"
+          }
+        },
+        "required": [
+          "max_hint_level"
+        ],
+        "title": "LearningHintCeiling",
+        "type": "object"
+      },
       "LearningLabel": {
         "maxLength": 40,
         "minLength": 1,
@@ -1867,6 +2638,16 @@
               }
             ],
             "title": "Difficulty"
+          },
+          "difficulty_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DifficultyKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "prerequisite_tags": {
             "anyOf": [
@@ -1912,6 +2693,16 @@
               }
             ],
             "title": "Difficulty"
+          },
+          "difficulty_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DifficultyKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "prerequisite_tags": {
             "$ref": "#/components/schemas/PrerequisiteTags",
@@ -2204,6 +2995,18 @@
       "LearningSessionView": {
         "additionalProperties": false,
         "properties": {
+          "conversation_session_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Session Id"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -2712,6 +3515,18 @@
             "title": "Model",
             "type": "string"
           },
+          "reasoning": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning"
+          },
           "response_id": {
             "maxLength": 128,
             "minLength": 1,
@@ -2765,7 +3580,6 @@
             "title": "Source Line"
           },
           "text": {
-            "maxLength": 1800,
             "minLength": 1,
             "title": "Text",
             "type": "string"
@@ -2975,9 +3789,57 @@
         "title": "PerformanceMetric",
         "type": "object"
       },
+      "PeriodicReviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "available_minutes": {
+            "maximum": 180.0,
+            "minimum": 5.0,
+            "title": "Available Minutes",
+            "type": "integer"
+          },
+          "question": {
+            "maxLength": 1200,
+            "minLength": 1,
+            "pattern": "^[^\\x00]+$",
+            "title": "Question",
+            "type": "string"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "question",
+          "available_minutes"
+        ],
+        "title": "PeriodicReviewRequest",
+        "type": "object"
+      },
       "PeriodicReviewResult": {
         "additionalProperties": false,
         "properties": {
+          "available_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 5.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Minutes"
+          },
           "cycle_days": {
             "title": "Cycle Days",
             "type": "integer"
@@ -3037,6 +3899,7 @@
                   "unavailable",
                   "uncertain",
                   "budget_exhausted",
+                  "output_limit",
                   "insufficient_evidence",
                   "source_model_unavailable"
                 ],
@@ -3071,6 +3934,17 @@
           "sessions_per_week": {
             "title": "Sessions Per Week",
             "type": "integer"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Tags",
+            "type": "array"
           }
         },
         "required": [
@@ -3088,6 +3962,19 @@
       "PeriodicReviewSchedule": {
         "additionalProperties": false,
         "properties": {
+          "available_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 5.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Minutes"
+          },
           "cycle_days": {
             "maximum": 90.0,
             "minimum": 7.0,
@@ -3172,6 +4059,16 @@
       "ProblemDetail": {
         "additionalProperties": false,
         "properties": {
+          "difficulty_level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DifficultyLevel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "execution_available": {
             "anyOf": [
               {
@@ -3706,6 +4603,40 @@
         "title": "ProblemImportSummary",
         "type": "object"
       },
+      "ProblemNoteView": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "maxLength": 1000,
+            "title": "Note",
+            "type": "string"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "note",
+          "problem_version_id",
+          "updated_at"
+        ],
+        "title": "ProblemNoteView",
+        "type": "object"
+      },
       "ProblemPage": {
         "additionalProperties": false,
         "properties": {
@@ -3780,6 +4711,16 @@
             ],
             "title": "Difficulty"
           },
+          "difficulty_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DifficultyScore"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "estimated_minutes": {
             "anyOf": [
               {
@@ -3819,6 +4760,17 @@
             "maxItems": 8,
             "title": "Prerequisites",
             "type": "array"
+          },
+          "previously_accepted": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previously Accepted"
           },
           "problem_id": {
             "format": "uuid",
@@ -4185,6 +5137,46 @@
           "truncated"
         ],
         "title": "PublishedSkillPage",
+        "type": "object"
+      },
+      "RatingChange": {
+        "additionalProperties": false,
+        "properties": {
+          "contest_key": {
+            "title": "Contest Key",
+            "type": "string"
+          },
+          "ended_at": {
+            "format": "date-time",
+            "title": "Ended At",
+            "type": "string"
+          },
+          "new_rating": {
+            "title": "New Rating",
+            "type": "integer"
+          },
+          "old_rating": {
+            "title": "Old Rating",
+            "type": "integer"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contest_key",
+          "title",
+          "ended_at",
+          "rank",
+          "old_rating",
+          "new_rating"
+        ],
+        "title": "RatingChange",
         "type": "object"
       },
       "RecommendedProblem": {
@@ -4753,6 +5745,44 @@
           "failure_code"
         ],
         "title": "SelfTestDetail",
+        "type": "object"
+      },
+      "SettleContest": {
+        "additionalProperties": false,
+        "properties": {
+          "ended_at": {
+            "format": "date-time",
+            "title": "Ended At",
+            "type": "string"
+          },
+          "key": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,79}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "standings": {
+            "items": {
+              "$ref": "#/components/schemas/Standing"
+            },
+            "maxItems": 512,
+            "minItems": 2,
+            "title": "Standings",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "ended_at",
+          "standings"
+        ],
+        "title": "SettleContest",
         "type": "object"
       },
       "SkillBindingView": {
@@ -5663,9 +6693,41 @@
         "title": "SourceLineRange",
         "type": "object"
       },
+      "Standing": {
+        "additionalProperties": false,
+        "properties": {
+          "rank": {
+            "maximum": 512.0,
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "username": {
+            "pattern": "^[a-z0-9_]{3,24}$",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "rank"
+        ],
+        "title": "Standing",
+        "type": "object"
+      },
       "StartAgentRun": {
         "additionalProperties": false,
         "properties": {
+          "chat": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearningChatRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "include_model_code_context": {
             "default": false,
             "title": "Include Model Code Context",
@@ -5728,10 +6790,34 @@
             ],
             "title": "Model Topic"
           },
+          "periodic_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PeriodicReviewRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "request_id": {
             "format": "uuid",
             "title": "Request Id",
             "type": "string"
+          },
+          "review_question": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "minLength": 1,
+                "pattern": "^[^\\x00]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Question"
           },
           "skill_version_id": {
             "format": "uuid",
@@ -5749,6 +6835,16 @@
               }
             ],
             "title": "Submission Id"
+          },
+          "training_set": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingSetDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -5756,6 +6852,63 @@
           "skill_version_id"
         ],
         "title": "StartAgentRun",
+        "type": "object"
+      },
+      "SubmissionActivity": {
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionActivityDay"
+            },
+            "maxItems": 365,
+            "title": "Days",
+            "type": "array"
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "time_zone": {
+            "const": "Asia/Shanghai",
+            "default": "Asia/Shanghai",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "days"
+        ],
+        "title": "SubmissionActivity",
+        "type": "object"
+      },
+      "SubmissionActivityDay": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          }
+        },
+        "required": [
+          "day",
+          "count"
+        ],
+        "title": "SubmissionActivityDay",
         "type": "object"
       },
       "SubmissionCodeEvidence": {
@@ -6216,6 +7369,7 @@
                   "unavailable",
                   "uncertain",
                   "budget_exhausted",
+                  "output_limit",
                   "insufficient_evidence",
                   "source_model_unavailable"
                 ],
@@ -6583,6 +7737,17 @@
             "title": "Items",
             "type": "array"
           },
+          "max_hint_level": {
+            "default": "L3",
+            "enum": [
+              "L0",
+              "L1",
+              "L2",
+              "L3"
+            ],
+            "title": "Max Hint Level",
+            "type": "string"
+          },
           "parameters": {
             "$ref": "#/components/schemas/LearningParameters"
           },
@@ -6643,6 +7808,27 @@
           "items"
         ],
         "title": "TrainingDetail",
+        "type": "object"
+      },
+      "TrainingExerciseReplacement": {
+        "additionalProperties": false,
+        "properties": {
+          "position": {
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "previous_title": {
+            "title": "Previous Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position",
+          "previous_title"
+        ],
+        "title": "TrainingExerciseReplacement",
         "type": "object"
       },
       "TrainingFeedback": {
@@ -6991,6 +8177,182 @@
         "title": "TrainingPrerequisite",
         "type": "object"
       },
+      "TrainingSearch": {
+        "additionalProperties": false,
+        "properties": {
+          "maximum_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DifficultyScore"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minimum_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DifficultyScore"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "only_unsolved": {
+            "default": false,
+            "title": "Only Unsolved",
+            "type": "boolean"
+          }
+        },
+        "title": "TrainingSearch",
+        "type": "object"
+      },
+      "TrainingSetDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "default": 5,
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "cover_each_goal": {
+            "default": false,
+            "title": "Cover Each Goal",
+            "type": "boolean"
+          },
+          "difficulty": {
+            "anyOf": [
+              {
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "minLength": 1,
+                "pattern": "^[^\\x00]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "previous_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Run Id"
+          },
+          "ranking_profile": {
+            "anyOf": [
+              {
+                "enum": [
+                  "feedback_first",
+                  "unresolved_first"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ranking Profile"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingSetRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "search": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingSearch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "TrainingSetDraft",
+        "type": "object"
+      },
+      "TrainingSetRevision": {
+        "additionalProperties": false,
+        "properties": {
+          "replace_position": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replace Position"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "TrainingSetRevision",
+        "type": "object"
+      },
       "TrainingSummary": {
         "additionalProperties": false,
         "properties": {
@@ -7035,6 +8397,21 @@
       "TrainingTiming": {
         "additionalProperties": false,
         "properties": {
+          "first_acceptance_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "independent",
+                  "assisted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Acceptance Kind"
+          },
           "last_accepted_at": {
             "anyOf": [
               {
@@ -7292,6 +8669,88 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/admin/contest-schedules": {
+      "post": {
+        "operationId": "publish_api_v1_admin_contest_schedules_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContestSchedule"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestSchedule"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish",
+        "tags": [
+          "contest-schedule"
+        ]
+      }
+    },
+    "/api/v1/admin/contest-settlements": {
+      "post": {
+        "operationId": "settle_api_v1_admin_contest_settlements_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettleContest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestSettlement"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Settle",
+        "tags": [
+          "contest-ratings"
+        ]
+      }
+    },
     "/api/v1/admin/maintenance-audit": {
       "get": {
         "operationId": "audit_api_v1_admin_maintenance_audit_get",
@@ -7382,6 +8841,59 @@
           }
         },
         "summary": "Audit",
+        "tags": [
+          "problem-maintenance"
+        ]
+      }
+    },
+    "/api/v1/admin/problem-difficulty-levels/{key}": {
+      "put": {
+        "operationId": "update_difficulty_level_api_v1_admin_problem_difficulty_levels__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DifficultySettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DifficultyLevel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Difficulty Level",
         "tags": [
           "problem-maintenance"
         ]
@@ -8598,6 +10110,197 @@
         ]
       }
     },
+    "/api/v1/contests": {
+      "get": {
+        "operationId": "contests_api_v1_contests_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ContestSchedule"
+                  },
+                  "title": "Response Contests Api V1 Contests Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Contests",
+        "tags": [
+          "contest-schedule"
+        ]
+      }
+    },
+    "/api/v1/contests/agent-access": {
+      "get": {
+        "operationId": "learning_agent_access_api_v1_contests_agent_access_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestAgentAccess"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Learning Agent Access",
+        "tags": [
+          "contest-schedule"
+        ]
+      }
+    },
+    "/api/v1/contests/my-rating": {
+      "get": {
+        "operationId": "my_rating_api_v1_contests_my_rating_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestRating"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "My Rating",
+        "tags": [
+          "contest-ratings"
+        ]
+      }
+    },
+    "/api/v1/contests/{key}": {
+      "get": {
+        "operationId": "schedule_api_v1_contests__key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestSchedule"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Schedule",
+        "tags": [
+          "contest-schedule"
+        ]
+      }
+    },
+    "/api/v1/contests/{key}/registration": {
+      "get": {
+        "operationId": "registration_api_v1_contests__key__registration_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestRegistration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Registration",
+        "tags": [
+          "contest-schedule"
+        ]
+      },
+      "put": {
+        "operationId": "confirm_api_v1_contests__key__registration_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestRegistration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm",
+        "tags": [
+          "contest-schedule"
+        ]
+      }
+    },
     "/api/v1/health/live": {
       "get": {
         "description": "Check process liveness only; does not attest DB, queue or judge readiness.",
@@ -8786,9 +10489,28 @@
         ]
       }
     },
-    "/api/v1/learning/agent/runs": {
+    "/api/v1/learning/agent/conversations": {
       "get": {
-        "operationId": "run_history_api_v1_learning_agent_runs_get",
+        "operationId": "recent_conversations_api_v1_learning_agent_conversations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "problem_version_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Problem Version Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -8799,6 +10521,146 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recent Conversations",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/hint-ceiling": {
+      "get": {
+        "operationId": "hint_ceiling_api_v1_learning_agent_hint_ceiling_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "problem_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Problem Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "training_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Training Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningHintCeiling"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Hint Ceiling",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/runs": {
+      "get": {
+        "operationId": "run_history_api_v1_learning_agent_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "group_chat",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Group Chat",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "problem_version_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Problem Version Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "training_drafts",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Training Drafts",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentHistoryPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Run History",
@@ -8888,6 +10750,61 @@
           }
         },
         "summary": "Cancel Run",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/runs/{run_id}/conversation": {
+      "get": {
+        "operationId": "conversation_api_v1_learning_agent_runs__run_id__conversation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 6,
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Conversation",
         "tags": [
           "learning-agent"
         ]
@@ -9068,6 +10985,78 @@
           }
         },
         "summary": "New Session",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/sessions/{session_id}/conversation": {
+      "get": {
+        "operationId": "conversation_runs_api_v1_learning_agent_sessions__session_id__conversation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "maximum": 30,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConversationPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Conversation Runs",
         "tags": [
           "learning-agent"
         ]
@@ -10032,6 +12021,100 @@
         ]
       }
     },
+    "/api/v1/learning/problem-notes/{problem_version_id}": {
+      "get": {
+        "operationId": "problem_note_api_v1_learning_problem_notes__problem_version_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Problem Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemNoteView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Problem Note",
+        "tags": [
+          "learning"
+        ]
+      },
+      "put": {
+        "operationId": "save_problem_note_api_v1_learning_problem_notes__problem_version_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "problem_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Problem Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTrainingNote"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemNoteView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Problem Note",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
     "/api/v1/learning/recommendations": {
       "post": {
         "operationId": "recommendations_api_v1_learning_recommendations_post",
@@ -10147,6 +12230,22 @@
           },
           {
             "in": "query",
+            "name": "difficulty_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DifficultyKey"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Difficulty Key"
+            }
+          },
+          {
+            "in": "query",
             "name": "tag",
             "required": false,
             "schema": {
@@ -10187,6 +12286,31 @@
           }
         },
         "summary": "List Problems",
+        "tags": [
+          "problems"
+        ]
+      }
+    },
+    "/api/v1/problems/difficulty-levels": {
+      "get": {
+        "operationId": "list_difficulty_levels_api_v1_problems_difficulty_levels_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DifficultyLevel"
+                  },
+                  "title": "Response List Difficulty Levels Api V1 Problems Difficulty Levels Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Difficulty Levels",
         "tags": [
           "problems"
         ]
@@ -10448,6 +12572,27 @@
           }
         },
         "summary": "Create",
+        "tags": [
+          "submissions"
+        ]
+      }
+    },
+    "/api/v1/submissions/activity": {
+      "get": {
+        "operationId": "activity_api_v1_submissions_activity_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionActivity"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Activity",
         "tags": [
           "submissions"
         ]
@@ -10937,6 +13082,59 @@
           }
         },
         "summary": "Create Follow Up",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/trainings/{training_id}/hint-ceiling": {
+      "put": {
+        "operationId": "set_training_hint_ceiling_api_v1_trainings__training_id__hint_ceiling_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "training_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LearningHintCeiling"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningHintCeiling"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Training Hint Ceiling",
         "tags": [
           "learning"
         ]

@@ -10,17 +10,22 @@ import PanelCard from './PanelCard.vue'
 import JudgementStatus from './JudgementStatus.vue'
 import SubmissionPerformance from './SubmissionPerformance.vue'
 import SubmissionReview from './SubmissionReview.vue'
-import { preparationName } from '../composables/judgingLanguage'
+import { editorLanguages, preparationName } from '../composables/judgingLanguage'
 import { displayTime } from '../lib/presentation'
+import { useSiteTheme } from '../composables/useSiteTheme'
 import { editorThemePresets, savedEditorTheme, type EditorTheme } from '../lib/editorHighlighting'
 import { languageLabels } from '../composables/useCodeDraft'
 const CodeEditor = defineAsyncComponent(() => import('./CodeEditor.vue'))
 const props = defineProps<{ submissionId: string; embedded?: boolean; theme?: EditorTheme }>()
 const choices = savedEditorTheme()
+const { theme: siteTheme } = useSiteTheme()
 const sourceTheme = computed(
-  () => props.theme ?? editorThemePresets[choices.preset][choices.appearance],
+  () =>
+    props.theme ??
+    editorThemePresets[choices.preset][
+      choices.appearance === 'site' ? siteTheme.value : choices.appearance
+    ],
 )
-const editorLanguages = { c17: 'c', cpp20: 'cpp', python313: 'python', java21: 'java' } as const
 const compilationLabels: Record<components['schemas']['CompilationStatus'], string> = {
   succeeded: '成功',
   compilation_error: '失败',
@@ -373,8 +378,8 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .submission-hero {
-  --summary-accent: #315d89;
-  --summary-surface: #eaf3fc;
+  --summary-accent: var(--accent-ink);
+  --summary-surface: var(--accent-bg);
   padding: 17px clamp(16px, 3vw, 28px);
   border: 1px solid color-mix(in srgb, var(--summary-accent) 23%, var(--summary-surface));
   border-radius: 14px;
@@ -382,20 +387,20 @@ onBeforeUnmount(() => {
   color: var(--summary-accent);
 }
 .submission-hero[data-verdict='accepted'] {
-  --summary-accent: #116248;
-  --summary-surface: #e5f5ed;
+  --summary-accent: var(--success-ink);
+  --summary-surface: var(--success-soft);
 }
 .submission-hero[data-verdict='compilation_error'] {
-  --summary-accent: #81500d;
-  --summary-surface: #fff2d9;
+  --summary-accent: var(--warn-ink);
+  --summary-surface: var(--warn-soft);
 }
 .submission-hero:is(
   [data-verdict='wrong_answer'],
   [data-verdict='runtime_error'],
   [data-verdict='system_error']
 ) {
-  --summary-accent: #8c3247;
-  --summary-surface: #fcebf0;
+  --summary-accent: var(--danger-ink);
+  --summary-surface: var(--danger-soft);
 }
 .submission-hero-main,
 .submission-actions,
@@ -496,8 +501,8 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 .case-tile {
-  --case-accent: #913b4e;
-  --case-surface: #fff4f6;
+  --case-accent: var(--danger-ink);
+  --case-surface: var(--danger-soft);
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--case-accent) 26%, var(--case-surface));
   border-radius: 8px;
@@ -505,8 +510,8 @@ onBeforeUnmount(() => {
   color: var(--case-accent);
 }
 .case-tile[data-verdict='accepted'] {
-  --case-accent: #17634c;
-  --case-surface: #eff9f4;
+  --case-accent: var(--success-ink);
+  --case-surface: var(--success-soft);
 }
 .case-tile :deep(.verdict) {
   display: block;

@@ -32,7 +32,11 @@ impl ImageKind {
             (self, profile),
             (
                 Self::LinuxGnuCxxX86_64V1,
-                P::Native | P::CompileC | P::CompileCpp
+                P::Native
+                    | P::CompileC
+                    | P::CompileCpp
+                    | P::CompileCDiagnostic
+                    | P::CompileCppDiagnostic
             ) | (Self::LinuxCPython313X86_64V1, P::PythonCheck | P::PythonRun)
                 | (Self::LinuxOpenJdk21X86_64V1, P::JavaCompile | P::JavaRun)
         )
@@ -91,6 +95,9 @@ pub struct RuntimeConfig {
     /// Explicit catalog fingerprint; absent only for the original GNU image.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_identity: Option<kf_contracts::judging_v2::RuntimeIdentity>,
+    /// Authorize the closed diagnostic compiler profiles on a pinned GNU image.
+    #[serde(default, skip_serializing_if = "kf_contracts::judging::is_false")]
+    pub allow_diagnostic_compilation: bool,
     /// Additional immutable images share this factory's identity/delegation
     /// pools and aggregate budget. A request supplies only an exact identity.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -142,7 +149,11 @@ impl ValidatedRuntimeConfig {
     pub fn spec_policy(&self) -> SpecPolicy {
         SpecPolicy::with_limits_ceiling(self.0.per_task_ceiling.clone())
             .expect("validated immutable limits ceiling")
-            .for_image(self.0.image_kind, self.0.runtime_identity.clone())
+            .for_image(
+                self.0.image_kind,
+                self.0.runtime_identity.clone(),
+                self.0.allow_diagnostic_compilation,
+            )
     }
 
     /// Slot mapping only; the supervisor must lease slots until the old task
