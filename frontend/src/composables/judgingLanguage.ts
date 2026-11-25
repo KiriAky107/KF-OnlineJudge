@@ -2,6 +2,12 @@ import type { components } from '../api/generated/schema'
 import type { Language } from './useCodeDraft'
 
 export type WireLanguage = components['schemas']['SubmissionSummary']['language']
+export const editorLanguages = {
+  c17: 'c',
+  cpp20: 'cpp',
+  python313: 'python',
+  java21: 'java',
+} as const satisfies Record<WireLanguage, Language>
 type ProblemCapability = Pick<
   components['schemas']['ProblemDetail'],
   'languages' | 'language_configurations' | 'run_limits'
