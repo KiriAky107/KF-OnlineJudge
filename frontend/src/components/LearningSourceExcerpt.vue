@@ -4,7 +4,7 @@ import { api } from '../api/client'
 import type { components } from '../api/generated/schema'
 import { ApiError, errorText, unwrap } from '../api/transport'
 
-const props = defineProps<{ submissionId: string; disabled: boolean }>()
+const props = defineProps<{ submissionId: string; disabled: boolean; chat?: boolean }>()
 const selection = defineModel<components['schemas']['SourceLineRange'] | null>({ required: true })
 const first = ref<number | ''>(1)
 const last = ref<number | ''>(1)
@@ -102,7 +102,9 @@ async function preview() {
           />
           本次由本机模型分析以上片段
         </label>
-        <small v-if="selection" class="muted">模型只会收到以上源码、语言和行号。</small>
+        <small v-if="selection" class="muted">
+          {{ chat ? '以上片段仅供本轮本机模型分析。' : '模型只会收到以上源码、语言和行号。' }}
+        </small>
       </div>
     </form>
   </details>
