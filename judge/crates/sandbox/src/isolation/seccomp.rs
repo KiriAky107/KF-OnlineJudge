@@ -416,10 +416,12 @@ pub(crate) fn install(profile: ExecutionProfile) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const PROFILES: [ExecutionProfile; 7] = [
+    const PROFILES: [ExecutionProfile; 9] = [
         ExecutionProfile::Native,
         ExecutionProfile::CompileC,
         ExecutionProfile::CompileCpp,
+        ExecutionProfile::CompileCDiagnostic,
+        ExecutionProfile::CompileCppDiagnostic,
         ExecutionProfile::PythonCheck,
         ExecutionProfile::PythonRun,
         ExecutionProfile::JavaCompile,

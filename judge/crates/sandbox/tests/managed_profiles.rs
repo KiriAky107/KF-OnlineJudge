@@ -87,6 +87,62 @@ fn image_selection_preserves_one_global_identity_pool_budget_and_legacy_wire() {
 }
 
 #[test]
+fn diagnostic_compilation_requires_opt_in_and_exact_pinned_gnu_command() {
+    let mut config = registry();
+    let gnu = RuntimeIdentity {
+        toolchain_id: "gnu-cxx-v1".to_owned().try_into().unwrap(),
+        image_kind: ContractKind::GnuCxx,
+        image_revision: 1,
+        image_digest: "d".repeat(64).try_into().unwrap(),
+        runtime_version: "16.2.1+r23".to_owned().try_into().unwrap(),
+    };
+    config.runtime_identity = Some(gnu.clone());
+    let disabled = config.clone().validate().unwrap();
+    config.allow_diagnostic_compilation = true;
+    let enabled = config.validate().unwrap();
+    for (profile, regular, compiler, source) in [
+        (
+            ExecutionProfile::CompileCDiagnostic,
+            ExecutionProfile::CompileC,
+            "/usr/bin/gcc",
+            "main.c",
+        ),
+        (
+            ExecutionProfile::CompileCppDiagnostic,
+            ExecutionProfile::CompileCpp,
+            "/usr/bin/g++",
+            "main.cpp",
+        ),
+    ] {
+        let mut spec: ExecutionSpec =
+            serde_json::from_str(include_str!("fixtures/spec.valid.json")).unwrap();
+        let (command, _) = profiles::gnu_compile_command(profile).unwrap();
+        assert_eq!(command[0], compiler);
+        assert_eq!(command[2], "-O0");
+        assert_eq!(profiles::gnu_compile_command(regular).unwrap().0[2], "-O2");
+        spec.runtime_identity = Some(gnu.clone());
+        spec.profile = profile;
+        spec.argv = command.into_iter().map(String::from).collect();
+        spec.inputs[0].path = source.into();
+        spec.outputs = vec!["main".into()];
+        spec.env.clear();
+        spec.stdin_artifact = None;
+        assert!(spec.clone().validate(&SpecPolicy::default()).is_err());
+        assert!(disabled.for_request(&spec).is_err());
+        assert!(enabled.for_request(&spec).is_ok());
+
+        let mut changed = spec.clone();
+        changed.argv[2] = "-O2".into();
+        assert!(enabled.for_request(&changed).is_err());
+        let mut changed = spec.clone();
+        changed.stdin_artifact = Some("input-001".into());
+        assert!(enabled.for_request(&changed).is_err());
+        spec.runtime_identity = None;
+        assert!(enabled.for_request(&spec).is_err());
+    }
+}
+
+#[test]
 fn registry_cannot_grant_unregistered_identity_profile_or_wider_stage_budget() {
     let mut c = registry();
     c.runtime_images[0].per_task_ceiling.memory_bytes = 64 << 20;
