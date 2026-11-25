@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     LargeBinary,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -33,6 +34,17 @@ class AgentSessionRow(CreatedAt, Base):
     id: Mapped[UUID] = mapped_column(primary_key=True)
     owner_id: Mapped[UUID] = mapped_column(ForeignKey("accounts.id"), index=True)
     purpose: Mapped[str] = mapped_column(String(24))
+
+
+class AgentConversationSessionRow(Base):
+    __tablename__ = "learning_agent_conversation_sessions"
+
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("learning_agent_sessions.id"), primary_key=True
+    )
+    root_session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("learning_agent_sessions.id"), index=True
+    )
 
 
 class AgentRunRow(CreatedAt, Base):
@@ -105,6 +117,17 @@ class AgentWorkflowRow(Base):
     input: Mapped[dict] = mapped_column(JSONB)
     result: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     failure_code: Mapped[str | None] = mapped_column(String(64))
+
+
+class AgentPartialAnswerRow(Base):
+    __tablename__ = "learning_agent_partial_answers"
+    __table_args__ = (CheckConstraint("text IS NOT NULL OR reasoning IS NOT NULL", name="content"),)
+
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("learning_agent_runs.id", ondelete="CASCADE"), primary_key=True
+    )
+    text: Mapped[str | None] = mapped_column(Text)
+    reasoning: Mapped[str | None] = mapped_column(Text)
 
 
 class AgentFeedbackRow(Base):

@@ -6,6 +6,7 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from kf_oj.contracts.judging_v2 import NodeAdmission
+from kf_oj.contracts.learning_model import ProgressiveHintLevel
 
 
 class Settings(BaseSettings):
@@ -19,6 +20,10 @@ class Settings(BaseSettings):
     learning_model_name: str | None = Field(default=None, min_length=1, max_length=96)
     learning_model_api_key: SecretStr | None = None
     learning_model_reasoning_effort: Literal["none"] | None = None
+    learning_chat_reasoning_effort: Literal["none", "low", "high"] | None = None
+    learning_chat_max_hint_level: ProgressiveHintLevel = "L3"
+    learning_member_max_hint_level: ProgressiveHintLevel = "L3"
+    learning_admin_max_hint_level: ProgressiveHintLevel = "L3"
     learning_model_account_calls_per_hour: int = Field(default=12, ge=1, le=1000)
     learning_model_service_calls_per_hour: int = Field(default=120, ge=1, le=10000)
     identity_operator_database_url: SecretStr | None = None

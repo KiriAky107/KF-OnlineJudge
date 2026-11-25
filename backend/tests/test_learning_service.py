@@ -6,9 +6,10 @@ from uuid import UUID
 
 from kf_oj.contracts.agent_learning import TrainingCandidatesArguments
 from kf_oj.contracts.learning import LearningParameters
+from kf_oj.modules.learning.practice import training_timing
 from kf_oj.modules.learning.service import rank_candidates, summarize
 from kf_oj.modules.problems.public import LearningCandidate
-from kf_oj.modules.submissions.public import LearningHistory, LearningRecord
+from kf_oj.modules.submissions.public import LearningHistory, LearningPractice, LearningRecord
 
 NOW = datetime(2026, 11, 17, tzinfo=UTC)
 
@@ -40,6 +41,40 @@ def record(n, c, verdict="wrong_answer", **changes):
         None,
     )
     return replace(r, **changes)
+
+
+def test_assisted_first_pass_brings_review_forward():
+    independent, assisted = candidate(1), candidate(2)
+    accepted = NOW - timedelta(days=8)
+    practice = LearningPractice(accepted, accepted, accepted)
+    assisted_timing = training_timing(
+        practice, None, NOW, first_hint_at=accepted - timedelta(days=1)
+    )
+    independent_timing = training_timing(
+        practice, None, NOW, first_hint_at=accepted + timedelta(days=1)
+    )
+    assert assisted_timing.first_acceptance_kind == "assisted"
+    assert assisted_timing.review_due_at == accepted + timedelta(days=7)
+    assert independent_timing.first_acceptance_kind == "independent"
+    assert independent_timing.review_due_at == accepted + timedelta(days=14)
+    ranked = rank_candidates(
+        (independent, assisted),
+        LearningParameters(count=2),
+        LearningHistory((), False),
+        {},
+        {independent.version_id, assisted.version_id},
+        NOW,
+        timings={
+            independent.version_id: independent_timing,
+            assisted.version_id: assisted_timing,
+        },
+    )
+    assert [item.problem_id for item in ranked.items] == [
+        assisted.problem_id,
+        independent.problem_id,
+    ]
+    assert "7 天" in ranked.items[0].reasons[-1]
+    assert ranked.rule_version == "learning-rules-v7"
 
 
 def test_statistics_count_submissions_not_retries_and_exclude_infrastructure():
@@ -162,6 +197,7 @@ def test_plan_projection_preserves_snapshot_and_version_progress():
         created_at=NOW - timedelta(days=120),
         rule_version="old-rule",
         parameters={},
+        max_hint_level="L2",
     )
     row = SimpleNamespace(
         id=UUID(int=51),
@@ -178,6 +214,7 @@ def test_plan_projection_preserves_snapshot_and_version_progress():
         plan, [row], {c.version_id: current}, {c.version_id: LearningProgress("completed", (ac,))}
     )
     assert view.completed_count == 1
+    assert view.max_hint_level == "L2"
     assert view.items[0].title == c.title
     assert view.items[0].metadata_revision == 1
     assert not view.items[0].available and not view.items[0].is_current_version

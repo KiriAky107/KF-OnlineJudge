@@ -14,6 +14,7 @@ from kf_oj.infra.db.session import build_engine, build_session_factory
 from kf_oj.infra.responses_model import ResponsesLearningHint
 from kf_oj.modules.learning.agent_model_budget import AgentModelLimits
 from kf_oj.modules.learning.agent_worker import LearningWorker
+from kf_oj.modules.learning.hint_policy import HintPolicy
 
 
 async def verify_role(engine: AsyncEngine) -> None:
@@ -48,6 +49,7 @@ async def serve(settings: Settings, *, check: bool, once: bool) -> None:
                 settings.learning_model_name,
                 settings.learning_model_api_key,
                 reasoning_effort=settings.learning_model_reasoning_effort,
+                chat_reasoning_effort=settings.learning_chat_reasoning_effort,
             )
         worker = LearningWorker(
             build_session_factory(engine),
@@ -55,6 +57,11 @@ async def serve(settings: Settings, *, check: bool, once: bool) -> None:
             model_limits=AgentModelLimits(
                 account_per_hour=settings.learning_model_account_calls_per_hour,
                 service_per_hour=settings.learning_model_service_calls_per_hour,
+            ),
+            hint_policy=HintPolicy(
+                settings.learning_chat_max_hint_level,
+                settings.learning_member_max_hint_level,
+                settings.learning_admin_max_hint_level,
             ),
         )
         if check:

@@ -6,13 +6,15 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from conftest import connect
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_problems import import_fixture
 from test_submission_create import setup_app
 
+from kf_oj.contracts.submissions import CreateSubmission
 from kf_oj.modules.learning.agent_worker import LearningWorker
-from kf_oj.modules.problems.learning_models import ProblemLearningMetadata
+from kf_oj.modules.problems.learning_models import ProblemDifficultyLevel, ProblemLearningMetadata
 
 AGENT = "/api/v1/learning/agent"
 ORIGIN = "http://localhost:5173"
@@ -94,6 +96,7 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                 worker = LearningWorker(async_sessionmaker(worker_engine, expire_on_commit=False))
                 draft = {
                     "title": "二分入门",
+                    "message": "想要两道二分查找入门题",
                     "tags": ["二分查找"],
                     "difficulty": "easy",
                     "count": 2,
@@ -109,9 +112,10 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                         },
                     )
 
-                async def complete(value, request_id=None):
-                    accepted = await send_draft(path, value, request_id)
+                async def complete(value, request_id=None, *, target=None):
+                    accepted = await send_draft(target or path, value, request_id)
                     assert accepted.status_code == 202, accepted.text
+                    assert accepted.json()["training_request"]["message"] == value["message"]
                     run = f"{AGENT}/runs/{accepted.json()['run_id']}"
                     assert await worker.run_once()
                     result = (await browser.get(run)).json()
@@ -124,6 +128,7 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                 assert len(selected) == 2 and set(selected) < versions
                 revision = draft | {
                     "title": "练习二分",
+                    "message": "换第二题，改名为练习二分",
                     "revision": {"run_id": original["run_id"], "replace_position": 2},
                 }
                 other_session = await send_draft(await session_path(), revision)
@@ -132,7 +137,34 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                 reviewed = [item["problem_version_id"] for item in changed["result"]["items"]]
                 (replacement,) = versions.difference(selected)
                 assert reviewed == [selected[0], replacement]
+                assert changed["result"]["replacement"] == {
+                    "position": 2,
+                    "previous_title": original["result"]["items"][1]["title"],
+                }
+                assert (await browser.get(changed_path)).json()["result"]["replacement"] == changed[
+                    "result"
+                ]["replacement"]
                 assert (await browser.get(original_path)).json() == original
+                assert changed["training_request"]["message"] == revision["message"]
+
+                rerank = draft | {
+                    "count": 1,
+                    "message": "这次改成一道题",
+                    "previous_run_id": changed["run_id"],
+                }
+                assert (await send_draft(await session_path(), rerank)).status_code == 404
+                resized_path, resized = await complete(rerank)
+                assert len(resized["result"]["items"]) == 1
+                first_page = await browser.get(f"{resized_path}/conversation", params={"limit": 1})
+                assert first_page.status_code == 200, first_page.text
+                assert first_page.json()["next_before"] == changed["run_id"]
+                (prior,) = first_page.json()["messages"]
+                assert prior["question"] == revision["message"]
+                assert prior["training_request"]["count"] == 2
+                assert prior["training_request"]["tags"] == ["二分查找"]
+                earlier = (await browser.get(f"{changed_path}/conversation")).json()
+                assert earlier["next_before"] is None
+                assert [turn["question"] for turn in earlier["messages"]] == [draft["message"]]
 
                 async def drop_success_response(scope, receive, send):
                     async def deliver(message):
@@ -174,6 +206,44 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                 )
                 assert saved_skill["binding"]["parameters"] == binding.json()["parameters"]
 
+                recent_path = f"{AGENT}/runs?training_drafts=true"
+                separate_path, separate = await complete(
+                    draft | {"title": "独立入门训练", "count": 1}, target=await session_path()
+                )
+                confirmed = await browser.post(f"{separate_path}/training")
+                assert confirmed.status_code == 200, confirmed.text
+                latest = await browser.get(recent_path)
+                assert latest.status_code == 200, latest.text
+                saved_entry, unsaved_entry = latest.json()["items"]
+                assert saved_entry["run_id"] == separate["run_id"]
+                assert saved_entry["conversation_title"] == "独立入门训练"
+                assert saved_entry["training_id"] == confirmed.json()["id"]
+                assert unsaved_entry["run_id"] == resized["run_id"]
+                assert "training_id" not in unsaved_entry
+
+                legacy = await browser.post(
+                    await session_path(),
+                    json={"request_id": str(uuid4()), "skill_version_id": skill_id},
+                )
+                assert legacy.status_code == 202, legacy.text
+                legacy_id = legacy.json()["run_id"]
+                discussions = await browser.get(f"{AGENT}/runs?group_chat=true")
+                assert discussions.status_code == 200, discussions.text
+                assert [item["run_id"] for item in discussions.json()["items"]] == [legacy_id]
+                assert (await browser.post(f"{AGENT}/runs/{legacy_id}/cancel")).status_code == 200
+
+                await app.state.identity.create_account("another_learner", password)
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app), base_url=ORIGIN, headers={"origin": ORIGIN}
+                ) as stranger:
+                    login = await stranger.post(
+                        "/api/v1/auth/login",
+                        json={"username": "another_learner", "password": password},
+                    )
+                    assert login.status_code == 200
+                    assert (await stranger.get(recent_path)).json()["items"] == []
+                    other = await app.state.identity.authenticate(stranger.cookies["kf_session"])
+
                 rename = draft | {
                     "title": "二分自查",
                     "revision": {"run_id": original["run_id"], "replace_position": None},
@@ -183,6 +253,18 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                     item["problem_version_id"] for item in renamed["result"]["items"]
                 ] == selected
                 assert (await browser.get(f"{rename_path}/trace")).json()["tool_calls"] == 0
+
+                _, all_problems = await complete(draft | {"count": 3})
+                _, unchanged = await complete(
+                    draft
+                    | {
+                        "count": 3,
+                        "revision": {"run_id": all_problems["run_id"], "replace_position": 2},
+                    }
+                )
+                assert unchanged["result"]["items"] == all_problems["result"]["items"]
+                assert "replacement" not in unchanged["result"]
+                assert "当前条件下没有可替换的题目，保留原题单。" in unchanged["result"]["gaps"]
 
                 stale = await send_draft(path, rename | {"title": "旧草案待修改"})
                 assert stale.status_code == 202, stale.text
@@ -214,6 +296,74 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                         {"version": retired_version},
                     )
 
+                other_topic_dir = tmp_path / "another-topic"
+                import_fixture(other_topic_dir, slug="another-topic")
+                other_topic = await app.state.problems.import_directory(other_topic_dir)
+                candidate_versions = tuple(UUID(value) for value in selected)
+                async with app.state.sessions.begin() as db:
+                    db.add(
+                        ProblemDifficultyLevel(
+                            key="custom-search",
+                            label="进阶入门",
+                            score=1050,
+                            color="#36aa80",
+                            tier="easy",
+                        )
+                    )
+                    await db.flush()
+                    for candidate in candidate_versions:
+                        row = await db.get(ProblemLearningMetadata, candidate)
+                        row.difficulty_key = "custom-search"
+                    db.add(
+                        ProblemLearningMetadata(
+                            problem_version_id=other_topic,
+                            tags=["数组"],
+                            difficulty="easy",
+                            difficulty_key="custom-search",
+                            revision=1,
+                        )
+                    )
+                owner = await app.state.identity.authenticate(browser.cookies["kf_session"])
+                operator = await connect(postgres_url)
+                try:
+                    for actor, version in zip((owner, other), candidate_versions, strict=True):
+                        receipt = await app.state.submissions.create(
+                            actor,
+                            CreateSubmission(
+                                problem_version_id=version,
+                                language="cpp20",
+                                source="int main() { return 0; }",
+                                idempotency_key=uuid4(),
+                            ),
+                        )
+                        async with operator.transaction():
+                            await operator.execute("SET LOCAL ROLE kf_oj_coordinator")
+                            await operator.execute(
+                                "UPDATE evaluations SET state='finished', verdict='accepted' "
+                                "WHERE id=$1",
+                                receipt.evaluation_id,
+                            )
+                finally:
+                    await operator.close()
+                search = {
+                    "title": "站内找题",
+                    "message": "找 4 道未通过的二分查找题，难度分 1000 到 1200",
+                    "tags": ["二分查找"],
+                    "count": 4,
+                    "search": {"minimum_score": 1000, "maximum_score": 1200, "only_unsolved": True},
+                    "previous_run_id": renamed["run_id"],
+                }
+                search_path, found = await complete(search)
+                (match,) = found["result"]["items"]
+                assert match["problem_version_id"] == selected[1]
+                assert match["difficulty_score"] == 1050 and match["previously_accepted"] is False
+                assert "training_id" not in found
+                assert (await browser.post(f"{search_path}/training")).status_code == 409
+                group = await browser.get(f"{path.removesuffix('/runs')}/conversation")
+                assert group.json()["runs"][-1]["training_request"]["search"] == search["search"]
+                updated_plan = (await browser.get(f"/api/v1/trainings/{plan['id']}")).json()
+                assert updated_plan["completed_count"] == 1
+
                 queued = await send_draft(path, rename | {"title": "下次练习"})
                 assert queued.status_code == 202, queued.text
 
@@ -233,7 +383,7 @@ def test_training_set_revision_and_confirmation_use_its_reviewed_order(
                 assert denied_run["state"] == "failed"
                 assert denied_run["failure_code"] == "authorization_unavailable"
                 assert denied_run["result"] is None
-                assert (await browser.get(f"/api/v1/trainings/{plan['id']}")).json() == plan
+                assert (await browser.get(f"/api/v1/trainings/{plan['id']}")).json() == updated_plan
         finally:
             await worker_engine.dispose()
 

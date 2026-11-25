@@ -9,6 +9,7 @@ from kf_oj.modules.identity.public import Principal, accepted_session_access
 from kf_oj.modules.learning.agent_application import AgentLearning
 from kf_oj.modules.learning.agent_model_budget import DEFAULT_MODEL_LIMITS, AgentModelLimits
 from kf_oj.modules.learning.agent_queue import AgentQueue
+from kf_oj.modules.learning.hint_policy import DEFAULT_HINT_POLICY, HintPolicy
 from kf_oj.modules.skills.public import load_builtin_skills
 from kf_oj.runtime.model import LearningHintModel
 from kf_oj.runtime.storage import AgentRecordConflict
@@ -21,10 +22,12 @@ class LearningWorker:
         model: LearningHintModel | None = None,
         *,
         model_limits: AgentModelLimits = DEFAULT_MODEL_LIMITS,
+        hint_policy: HintPolicy = DEFAULT_HINT_POLICY,
     ) -> None:
         self._sessions = sessions
         self._model = model
         self._model_limits = model_limits
+        self._hint_policy = hint_policy
         self._queue = AgentQueue(sessions)
         self._catalog = load_builtin_skills()
 
@@ -42,6 +45,7 @@ class LearningWorker:
             self._catalog,
             model=self._model,
             model_limits=self._model_limits,
+            hint_policy=self._hint_policy,
             claim=lease.run,
         )
         running = asyncio.create_task(

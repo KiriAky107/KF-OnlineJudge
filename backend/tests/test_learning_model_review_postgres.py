@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_submission_create import setup_app
 
 from kf_oj.contracts.agent_learning import SubmissionReviewResult
-from kf_oj.contracts.learning_model import ModelHint, ReviewModelFacts
+from kf_oj.contracts.learning_model import ModelHint, ReviewModelFacts, SourceExcerptModelFacts
 from kf_oj.contracts.submission_evidence import CompilerCorrection, CompilerLocation
 from kf_oj.contracts.submissions import CreateSubmission
 from kf_oj.modules.learning.agent_worker import LearningWorker
@@ -41,7 +41,18 @@ def test_model_review_requires_opt_in_and_only_projects_aggregate_owned_evidence
             cursor.close()
 
         class LocalModel:
+            accepts_source_excerpt = True
+
             async def hint(self, content):
+                if isinstance(content, SourceExcerptModelFacts):
+                    captured.append(content.model_dump(mode="json"))
+                    return ModelHint(
+                        text="手算这一行的边界条件。",
+                        model="review-test-double",
+                        response_id="fixture-excerpt",
+                        latency_ms=0,
+                        source_line=content.start_line,
+                    )
                 assert isinstance(content, ReviewModelFacts)
                 captured.append(content.model_dump(mode="json"))
                 return ModelHint(
@@ -382,6 +393,68 @@ def test_model_review_requires_opt_in_and_only_projects_aggregate_owned_evidence
                     SubmissionReviewResult.model_validate(result), include_code_counts=True
                 )
                 assert "comparison_cases" not in unshared.model_dump(mode="json")["code"]
+
+                chat_root = await owner.post(f"{ROOT}/sessions", json={"purpose": "guided_help"})
+                assert chat_root.status_code == 201
+                root_id = chat_root.json()["session_id"]
+                review_session = await owner.post(
+                    f"{ROOT}/sessions",
+                    json={"purpose": "submission_review", "conversation_session_id": root_id},
+                )
+                assert review_session.status_code == 201
+                chat_route = f"{ROOT}/sessions/{review_session.json()['session_id']}/runs"
+                typed = {
+                    "skill_version_id": request["skill_version_id"],
+                    "request_id": str(uuid4()),
+                    "submission_id": str(passed.submission_id),
+                    "review_question": "复盘这个提交的边界情况。",
+                    "include_model_review": True,
+                }
+                assert (
+                    await owner.post(chat_route, json=typed | {"include_model_review": False})
+                ).status_code == 422
+                assert (
+                    await owner.post(chat_route, json=typed | {"include_source_evidence": True})
+                ).status_code == 422
+                review_receipt = await owner.post(chat_route, json=typed)
+                assert review_receipt.status_code == 202, review_receipt.text
+                assert review_receipt.json()["review_question"] == typed["review_question"]
+                assert await worker.run_once()
+                review_id = review_receipt.json()["run_id"]
+                readback = (await owner.get(f"{ROOT}/runs/{review_id}")).json()["result"]
+                assert readback["code"] is None and readback["model_status"] == "generated"
+                assert readback["anchor_submission_id"] == typed["submission_id"]
+                assert captured[-1]["question"] == typed["review_question"]
+                assert "text" not in captured[-1] and "code" not in captured[-1]
+
+                with_excerpt = typed | {
+                    "request_id": str(uuid4()),
+                    "review_question": "帮我解释选中的代码行。",
+                    "include_source_evidence": True,
+                    "model_source_excerpt": {"start_line": 2, "end_line": 2},
+                }
+                excerpt_receipt = await owner.post(chat_route, json=with_excerpt)
+                assert excerpt_receipt.status_code == 202, excerpt_receipt.text
+                assert await worker.run_once()
+                excerpt_id = excerpt_receipt.json()["run_id"]
+                reviewed = (await owner.get(f"{ROOT}/runs/{excerpt_id}")).json()["result"]
+                assert (
+                    reviewed["code"] is None and reviewed["model_review_basis"] == "source_excerpt"
+                )
+                assert reviewed["model_hint"]["source_line"] == 2
+                assert captured[-1] == {
+                    "question": with_excerpt["review_question"],
+                    "start_line": 2,
+                    "end_line": 2,
+                    "language": "cpp20",
+                    "text": second_source.splitlines()[1],
+                }
+                grouped = (await owner.get(f"{ROOT}/sessions/{root_id}/conversation")).json()
+                assert [(row["run_id"], row["question"]) for row in grouped["runs"]] == [
+                    (review_id, typed["review_question"]),
+                    (excerpt_id, with_excerpt["review_question"]),
+                ]
+                assert (await foreign.get(f"{ROOT}/runs/{excerpt_id}")).status_code == 404
         finally:
             await worker_engine.dispose()
             await operator.close()

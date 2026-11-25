@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import AwareDatetime, Field, StrictBool
 
 from kf_oj.contracts.judging import WireModel
+from kf_oj.contracts.learning_model import ProgressiveHintLevel
 
 Difficulty = Literal["easy", "medium", "hard"]
 TrainingRankingProfile = Literal["feedback_first", "unresolved_first"]
@@ -47,6 +48,9 @@ class PeriodicReviewSchedule(WireModel):
     goal: TrainingGoal
     cycle_days: ReviewCycleDays
     sessions_per_week: WeeklyTrainingSessions
+    available_minutes: DailyTrainingMinutes | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 TrainingSchedule = Annotated[
@@ -150,6 +154,7 @@ class TrainingFeedbackEvidence(TrainingFeedback):
 
 
 PracticeStatus = Literal["review_due", "practice", "review_later", "recent_attempt", "recent_plan"]
+FirstAcceptanceKind = Literal["independent", "assisted"]
 
 
 class TrainingTiming(WireModel):
@@ -158,6 +163,9 @@ class TrainingTiming(WireModel):
     last_accepted_at: AwareDatetime | None = None
     last_planned_at: AwareDatetime | None = None
     review_due_at: AwareDatetime | None = None
+    first_acceptance_kind: FirstAcceptanceKind | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 PRACTICE_PRIORITY: dict[PracticeStatus, int] = {
@@ -174,6 +182,12 @@ PRACTICE_REASONS: dict[PracticeStatus, str] = {
     "recent_attempt": "最近 7 天已提交此版本",
     "recent_plan": "最近 7 天已纳入训练计划",
 }
+
+
+def practice_reason(timing: TrainingTiming) -> str:
+    if timing.status == "review_due" and timing.first_acceptance_kind == "assisted":
+        return "首个 AC 前已获得学习助手提示，距上次通过已满 7 天，适合复习"
+    return PRACTICE_REASONS[timing.status]
 
 
 def practice_priority(previously_accepted: bool, timing: TrainingTiming | None) -> int:
@@ -265,6 +279,7 @@ class TrainingDetail(TrainingSummary):
     goal_coverage: TrainingGoalCoverage | None = None
     schedule: TrainingSchedule | None = Field(default=None, exclude_if=lambda value: value is None)
     previous_plan_id: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
+    max_hint_level: ProgressiveHintLevel = "L3"
 
 
 class TrainingPage(WireModel):
@@ -275,6 +290,11 @@ class TrainingPage(WireModel):
 
 class UpdateTrainingNote(WireModel):
     note: Annotated[str, Field(max_length=1000)]
+
+
+class ProblemNoteView(UpdateTrainingNote):
+    problem_version_id: UUID
+    updated_at: AwareDatetime | None
 
 
 class UpdateTrainingFeedback(WireModel):

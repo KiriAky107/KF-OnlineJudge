@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -22,7 +23,10 @@ from kf_oj.infra.db.columns import CreatedAt
 
 class LearningPlan(CreatedAt, Base):
     __tablename__ = "learning_plans"
-    __table_args__ = (UniqueConstraint("owner_id", "idempotency_key"),)
+    __table_args__ = (
+        UniqueConstraint("owner_id", "idempotency_key"),
+        CheckConstraint("max_hint_level IN ('L0','L1','L2','L3')", name="hint_ceiling"),
+    )
     id: Mapped[UUID] = mapped_column(primary_key=True)
     owner_id: Mapped[UUID] = mapped_column(ForeignKey("accounts.id"), index=True)
     idempotency_key: Mapped[UUID]
@@ -30,6 +34,7 @@ class LearningPlan(CreatedAt, Base):
     title: Mapped[str] = mapped_column(String(120))
     rule_version: Mapped[str] = mapped_column(String(32))
     parameters: Mapped[dict] = mapped_column(JSONB)
+    max_hint_level: Mapped[str] = mapped_column(String(2), server_default="L3")
 
 
 class LearningPlanItem(Base):
@@ -45,6 +50,29 @@ class LearningPlanItem(Base):
     version_id: Mapped[UUID] = mapped_column(ForeignKey("problem_versions.id"))
     snapshot: Mapped[dict] = mapped_column(JSONB)
     note: Mapped[str] = mapped_column(Text, default="", server_default="")
+
+
+class ProblemNote(Base):
+    __tablename__ = "learning_problem_notes"
+
+    owner_id: Mapped[UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    version_id: Mapped[UUID] = mapped_column(ForeignKey("problem_versions.id"), primary_key=True)
+    note: Mapped[str] = mapped_column(String(1000))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class HintUsage(Base):
+    __tablename__ = "learning_hint_usage"
+
+    owner_id: Mapped[UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    version_id: Mapped[UUID] = mapped_column(ForeignKey("problem_versions.id"), primary_key=True)
+    first_provided_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
 
 
 class TrainingFeedbackRow(Base):

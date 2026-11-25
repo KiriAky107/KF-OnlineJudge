@@ -13,6 +13,7 @@ from kf_oj.contracts.agent_learning import (
     GuidedHelpParameters,
     GuidedHelpResult,
     PeriodicReviewParameters,
+    PeriodicReviewRequest,
     PeriodicReviewResult,
     ProposedExercise,
     ReviewComparison,
@@ -25,11 +26,11 @@ from kf_oj.contracts.agent_learning import (
     TrainingCandidate,
     TrainingCandidatesArguments,
     TrainingCandidatesResult,
+    TrainingExerciseReplacement,
     TrainingSetDraft,
 )
 from kf_oj.contracts.agent_runtime import AgentPurpose
 from kf_oj.contracts.learning import (
-    PRACTICE_REASONS,
     Difficulty,
     LearningEvidence,
     LearningParameters,
@@ -37,6 +38,7 @@ from kf_oj.contracts.learning import (
     feedback_priority,
     focused_exercise_count,
     practice_priority,
+    practice_reason,
 )
 from kf_oj.contracts.learning_model import ModelTopic
 from kf_oj.contracts.submission_evidence import CompilerCorrectionKind, SubmissionCodeEvidence
@@ -129,10 +131,12 @@ def _compare(records: tuple[LearningEvidence, ...]) -> tuple[ReviewComparison, .
     return tuple(comparisons)
 
 
-def _exercise(candidate: TrainingCandidate, position: int, minutes: int | None) -> ProposedExercise:
+def _exercise(
+    candidate: TrainingCandidate, position: int, minutes: int | None, *, search: bool = False
+) -> ProposedExercise:
     objective = "定期复习本题版本" if candidate.previously_accepted else "练习并核验所选目标"
     if candidate.timing is not None:
-        objective = PRACTICE_REASONS[candidate.timing.status]
+        objective = practice_reason(candidate.timing)
     return ProposedExercise(
         problem_id=candidate.problem_id,
         problem_version_id=candidate.problem_version_id,
@@ -141,6 +145,8 @@ def _exercise(candidate: TrainingCandidate, position: int, minutes: int | None) 
         tags=candidate.tags,
         position=position,
         objective=objective,
+        difficulty_score=candidate.difficulty_score,
+        previously_accepted=candidate.previously_accepted if search else None,
         estimated_minutes=minutes,
         feedback_evidence=candidate.feedback_evidence,
         timing=candidate.timing,
@@ -165,7 +171,7 @@ class LearningWorkflow:
         return result
 
     async def _code(self, body: AgentLearningInput) -> SubmissionCodeEvidence | None:
-        if not body.include_source_evidence:
+        if not body.include_source_evidence or body.review_question is not None:
             return None
         evidence = await self._call(
             SOURCE_EVIDENCE, SourceEvidenceArguments(), SourceEvidenceResult
@@ -198,7 +204,11 @@ class LearningWorkflow:
             comparisons = _compare(records.records)
             code = await self._code(body)
             gaps = [] if comparisons else ["当前范围缺少同一题目版本的可比较评测。"]
-            if body.include_source_evidence and (code is None or code.comparison is None):
+            if (
+                body.include_source_evidence
+                and body.review_question is None
+                and (code is None or code.comparison is None)
+            ):
                 gaps.append("当前范围缺少可比较的同版本、同语言源码。")
             return SubmissionReviewResult(
                 purpose=AgentPurpose.SUBMISSION_REVIEW,
@@ -217,7 +227,7 @@ class LearningWorkflow:
                 return await self._revise_training(parameters, body.training_set, training_source)
             return await self._focused_training(parameters, body.training_set)
         if isinstance(parameters, PeriodicReviewParameters):
-            return await self._periodic_review(parameters)
+            return await self._periodic_review(parameters, body.periodic_review)
         raise ValueError("unsupported learning workflow")
 
     async def verify_review_evidence(
@@ -238,7 +248,7 @@ class LearningWorkflow:
     async def _guided_help(
         self, parameters: GuidedHelpParameters, body: AgentLearningInput
     ) -> GuidedHelpResult:
-        if body.model_topic is not None:
+        if body.model_topic is not None or body.chat is not None:
             evidence = None
             if body.include_model_verdict:
                 history = await self._call(
@@ -252,7 +262,7 @@ class LearningWorkflow:
             return GuidedHelpResult(
                 purpose=AgentPurpose.GUIDED_HELP,
                 requested_level="concept",
-                hint=_TOPIC_HINTS[body.model_topic],
+                hint=_TOPIC_HINTS[body.model_topic] if body.model_topic else "",
                 evidence=evidence,
                 gaps=(),
             )
@@ -318,9 +328,13 @@ class LearningWorkflow:
     ) -> FocusedTrainingResult:
         assert draft.revision is not None
         position = draft.revision.replace_position
+        no_replacement = "当前条件下没有可替换的题目，保留原题单。"
+        gaps = tuple(gap for gap in source.gaps if gap != no_replacement)
         changes = {
             "goal": draft.title,
             "training_set": draft,
+            "replacement": None,
+            "gaps": gaps,
             "model_hint": None,
             "model_status": None,
         }
@@ -354,11 +368,14 @@ class LearningWorkflow:
             TrainingCandidatesResult,
         )
         if not choices.items:
-            changes["gaps"] = (*source.gaps, "当前条件下没有可替换的题目，保留原题单。")
+            changes["gaps"] = (*gaps, no_replacement)
             return source.model_copy(update=changes)
         replacement = _exercise(choices.items[0], position, current.estimated_minutes)
         items = tuple(replacement if item.position == position else item for item in source.items)
         changes["items"] = items
+        changes["replacement"] = TrainingExerciseReplacement(
+            position=position, previous_title=current.title
+        )
         if cover_each_goal:
             changes["goal_coverage"] = TrainingGoalCoverage.from_tags(
                 parameters.tags, (item.tags for item in items)
@@ -368,6 +385,33 @@ class LearningWorkflow:
     async def _focused_training(
         self, parameters: FocusedTrainingParameters, draft: TrainingSetDraft | None = None
     ) -> FocusedTrainingResult:
+        if draft is not None and draft.search is not None:
+            found = await self._call(
+                TRAINING_CANDIDATES,
+                TrainingCandidatesArguments(
+                    tags=draft.tags,
+                    count=draft.count,
+                    difficulty=draft.difficulty,
+                    search=draft.search,
+                ),
+                TrainingCandidatesResult,
+            )
+            gaps = []
+            if len(found.items) < draft.count:
+                gaps.append("符合筛选条件的当前题目不足。")
+            if found.candidates_truncated:
+                gaps.append("题库候选超过本次查询上限。")
+            return FocusedTrainingResult(
+                purpose=AgentPurpose.FOCUSED_TRAINING,
+                goal=draft.title,
+                daily_minutes=parameters.daily_minutes,
+                items=tuple(
+                    _exercise(item, index, None, search=True)
+                    for index, item in enumerate(found.items, start=1)
+                ),
+                gaps=tuple(gaps),
+                training_set=draft,
+            )
         count = draft.count if draft else focused_exercise_count(parameters.daily_minutes)
         if draft:
             parameters = draft.parameters_for(parameters)
@@ -439,34 +483,43 @@ class LearningWorkflow:
             training_set=draft,
         )
 
-    async def _periodic_review(self, parameters: PeriodicReviewParameters) -> PeriodicReviewResult:
-        history = await self._call(
-            SUBMISSION_HISTORY,
-            SubmissionHistoryArguments(days=parameters.cycle_days),
-            SubmissionHistoryResult,
-        )
+    async def _periodic_review(
+        self, parameters: PeriodicReviewParameters, request: PeriodicReviewRequest | None
+    ) -> PeriodicReviewResult:
+        evidence = ()
+        if request is None:
+            history = await self._call(
+                SUBMISSION_HISTORY,
+                SubmissionHistoryArguments(days=parameters.cycle_days),
+                SubmissionHistoryResult,
+            )
+            evidence = history.records
+        minutes = None if request is None else request.available_minutes
+        tags = () if request is None else request.tags
+        count = parameters.sessions_per_week if minutes is None else focused_exercise_count(minutes)
         candidates = await self._call(
             TRAINING_CANDIDATES,
-            LearningParameters(
-                count=parameters.sessions_per_week, ranking_profile=parameters.ranking_profile
-            ),
+            LearningParameters(tags=tags, count=count, ranking_profile=parameters.ranking_profile),
             TrainingCandidatesResult,
         )
         gaps = []
         if candidates.prerequisite_gap is not None:
             gaps.append(candidates.prerequisite_gap.message())
-        if not history.records:
+        if request is None and not evidence:
             gaps.append("本复习周期暂无提交证据，先收集诊断结果。")
-        if len(candidates.items) < parameters.sessions_per_week:
+        if len(candidates.items) < count:
             gaps.append("当前可用复习题不足。")
+        estimate = None if minutes is None else minutes // max(1, len(candidates.items))
         return PeriodicReviewResult(
             purpose=AgentPurpose.PERIODIC_REVIEW,
             goal=parameters.stage_goal,
             cycle_days=parameters.cycle_days,
             sessions_per_week=parameters.sessions_per_week,
-            evidence=history.records,
+            available_minutes=minutes,
+            tags=tags,
+            evidence=evidence,
             items=tuple(
-                _exercise(candidate, i, None) for i, candidate in enumerate(candidates.items, 1)
+                _exercise(candidate, i, estimate) for i, candidate in enumerate(candidates.items, 1)
             ),
             gaps=tuple(gaps),
             ranking_profile=parameters.ranking_profile,
