@@ -234,5 +234,6 @@ mod tests {
     }
 }
 
+pub mod diagnostic;
 pub mod submission;
 pub mod submission_v2;
