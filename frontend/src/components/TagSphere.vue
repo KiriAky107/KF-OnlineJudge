@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TagCanvas } from '@misskey-dev/tagcanvas-es'
+import { useSiteTheme } from '../composables/useSiteTheme'
 
 const props = defineProps<{ tags: readonly string[] }>()
 const emit = defineEmits<{ select: [tag: string] }>()
@@ -13,7 +14,12 @@ const rotationEnabled = ref(true)
 const interaction = ref<'follow' | 'drag'>('follow')
 const visible = ref(false)
 const hidden = ref(false)
-const colors = ['#409eff', '#638ac5', '#588db8', '#7496b8']
+const { theme } = useSiteTheme()
+const colors = computed(() =>
+  theme.value === 'dark'
+    ? ['#94caff', '#a0b9ec', '#84c7dc', '#b8c6e1']
+    : ['#2878ca', '#5077b3', '#42729a', '#587799'],
+)
 const fontSize = computed(() => {
   const textArea = props.tags.reduce((sum, tag) => sum + [...tag].length + 1.8, 0)
   const radius = Math.max(35, (Math.min(width.value, 300) - 68) / 2)
@@ -44,25 +50,26 @@ function rebuild() {
   const ratio = Math.min(2, window.devicePixelRatio || 1)
   canvas.value.width = Math.round(width.value * ratio)
   canvas.value.height = 300 * ratio
+  const styles = getComputedStyle(stage.value)
   try {
     cloud = new TagCanvas(canvas.value, {
       tagContainer: source.value,
       hideTags: false,
       shape: 'sphere',
       textColor: null,
-      textFont: getComputedStyle(stage.value).fontFamily,
+      textFont: styles.fontFamily,
       textHeight: fontSize.value * ratio,
       weight: props.tags.length > 1,
       weightFrom: 'data-weight',
       weightMode: 'size',
       weightSizeMin: (fontSize.value - 1) * ratio,
       weightSizeMax: (fontSize.value + 2) * ratio,
-      bgColor: '#f0f7ff',
-      bgOutline: '#cfe2f7',
+      bgColor: styles.getPropertyValue('--accent-bg').trim(),
+      bgOutline: styles.getPropertyValue('--accent-border').trim(),
       bgOutlineThickness: ratio,
       bgRadius: 14 * ratio,
       padding: 5 * ratio,
-      outlineColor: '#409eff',
+      outlineColor: styles.getPropertyValue('--blue').trim(),
       outlineThickness: ratio,
       outlineRadius: 14 * ratio,
       outlineOffset: 1 * ratio,
@@ -96,7 +103,7 @@ function updateVisibility() {
 function updateMotionPreference() {
   if (motionQuery?.matches) rotationEnabled.value = false
 }
-watch([() => props.tags, width, rotationEnabled, interaction], rebuild, {
+watch([() => props.tags, width, rotationEnabled, interaction, theme], rebuild, {
   deep: true,
   flush: 'post',
 })
@@ -206,7 +213,7 @@ onBeforeUnmount(() => {
 }
 .sphere-source a {
   padding: 5px 10px;
-  background: #f0f7ff;
+  background: var(--accent-bg);
   border: 1px solid #dceaf9;
   border-radius: 999px;
   font-size: 14px;
@@ -226,7 +233,7 @@ onBeforeUnmount(() => {
   padding: 20px;
   clip-path: none;
   overflow: auto;
-  background: #fff;
+  background: var(--surface);
 }
 .sphere-source a:focus-visible {
   outline: 2px solid #409eff;
@@ -237,7 +244,7 @@ onBeforeUnmount(() => {
   inset: 0;
   display: grid;
   place-items: center;
-  color: #99aabd;
+  color: var(--muted);
   font-size: 14px;
 }
 .sphere-controls {
@@ -246,7 +253,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
-  color: #99aabd;
+  color: var(--muted);
   font-size: 11px;
   padding-top: 4px;
 }
@@ -256,7 +263,7 @@ onBeforeUnmount(() => {
 }
 .sphere-controls button {
   color: #629edb;
-  background: #f5faff;
+  background: var(--accent-bg);
   border: 1px solid #e6f0fb;
   border-radius: 6px;
   padding: 4px 8px;

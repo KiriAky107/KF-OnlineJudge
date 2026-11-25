@@ -13,9 +13,23 @@ const difficultyLabels: Record<Difficulty, string> = { easy: '简单', medium: '
 const difficultyOptions = Object.entries(difficultyLabels) as [Difficulty, string][]
 const items = ref<Problem[]>([])
 const search = ref('')
-const difficulty = ref<Difficulty>()
+const difficulty = ref<string>()
+const levels = ref<components['schemas']['DifficultyLevel'][]>([])
+const levelRequest = new AbortController()
 const tag = ref<string>()
 const showTags = ref(true)
+const pointedVersion = ref<string>()
+const focusedVersion = ref<string>()
+const activeProblem = computed(() =>
+  items.value.find((item) => item.version_id === (pointedVersion.value ?? focusedVersion.value)),
+)
+const scoreLevels = computed(() => {
+  const published = new Map(levels.value.map((level) => [level.key, level]))
+  for (const { difficulty_level: level } of items.value) {
+    if (level) published.set(level.key, level)
+  }
+  return [...published.values()].sort((a, b) => a.score - b.score)
+})
 const error = ref('')
 const busy = ref(false)
 const next = ref<string | null>(null)
@@ -46,6 +60,7 @@ async function load(after?: string) {
   error.value = ''
   busy.value = true
   current.value = after
+  pointedVersion.value = focusedVersion.value = undefined
   try {
     const page = unwrap(
       await api.GET('/api/v1/problems', {
@@ -54,7 +69,7 @@ async function load(after?: string) {
             after,
             limit: 20,
             search: search.value.trim() || undefined,
-            difficulty: difficulty.value,
+            difficulty_key: difficulty.value,
             tag: tag.value,
           },
         },
@@ -87,17 +102,30 @@ function chooseTag(value: string) {
   tag.value = tag.value === value ? undefined : value
 }
 function passRate(accepted: number, judged: number) {
-  return (100 * accepted) / judged
+  return judged > 0 ? Math.min((100 * accepted) / judged, 100) : 0
 }
 const verdictLabels = [
-  ['accepted', 'AC'],
-  ['wrong_answer', 'WA'],
-  ['compilation_error', 'CE'],
-  ['runtime_error', 'RE'],
-  ['time_limit_exceeded', 'TLE'],
-  ['memory_limit_exceeded', 'MLE'],
-  ['output_limit_exceeded', 'OLE'],
+  ['accepted', 'AC', 'Accepted', 'success'],
+  ['wrong_answer', 'WA', 'Wrong Answer', 'danger'],
+  ['compilation_error', 'CE', 'Compilation Error', 'warning'],
+  ['runtime_error', 'RE', 'Runtime Error', 'danger'],
+  ['time_limit_exceeded', 'TLE', 'Time Limit Exceeded', 'warning'],
+  ['memory_limit_exceeded', 'MLE', 'Memory Limit Exceeded', 'warning'],
+  ['output_limit_exceeded', 'OLE', 'Output Limit Exceeded', 'warning'],
 ] as const
+
+function pointAt(row: Problem) {
+  pointedVersion.value = row.version_id
+}
+
+function leaveCell(row: Problem, _column: unknown, cell: HTMLElement, event: MouseEvent) {
+  if (
+    pointedVersion.value === row.version_id &&
+    !(event.relatedTarget instanceof Node && cell.parentElement?.contains(event.relatedTarget))
+  ) {
+    pointedVersion.value = undefined
+  }
+}
 
 watch(
   [search, difficulty, tag],
@@ -115,10 +143,19 @@ watch(
   },
   { flush: 'sync' },
 )
-onMounted(() => load())
+onMounted(() => {
+  void load()
+  void api
+    .GET('/api/v1/problems/difficulty-levels', { signal: levelRequest.signal })
+    .then(({ data }) => {
+      if (data) levels.value = data
+    })
+    .catch(() => {})
+})
 onBeforeUnmount(() => {
   generation++
   request?.abort()
+  levelRequest.abort()
 })
 </script>
 
@@ -148,7 +185,7 @@ onBeforeUnmount(() => {
           >全部</el-button
         >
         <el-button
-          v-for="[key, label] in difficultyOptions"
+          v-for="{ key, label } in levels"
           :key="key"
           size="small"
           :type="difficulty === key ? 'primary' : 'default'"
@@ -161,7 +198,14 @@ onBeforeUnmount(() => {
       <p v-if="error" role="alert">
         {{ error }} <el-button size="small" @click="load(current)">重试</el-button>
       </p>
-      <el-table :data="items" stripe :empty-text="busy ? '正在加载…' : '没有符合条件的题目'">
+      <el-table
+        :data="items"
+        stripe
+        :empty-text="busy ? '正在加载…' : '没有符合条件的题目'"
+        @cell-mouse-enter="pointAt"
+        @cell-mouse-leave="leaveCell"
+        @mouseleave="pointedVersion = undefined"
+      >
         <el-table-column prop="slug" label="题号" min-width="156">
           <template #default="{ row }"
             ><span class="mono muted">{{ row.slug }}</span></template
@@ -169,16 +213,22 @@ onBeforeUnmount(() => {
         </el-table-column>
         <el-table-column label="题目" min-width="160">
           <template #default="{ row }">
-            <RouterLink :to="'/problems/' + row.version_id" class="text-link">
+            <RouterLink
+              :to="'/problems/' + row.version_id"
+              class="text-link"
+              @focus="focusedVersion = row.version_id"
+              @blur="focusedVersion = undefined"
+            >
               {{ row.title }}
             </RouterLink>
           </template>
         </el-table-column>
-        <el-table-column label="难度" width="88">
+        <el-table-column label="难度" min-width="125">
           <template #default="{ row }">
             <DifficultyTag
               v-if="row.difficulty"
               :value="difficultyLabels[row.difficulty as Difficulty]"
+              :level="row.difficulty_level"
             />
             <span v-else class="muted">未标注</span>
           </template>
@@ -205,48 +255,33 @@ onBeforeUnmount(() => {
         </el-table-column>
         <el-table-column label="通过率" min-width="156">
           <template #default="{ row }">
-            <el-tooltip effect="light" placement="top" :trigger="['hover', 'focus', 'click']">
-              <template #content>
-                <span>{{ row.judged_submissions ?? 0 }} 次有效评测</span>
-                <table
-                  v-if="row.judged_submissions > 0 && row.verdict_counts"
-                  class="verdict-distribution"
-                >
-                  <caption class="verdict-caption">
-                    判定 · 次数 · 占比
-                  </caption>
-                  <tbody>
-                    <tr v-for="[verdict, label] in verdictLabels" :key="verdict">
-                      <th scope="row">{{ label }}</th>
-                      <td>{{ row.verdict_counts[verdict] ?? 0 }}</td>
-                      <td>
-                        {{
-                          passRate(
-                            row.verdict_counts[verdict] ?? 0,
-                            row.judged_submissions,
-                          ).toFixed(1)
-                        }}%
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+            <div
+              class="pass-rate"
+              tabindex="0"
+              :aria-label="
+                row.title +
+                '通过率，' +
+                (row.judged_submissions > 0
+                  ? passRate(row.accepted_submissions, row.judged_submissions).toFixed(1) + '%'
+                  : '暂无评测')
+              "
+              @focus="focusedVersion = row.version_id"
+              @blur="focusedVersion = undefined"
+            >
+              <template v-if="row.judged_submissions > 0">
+                <div
+                  class="pass-rate-fill"
+                  :style="{
+                    width: passRate(row.accepted_submissions, row.judged_submissions) + '%',
+                  }"
+                  aria-hidden="true"
+                />
+                <span class="pass-rate-label tabular">
+                  {{ passRate(row.accepted_submissions, row.judged_submissions).toFixed(1) }}%
+                </span>
               </template>
-              <div class="pass-rate" tabindex="0" aria-label="查看判定比例">
-                <template v-if="row.judged_submissions > 0">
-                  <div
-                    class="pass-rate-fill"
-                    :style="{
-                      width: passRate(row.accepted_submissions, row.judged_submissions) + '%',
-                    }"
-                    aria-hidden="true"
-                  />
-                  <span class="pass-rate-label tabular">
-                    {{ passRate(row.accepted_submissions, row.judged_submissions).toFixed(1) }}%
-                  </span>
-                </template>
-                <span v-else class="pass-rate-label muted">暂无评测</span>
-              </div>
-            </el-tooltip>
+              <span v-else class="pass-rate-label muted">暂无评测</span>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -258,19 +293,56 @@ onBeforeUnmount(() => {
     </PanelCard>
 
     <aside class="catalog-side" aria-label="题库概览">
-      <PanelCard title="本页难度">
-        <div
-          v-for="row in distribution"
-          :key="row.label"
-          class="distribution-row"
-          :data-level="row.color"
-        >
-          <span>{{ row.label }}</span>
-          <div class="distribution-track" aria-hidden="true">
-            <div :style="{ width: items.length ? (100 * row.count) / items.length + '%' : '0%' }" />
+      <PanelCard :title="activeProblem ? '题目判定分布' : '本页难度'" class="catalog-distribution">
+        <template v-if="activeProblem">
+          <p class="distribution-title">{{ activeProblem.title }}</p>
+          <template v-if="activeProblem.judged_submissions">
+            <p class="small muted">{{ activeProblem.judged_submissions }} 次有效评测</p>
+            <div
+              v-for="[verdict, label, fullLabel, tone] in verdictLabels"
+              :key="verdict"
+              class="distribution-row verdict-row"
+              :data-tone="tone"
+            >
+              <abbr :title="fullLabel">{{ label }}</abbr>
+              <div class="distribution-track" aria-hidden="true">
+                <div
+                  :style="{
+                    width:
+                      passRate(
+                        activeProblem.verdict_counts?.[verdict] ?? 0,
+                        activeProblem.judged_submissions,
+                      ) + '%',
+                  }"
+                />
+              </div>
+              <span class="tabular small">
+                {{ activeProblem.verdict_counts?.[verdict] ?? 0 }} ·
+                {{
+                  passRate(
+                    activeProblem.verdict_counts?.[verdict] ?? 0,
+                    activeProblem.judged_submissions,
+                  ).toFixed(1)
+                }}%
+              </span>
+            </div>
+          </template>
+          <p v-else class="muted">暂无有效评测</p>
+        </template>
+        <template v-else>
+          <div
+            v-for="row in distribution"
+            :key="row.label"
+            class="distribution-row"
+            :data-level="row.color"
+          >
+            <span>{{ row.label }}</span>
+            <div class="distribution-track" aria-hidden="true">
+              <div :style="{ width: passRate(row.count, items.length) + '%' }" />
+            </div>
+            <span class="tabular">{{ row.count }}</span>
           </div>
-          <span class="tabular">{{ row.count }}</span>
-        </div>
+        </template>
       </PanelCard>
       <PanelCard title="本页标签">
         <div v-if="tags.length" class="catalog-tags">
@@ -286,29 +358,27 @@ onBeforeUnmount(() => {
         </div>
         <span v-else class="muted">本页暂无标签</span>
       </PanelCard>
+      <PanelCard title="难度分">
+        <div v-if="activeProblem" class="score-selection">
+          <span>{{ activeProblem.title }}</span>
+          <strong v-if="activeProblem.difficulty_level" class="tabular">
+            {{ activeProblem.difficulty_level.score }}
+          </strong>
+          <span v-else class="muted">未标注</span>
+        </div>
+        <dl v-if="scoreLevels.length" class="details-list score-list">
+          <div v-for="level in scoreLevels" :key="level.key">
+            <dt><DifficultyTag :value="level.label" :level="level" /></dt>
+            <dd class="tabular">{{ level.score }}</dd>
+          </div>
+        </dl>
+        <p v-else-if="!activeProblem" class="muted">暂无难度分</p>
+      </PanelCard>
     </aside>
   </div>
 </template>
 
 <style scoped>
-.verdict-distribution {
-  min-width: 10rem;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-.verdict-distribution th,
-.verdict-distribution td {
-  padding: 0.15rem 0.25rem;
-  border-bottom: 1px solid var(--el-border-color-lighter);
-}
-.verdict-distribution td {
-  text-align: right;
-}
-.verdict-caption {
-  padding-top: 0.35rem;
-  color: var(--el-text-color-secondary);
-  text-align: start;
-}
 .catalog {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(15rem, 19rem);
@@ -319,6 +389,8 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 1rem;
   min-width: 0;
+  position: sticky;
+  top: var(--site-header-height, 3.8rem);
 }
 .catalog-search,
 .catalog-filters,
@@ -356,10 +428,35 @@ onBeforeUnmount(() => {
 }
 .distribution-row {
   display: grid;
-  grid-template-columns: 3.5rem minmax(0, 1fr) minmax(1.5rem, auto);
+  grid-template-columns: 3.5rem minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.5rem;
   margin-block: 0.55rem;
+}
+.catalog-distribution {
+  min-height: 14rem;
+}
+.distribution-title {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.verdict-row {
+  grid-template-columns: 2.35rem minmax(0, 1fr) 5.2rem;
+}
+.verdict-row abbr {
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+.score-selection {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--line);
+}
+.score-list {
+  margin: 0;
 }
 .distribution-row .tabular {
   text-align: right;
@@ -394,18 +491,24 @@ onBeforeUnmount(() => {
   border-radius: inherit;
   background: var(--el-text-color-secondary);
 }
-[data-level='easy'] .distribution-track > div {
+[data-level='easy'] .distribution-track > div,
+[data-tone='success'] .distribution-track > div {
   background: var(--el-color-success);
 }
-[data-level='medium'] .distribution-track > div {
+[data-level='medium'] .distribution-track > div,
+[data-tone='warning'] .distribution-track > div {
   background: var(--el-color-warning);
 }
-[data-level='hard'] .distribution-track > div {
+[data-level='hard'] .distribution-track > div,
+[data-tone='danger'] .distribution-track > div {
   background: var(--el-color-danger);
 }
 @media (max-width: 920px) {
   .catalog {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .catalog-side {
+    position: static;
   }
 }
 </style>
