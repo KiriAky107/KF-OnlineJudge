@@ -1,7 +1,7 @@
 """The model capability offered to the learning runtime."""
 
 from collections import Counter
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from kf_oj.contracts.agent_learning import (
     FocusedTrainingResult,
@@ -11,9 +11,12 @@ from kf_oj.contracts.agent_learning import (
 from kf_oj.contracts.judging import Verdict
 from kf_oj.contracts.learning import LearningEvidence
 from kf_oj.contracts.learning_model import (
+    GuidedChatModelFacts,
     GuidedHelpModelFacts,
+    LearningQuestion,
     ModelHint,
     ModelHintInput,
+    ModelOutput,
     ModelTopic,
     PlanModelFacts,
     ReviewChangeCounts,
@@ -34,6 +37,13 @@ class LearningHintModel(Protocol):
     def accepts_source_excerpt(self) -> bool: ...
 
     async def hint(self, content: ModelHintInput) -> ModelHint: ...
+
+
+@runtime_checkable
+class StreamingLearningHintModel(LearningHintModel, Protocol):
+    async def stream_hint(
+        self, content: GuidedChatModelFacts, on_output: ModelOutput
+    ) -> ModelHint: ...
 
 
 def guided_help_model_facts(
@@ -126,6 +136,7 @@ def review_model_facts(
     include_control_flow: bool = False,
     include_comparison_cases: bool = False,
     focus_options: tuple[ReviewFocusCategory, ...] = (),
+    question: LearningQuestion | None = None,
 ) -> ReviewModelFacts | None:
     verdicts = Counter(
         record.verdict
@@ -144,6 +155,7 @@ def review_model_facts(
         for item in ("time_limit_exceeded", "memory_limit_exceeded", "output_limit_exceeded")
     )
     return ReviewModelFacts(
+        question=question,
         finished=finished,
         accepted=accepted,
         wrong_answers=wrong,
