@@ -1,10 +1,11 @@
 import asyncio
 import base64
 import json
-from datetime import datetime
+from datetime import UTC, datetime, time, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, select, tuple_
+from sqlalchemy import Date, and_, cast, func, select, tuple_
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from kf_oj.contracts.judging import MAX_SOURCE_BYTES, ArtifactReference, Verdict
@@ -19,6 +20,8 @@ from kf_oj.contracts.submissions import (
     ProblemSubmissionStatus,
     PublicCaseResult,
     PublicJudgement,
+    SubmissionActivity,
+    SubmissionActivityDay,
     SubmissionComparison,
     SubmissionDetail,
     SubmissionPage,
@@ -154,6 +157,32 @@ class SubmissionQueries:
         return SubmissionPage(
             items=tuple(summary(s, e) for s, e in rows[:limit]),
             next_after=cursor_encode(rows[limit - 1][0]) if len(rows) > limit else None,
+        )
+
+    async def activity(
+        self, principal: Principal, *, as_of: datetime | None = None
+    ) -> SubmissionActivity:
+        zone = ZoneInfo("Asia/Shanghai")
+        now = as_of or datetime.now(UTC)
+        end = now.astimezone(zone).date()
+        start = end - timedelta(days=364)
+        day = cast(func.timezone(zone.key, Submission.created_at), Date).label("day")
+        query = (
+            select(day, func.count())
+            .where(
+                Submission.account_id == principal.account_id,
+                Submission.created_at >= datetime.combine(start, time.min, zone),
+                Submission.created_at <= now,
+            )
+            .group_by(day)
+            .order_by(day)
+        )
+        async with self.sessions() as session:
+            rows = (await session.execute(query)).all()
+        return SubmissionActivity(
+            start=start,
+            end=end,
+            days=tuple(SubmissionActivityDay(day=day, count=count) for day, count in rows),
         )
 
     async def detail(self, principal: Principal, submission_id: UUID) -> SubmissionDetail:

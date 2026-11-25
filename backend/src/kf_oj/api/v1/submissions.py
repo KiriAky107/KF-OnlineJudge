@@ -12,6 +12,7 @@ from kf_oj.contracts.submissions import (
     CancellationAccepted,
     CreateSubmission,
     ProblemSubmissionStatus,
+    SubmissionActivity,
     SubmissionComparison,
     SubmissionCreated,
     SubmissionDetail,
@@ -78,6 +79,14 @@ async def history(
         return await queries(request).page(principal, after, limit, problem_version_id, language)
     except ValueError:
         raise HTTPException(422, "invalid history request") from None
+
+
+@router.get("/activity", response_model=SubmissionActivity)
+async def activity(
+    request: Request,
+    principal: Annotated[Principal, Depends(current_principal)],
+):
+    return await queries(request).activity(principal)
 
 
 @router.get("/problem-status/{problem_version_id}", response_model=ProblemSubmissionStatus)

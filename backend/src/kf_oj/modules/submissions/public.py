@@ -7,6 +7,7 @@ from uuid import UUID
 
 from kf_oj.contracts.judging import Verdict
 from kf_oj.contracts.submission_evidence import SubmissionCodeEvidence, SubmissionSourceExcerpt
+from kf_oj.contracts.submissions import SubmissionDetail
 
 
 class CancelUnavailable(ValueError):
@@ -80,6 +81,12 @@ async def learning_records(
     )
 
 
+async def recent_practice_versions(session, principal, *, since: datetime) -> tuple[UUID, ...]:
+    from .learning_queries import recent_versions
+
+    return await recent_versions(session, principal, since=since)
+
+
 async def accepted_versions(session, principal, version_ids: set[UUID]) -> set[UUID]:
     from .learning_queries import accepted
 
@@ -104,6 +111,7 @@ async def catalog_statistics(
 class LearningPractice:
     last_attempt_at: datetime
     last_accepted_at: datetime | None
+    first_accepted_at: datetime | None = None
 
 
 async def learning_practice(
@@ -129,6 +137,8 @@ class LearningProgress:
 
 
 class SubmissionEvidencePort(Protocol):
+    async def detail(self, principal, submission_id: UUID) -> SubmissionDetail: ...
+
     async def owned_source_excerpt(
         self, principal, submission_id: UUID, start_line: int, end_line: int
     ) -> SubmissionSourceExcerpt: ...

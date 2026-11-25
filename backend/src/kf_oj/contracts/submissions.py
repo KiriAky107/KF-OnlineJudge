@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
@@ -85,6 +85,18 @@ class SubmissionComparison(WireModel):
 class SubmissionPage(WireModel):
     items: tuple[SubmissionSummary, ...]
     next_after: str | None
+
+
+class SubmissionActivityDay(WireModel):
+    day: date
+    count: Annotated[int, Field(ge=1)]
+
+
+class SubmissionActivity(WireModel):
+    start: date
+    end: date
+    time_zone: Literal["Asia/Shanghai"] = "Asia/Shanghai"
+    days: Annotated[tuple[SubmissionActivityDay, ...], Field(max_length=365)]
 
 
 class ProblemSubmissionStatus(WireModel):
