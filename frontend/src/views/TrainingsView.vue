@@ -10,6 +10,7 @@ import type { components } from '../api/generated/schema'
 import { useSession } from '../composables/useSession'
 import { displayTime } from '../lib/presentation'
 import PageHeading from '../components/PageHeading.vue'
+import UiIcon from '../components/UiIcon.vue'
 import PanelCard from '../components/PanelCard.vue'
 import TrainingFeedbackSource from '../components/TrainingFeedbackSource.vue'
 import TrainingGoalCoverage from '../components/TrainingGoalCoverage.vue'
@@ -20,9 +21,20 @@ const router = useRouter()
 const overview = ref<components['schemas']['LearningOverview'] | null>(null)
 const page = ref<components['schemas']['TrainingPage'] | null>(null)
 const search = ref('')
+const progressFilter = ref<'all' | 'active' | 'completed'>('all')
+const progressFilters = { all: '全部', active: '待完成', completed: '已完成' } as const
 const visiblePlans = computed(() => {
   const name = search.value.trim().toLocaleLowerCase()
-  return page.value?.items.filter((plan) => plan.title.toLocaleLowerCase().includes(name)) ?? []
+  return (
+    page.value?.items.filter((plan) => {
+      const complete = plan.item_count > 0 && plan.completed_count === plan.item_count
+      return (
+        plan.title.toLocaleLowerCase().includes(name) &&
+        (progressFilter.value === 'all' ||
+          (progressFilter.value === 'completed' ? complete : !complete))
+      )
+    }) ?? []
+  )
 })
 const recommendations = ref<components['schemas']['LearningRecommendations'] | null>(null)
 const title = ref('个人训练计划')
@@ -142,6 +154,7 @@ watch(
     rankingProfile.value = ''
     title.value = '个人训练计划'
     search.value = ''
+    progressFilter.value = 'all'
     void load()
   },
   { immediate: true },
@@ -158,29 +171,56 @@ onMounted(async () => {
 onBeforeUnmount(clear)
 </script>
 <template>
-  <PageHeading title="训练集" eyebrow="TRAINING">
-    <RouterLink v-if="user" class="el-button el-button--primary" to="/trainings/create"
-      >聊天创建训练集</RouterLink
+  <PageHeading title="训练集">
+    <RouterLink
+      v-if="user"
+      class="el-button el-button--primary"
+      :to="{ name: 'learning-assistant', query: { assistantTab: 'training' } }"
     >
-    <RouterLink class="el-button" to="/trainings/assistant">学习助手</RouterLink>
+      <UiIcon name="assistant" /> 让助手建训练集
+    </RouterLink>
+    <RouterLink class="el-button" to="/trainings/assistant"
+      ><UiIcon name="assistant" /> 学习助手</RouterLink
+    >
   </PageHeading>
   <p v-if="error" role="alert">{{ error }}</p>
   <p v-if="!user">
     <RouterLink to="/login?next=/trainings">登录</RouterLink>后查看本人的学习记录与训练计划。
   </p>
   <div v-else v-loading="loading" class="stack">
-    <PanelCard title="我的训练集" icon="trainings">
-      <template #actions>
+    <section class="panel training-filters" aria-label="筛选我的训练集">
+      <label class="filter-row">
+        <span><UiIcon name="search" /> 搜索</span>
         <el-input v-model="search" clearable aria-label="搜索训练集" placeholder="按名称搜索" />
-      </template>
-      <p v-if="page?.truncated" role="status">显示最近 {{ page.limit }} 个训练集。</p>
+      </label>
+      <div class="filter-row">
+        <span>进度</span>
+        <div class="filter-options">
+          <button
+            v-for="(label, key) in progressFilters"
+            :key="key"
+            type="button"
+            :aria-pressed="progressFilter === key"
+            @click="progressFilter = key"
+          >
+            {{ label }}
+          </button>
+        </div>
+      </div>
+    </section>
+    <section class="panel training-catalog" aria-label="我的训练集">
+      <header>
+        <h2>我的训练集</h2>
+        <span aria-live="polite">{{ visiblePlans.length }} 个</span>
+      </header>
       <div v-if="visiblePlans.length" class="training-table">
         <table>
           <thead>
             <tr>
-              <th scope="col">名称</th>
+              <th scope="col">训练名称</th>
+              <th scope="col">权限</th>
+              <th scope="col">进度</th>
               <th scope="col">题数</th>
-              <th scope="col">我的进度</th>
               <th scope="col">创建时间</th>
             </tr>
           </thead>
@@ -189,15 +229,18 @@ onBeforeUnmount(clear)
               <th scope="row">
                 <RouterLink :to="'/trainings/' + plan.id">{{ plan.title }}</RouterLink>
               </th>
-              <td>{{ plan.item_count }}</td>
+              <td><span class="tag">私有</span></td>
               <td>
-                <progress
-                  :value="plan.completed_count"
-                  :max="plan.item_count || 1"
-                  aria-label="完成进度"
-                />
-                {{ plan.completed_count }} / {{ plan.item_count }}
+                <div class="training-list-progress">
+                  <progress
+                    :value="plan.completed_count"
+                    :max="plan.item_count || 1"
+                    aria-label="完成进度"
+                  />
+                  <span>{{ plan.completed_count }} / {{ plan.item_count }}</span>
+                </div>
               </td>
+              <td>{{ plan.item_count }}</td>
               <td>
                 <time :datetime="plan.created_at">{{ displayTime(plan.created_at) }}</time>
               </td>
@@ -207,9 +250,12 @@ onBeforeUnmount(clear)
       </div>
       <el-empty
         v-else-if="page"
-        :description="search.trim() ? '没有匹配的训练集' : '还没有训练集'"
+        :description="page.items.length ? '没有匹配的训练集' : '还没有训练集'"
       />
-    </PanelCard>
+      <p v-if="page?.truncated" class="small muted catalog-limit" role="status">
+        显示最近 {{ page.limit }} 个训练集。
+      </p>
+    </section>
     <details class="training-extra">
       <summary>按条件创建</summary>
       <PanelCard title="按目标生成计划" icon="trainings" subtitle="确定性规则推荐，不是模型分析">
@@ -353,6 +399,74 @@ onBeforeUnmount(clear)
 </template>
 
 <style scoped>
+.training-filters {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+}
+.filter-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+.filter-row > span {
+  flex: 0 0 4rem;
+  font-weight: 600;
+}
+.filter-row .el-input {
+  max-width: 22rem;
+}
+.filter-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.filter-options button {
+  background: var(--surface);
+  color: var(--secondary-ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.25rem 0.75rem;
+}
+.filter-options button[aria-pressed='true'] {
+  background: var(--accent-bg);
+  color: var(--accent-ink);
+  border-color: var(--accent-border);
+}
+.training-catalog > header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+}
+.training-catalog > header h2 {
+  font-size: 1rem;
+}
+.training-catalog > header span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.training-catalog .training-table {
+  padding: 0 0.75rem 0.75rem;
+}
+.training-catalog .training-table tbody tr:hover {
+  background: var(--surface-soft);
+}
+.training-list-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.training-list-progress progress {
+  width: clamp(3rem, 9vw, 9rem);
+  accent-color: var(--blue);
+}
+.catalog-limit {
+  padding: 0 1.25rem 1rem;
+}
+
 .training-extra > summary {
   cursor: pointer;
   padding: 0.75rem 0;

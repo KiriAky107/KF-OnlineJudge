@@ -1,13 +1,31 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { notices, rankings, contests, problems, problemTags } from '../data/preview'
+import { notices, rankings, problems, problemTags } from '../data/preview'
+import { api } from '../api/client'
+import type { components } from '../api/generated/schema'
+import { displayTime } from '../lib/presentation'
 import PanelCard from '../components/PanelCard.vue'
 import ProblemTable from '../components/ProblemTable.vue'
 import SubmissionChart from '../components/SubmissionChart.vue'
 import TagSphere from '../components/TagSphere.vue'
 import UiIcon from '../components/UiIcon.vue'
 const router = useRouter()
+const upcoming = ref<components['schemas']['ContestSchedule'][]>([])
+const contestRequest = new AbortController()
+onMounted(async () => {
+  try {
+    const { data } = await api.GET('/api/v1/contests', { signal: contestRequest.signal })
+    if (contestRequest.signal.aborted) return
+    upcoming.value = (data ?? [])
+      .filter((contest) => Date.parse(contest.ends_at) > Date.now())
+      .sort((left, right) => Date.parse(left.starts_at) - Date.parse(right.starts_at))
+      .slice(0, 3)
+  } catch {
+    // The contest list provides its own loading and error states.
+  }
+})
+onBeforeUnmount(() => contestRequest.abort())
 const noticeOpen = ref(false)
 const selectedNotice = ref(notices[0]!)
 function openNotice(index: number) {
@@ -131,20 +149,18 @@ function openNotice(index: number) {
       </div>
       <div class="practice-contest-grid">
         <RouterLink
-          v-for="contest in contests.slice(0, 3)"
-          :key="contest.id"
-          :to="'/contests/' + contest.id"
+          v-for="contest in upcoming"
+          :key="contest.key"
+          :to="'/contests/' + contest.key"
           class="practice-contest-card"
-          ><div>
-            <span class="tag">{{ contest.type }}</span
-            ><span>{{ contest.status }}</span>
-          </div>
+          ><span class="tag">{{
+            Date.parse(contest.starts_at) <= Date.now() ? '进行中' : '即将开始'
+          }}</span>
           <h3>{{ contest.title }}</h3>
-          <p><UiIcon name="clock" />{{ contest.start }} · {{ contest.duration }}</p>
+          <p><UiIcon name="clock" />{{ displayTime(contest.starts_at) }}</p>
           <span class="contest-enter">查看比赛 <UiIcon name="arrow" /></span
         ></RouterLink>
       </div>
-      <p class="practice-demo-note">示例赛程，实际安排以平台发布的信息为准。</p>
     </section>
     <div class="practice-links">
       <span>练习之外，也可以一起聊聊。</span
@@ -168,9 +184,9 @@ function openNotice(index: number) {
   grid-template-columns: 1.2fr 1fr;
   min-height: 360px;
   border-radius: 20px;
-  background: linear-gradient(110deg, #fff 36%, #eaf4ff);
+  background: linear-gradient(110deg, var(--surface) 36%, var(--accent-bg));
   overflow: hidden;
-  border: 1px solid #e1eaf4;
+  border: 1px solid var(--line);
 }
 .practice-hero-copy {
   padding: 42px 44px;
@@ -179,7 +195,7 @@ function openNotice(index: number) {
   font-size: clamp(28px, 3vw, 42px);
   line-height: 1.45;
   letter-spacing: -1.5px;
-  color: #2d4261;
+  color: var(--strong-ink);
   margin: 12px 0 18px;
 }
 .practice-intro {
@@ -198,7 +214,7 @@ function openNotice(index: number) {
   gap: 10px;
   align-items: center;
   font-size: 13px;
-  color: #657e9e;
+  color: var(--secondary-ink);
 }
 .practice-hero-meta {
   display: flex;
@@ -236,12 +252,12 @@ function openNotice(index: number) {
   grid-template-columns: 18px 1fr;
   gap: 5px 8px;
   font-size: 13px;
-  color: #657e9e;
+  color: var(--secondary-ink);
 }
 .announcements-label > span {
   grid-column: 2;
   font-size: 10px;
-  color: #9cabbc;
+  color: var(--muted);
 }
 .practice-announcements button {
   border: 0;
@@ -251,9 +267,9 @@ function openNotice(index: number) {
   grid-template-columns: 1fr 18px;
   gap: 5px;
   padding: 8px 18px;
-  border-left: 1px solid #dce4ef;
+  border-left: 1px solid var(--line);
   min-width: 0;
-  color: #455e80;
+  color: var(--secondary-ink);
 }
 .practice-announcements time {
   grid-column: 1/-1;
@@ -288,11 +304,11 @@ function openNotice(index: number) {
   gap: 8px;
 }
 .activity-totals span {
-  color: #91a0b5;
+  color: var(--muted);
   font-size: 11px;
 }
 .activity-totals strong {
-  color: #455e80;
+  color: var(--secondary-ink);
   font:
     600 30px ui-monospace,
     monospace;
@@ -318,7 +334,7 @@ function openNotice(index: number) {
   gap: 10px;
   padding-top: 18px;
   font-size: 11px;
-  color: #9cabbc;
+  color: var(--muted);
 }
 .practice-library-note a {
   color: var(--blue);
@@ -353,7 +369,7 @@ function openNotice(index: number) {
 }
 .practice-rank-row p {
   font-size: 10px;
-  color: #9cabbc;
+  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -372,7 +388,7 @@ function openNotice(index: number) {
 }
 .rank-solved small {
   font-size: 9px;
-  color: #9cabbc;
+  color: var(--muted);
 }
 .section-title {
   display: flex;
@@ -399,8 +415,8 @@ function openNotice(index: number) {
   position: relative;
   display: block;
   padding: 26px;
-  background: #fff;
-  border: 1px solid #e1eaf4;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 16px;
 }
 .practice-contest-card > div {
@@ -414,14 +430,14 @@ function openNotice(index: number) {
   font-weight: 600;
   line-height: 1.6;
   margin: 22px 0 12px;
-  color: #455e80;
+  color: var(--secondary-ink);
 }
 .practice-contest-card p {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: #91a0b5;
+  color: var(--muted);
 }
 .contest-enter {
   display: flex;
@@ -434,7 +450,7 @@ function openNotice(index: number) {
 .practice-demo-note {
   margin-top: 12px;
   font-size: 10px;
-  color: #9cabbc;
+  color: var(--muted);
 }
 .practice-links {
   display: flex;
@@ -442,15 +458,15 @@ function openNotice(index: number) {
   flex-wrap: wrap;
   gap: 24px;
   padding: 22px 0 4px;
-  border-top: 1px solid #dce4ef;
+  border-top: 1px solid var(--line);
   font-size: 12px;
 }
 .practice-links > span {
   margin-right: auto;
-  color: #91a0b5;
+  color: var(--muted);
 }
 .practice-links > a {
-  color: #657e9e;
+  color: var(--secondary-ink);
 }
 @media (max-width: 960px) {
   .practice-hero-copy {
