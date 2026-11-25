@@ -1,77 +1,116 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { contests, problems } from '../data/preview'
+import { api } from '../api/client'
+import type { components } from '../api/generated/schema'
+import { csrfHeaders, errorText, unwrap } from '../api/transport'
 import PageHeading from '../components/PageHeading.vue'
 import PanelCard from '../components/PanelCard.vue'
-import ProblemTable from '../components/ProblemTable.vue'
-import EmptyState from '../components/EmptyState.vue'
+import { notifyContestRegistration } from '../composables/useContestAgentAccess'
+import { useSession } from '../composables/useSession'
+import { displayTime } from '../lib/presentation'
+
 const route = useRoute()
-const tab = ref('overview')
-const contest = computed(() => contests.find((c) => c.id === route.params.id))
-const items = computed(() => problems.filter((p) => contest.value?.ids.includes(p.id)))
+const { user } = useSession()
+const key = computed(() => String(route.params.id))
+const contest = ref<components['schemas']['ContestSchedule']>()
+const confirmed = ref(false)
+const acknowledging = ref(false)
+const loading = ref(true)
+const busy = ref(false)
+const error = ref('')
+const ended = computed(() => contest.value && Date.parse(contest.value.ends_at) <= Date.now())
+let request = new AbortController()
+
+watch(
+  [key, () => user.value?.id],
+  async ([contestKey, account], _, cleanup) => {
+    request.abort()
+    request = new AbortController()
+    const current = request
+    cleanup(() => current.abort())
+    const signal = current.signal
+    loading.value = true
+    busy.value = false
+    error.value = ''
+    confirmed.value = false
+    acknowledging.value = false
+    contest.value = undefined
+    try {
+      const params = { path: { key: contestKey } }
+      const schedule = unwrap(await api.GET('/api/v1/contests/{key}', { params, signal }))
+      if (signal.aborted) return
+      contest.value = schedule
+      if (account) {
+        const registration = unwrap(
+          await api.GET('/api/v1/contests/{key}/registration', { params, signal }),
+        )
+        if (!signal.aborted) confirmed.value = registration.confirmed
+      }
+    } catch (cause) {
+      if (!signal.aborted) error.value = errorText(cause)
+    } finally {
+      if (!signal.aborted) loading.value = false
+    }
+  },
+  { immediate: true },
+)
+
+async function confirm() {
+  if (!acknowledging.value || busy.value) return
+  const { signal } = request
+  busy.value = true
+  error.value = ''
+  try {
+    const registration = unwrap(
+      await api.PUT('/api/v1/contests/{key}/registration', {
+        params: { path: { key: key.value } },
+        headers: csrfHeaders(),
+        signal,
+      }),
+    )
+    if (signal.aborted) return
+    confirmed.value = registration.confirmed
+    acknowledging.value = false
+    if (registration.confirmed) notifyContestRegistration()
+  } catch (cause) {
+    if (!signal.aborted) error.value = errorText(cause)
+  } finally {
+    if (!signal.aborted) busy.value = false
+  }
+}
 </script>
+
 <template>
-  <template v-if="contest"
-    ><div class="breadcrumbs">
-      <RouterLink to="/contests">比赛</RouterLink><span>/</span><span>{{ contest.title }}</span>
-    </div>
-    <PageHeading :title="contest.title" :description="contest.description"
-      ><el-tag effect="light">{{ contest.status }} · 示例</el-tag></PageHeading
-    >
-    <div class="content-with-aside">
-      <PanelCard title="比赛信息" icon="contests"
-        ><el-tabs v-model="tab"
-          ><el-tab-pane label="比赛说明" name="overview"
-            ><div class="detail-prose">
-              <h2>比赛介绍</h2>
-              <p>{{ contest.description }}</p>
-              <h2>比赛规则</h2>
-              <p>
-                {{
-                  contest.type === 'ACM'
-                    ? 'ACM 赛制按照通过题目数排序，通过数相同时比较罚时。'
-                    : 'OI 赛制按照题目得分总和排序。具体规则以实际比赛公告为准。'
-                }}
-              </p>
-              <h2>参赛须知</h2>
-              <p>
-                认真阅读每道题的数据范围和限制。赛程、题目和状态当前为界面示例，报名功能将在比赛服务接入后开放。
-              </p>
-            </div></el-tab-pane
-          ><el-tab-pane label="比赛题目" name="problems"
-            ><ProblemTable :items="items" compact /></el-tab-pane
-          ><el-tab-pane label="比赛榜单" name="rank"
-            ><EmptyState
-              title="暂无实际比赛成绩"
-              description="比赛服务接入后展示实时榜单。" /></el-tab-pane
-          ><el-tab-pane label="提交记录" name="submissions"
-            ><EmptyState title="暂无实际提交记录" /></el-tab-pane></el-tabs></PanelCard
-      ><PanelCard title="比赛概况" icon="clock"
-        ><dl class="details-list">
-          <div>
-            <dt>赛制</dt>
-            <dd>{{ contest.type }}</dd>
-          </div>
-          <div>
-            <dt>开始时间</dt>
-            <dd>{{ contest.start }}</dd>
-          </div>
-          <div>
-            <dt>比赛时长</dt>
-            <dd>{{ contest.duration }}</dd>
-          </div>
-          <div>
-            <dt>题目数量</dt>
-            <dd>{{ items.length }} 道</dd>
-          </div>
-        </dl>
-        <el-button type="primary" disabled style="width: 100%; margin-top: 25px"
-          >报名功能待接入</el-button
-        ></PanelCard
-      >
-    </div></template
-  ><EmptyState v-else title="比赛不存在"
-    ><RouterLink to="/contests"><el-button>返回比赛列表</el-button></RouterLink></EmptyState
-  >
+  <PageHeading :title="contest?.title ?? '比赛'">
+    <RouterLink class="el-button" to="/contests">返回比赛列表</RouterLink>
+  </PageHeading>
+  <p v-if="error" role="alert">{{ error }}</p>
+  <p v-if="loading" role="status">正在读取比赛…</p>
+  <PanelCard v-else-if="contest" title="比赛时间与参赛确认" icon="contests">
+    <dl class="details-list">
+      <div>
+        <dt>开始时间</dt>
+        <dd>{{ displayTime(contest.starts_at) }}</dd>
+      </div>
+      <div>
+        <dt>结束时间</dt>
+        <dd>{{ displayTime(contest.ends_at) }}</dd>
+      </div>
+    </dl>
+    <p>确认参赛后，上述时段内暂时停用此账号在全站的学习助手。比赛结束后自动恢复。</p>
+    <p v-if="confirmed" role="status"><el-tag type="success">已确认参赛</el-tag></p>
+    <p v-else-if="ended">比赛已结束。</p>
+    <RouterLink v-else-if="!user" :to="{ path: '/login', query: { next: route.fullPath } }">
+      登录后参赛
+    </RouterLink>
+    <form v-else class="stack native-form" @submit.prevent="confirm">
+      <label><input v-model="acknowledging" type="checkbox" /> 我确认参加这场比赛</label>
+      <div>
+        <el-button type="primary" native-type="submit" :disabled="!acknowledging" :loading="busy">
+          确认参赛
+        </el-button>
+      </div>
+    </form>
+  </PanelCard>
 </template>
