@@ -3,7 +3,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { adminProblems as api, maintenanceError } from '../api/adminProblems'
 import type { components } from '../api/generated/schema'
-import { ApiError } from '../api/transport'
+import { ApiError, unwrap } from '../api/transport'
+import { api as platform } from '../api/client'
 import { useSession } from '../composables/useSession'
 import { sha256Fingerprint } from '../lib/requestCrypto'
 import StatementAuthor from './StatementAuthor.vue'
@@ -22,7 +23,8 @@ const error = ref('')
 const receipt = ref<components['schemas']['MaintenanceReceipt']>()
 const title = ref('')
 const statement = ref('')
-const difficulty = ref<'' | 'easy' | 'medium' | 'hard'>('')
+const difficulty = ref('')
+const levels = ref<components['schemas']['DifficultyLevel'][]>([])
 const tags = ref('')
 const prerequisites = ref('')
 type SampleField = { text: string; binary?: string }
@@ -83,11 +85,17 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const value = await api.editor(problemId, controller.signal)
+    const [value, settings] = await Promise.all([
+      api.editor(problemId, controller.signal),
+      platform
+        .GET('/api/v1/problems/difficulty-levels', { signal: controller.signal })
+        .then(unwrap),
+    ])
+    levels.value = settings
     editor.value = value
     title.value = value.detail.title
     statement.value = value.detail.statement
-    difficulty.value = value.metadata.difficulty ?? ''
+    difficulty.value = value.metadata.difficulty_key ?? value.metadata.difficulty ?? ''
     tags.value = value.metadata.tags.join(', ')
     prerequisites.value = (value.metadata.prerequisite_tags ?? []).join(', ')
     samples.value = value.detail.samples.map((sample) => ({
@@ -134,7 +142,8 @@ async function publish() {
           tags.value === current.metadata.tags.join(', ')
             ? current.metadata.tags
             : labels(tags.value),
-        difficulty: difficulty.value || null,
+        difficulty: levels.value.find((level) => level.key === difficulty.value)?.tier ?? null,
+        difficulty_key: difficulty.value || undefined,
         prerequisite_tags:
           prerequisites.value === (current.metadata.prerequisite_tags ?? []).join(', ')
             ? (current.metadata.prerequisite_tags ?? [])
@@ -205,11 +214,12 @@ onUnmounted(() => controller.abort())
               >难度
               <select v-model="difficulty">
                 <option value="">未标注</option>
-                <option value="easy">简单</option>
-                <option value="medium">中等</option>
-                <option value="hard">困难</option>
+                <option v-for="level in levels" :key="level.key" :value="level.key">
+                  {{ level.label }} · {{ level.score }}
+                </option>
               </select>
             </label>
+            <RouterLink class="text-link" to="/problem-difficulties">管理难度档位</RouterLink>
             <label>知识点（逗号分隔）<input v-model="tags" /></label>
             <label>先修知识点（逗号分隔）<input v-model="prerequisites" /></label>
           </div>
