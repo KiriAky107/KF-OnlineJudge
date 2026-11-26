@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { renderStatement } from '../src/lib/statementMarkdown.ts'
+import { prepareNoteBlocks, renderStatement } from '../src/lib/statementMarkdown.ts'
 
 test('problem statements combine Markdown, both LaTeX delimiter styles and raster images', () => {
   const result = renderStatement(
@@ -40,4 +40,18 @@ test('raw Markdown HTML stays text and the math renderer never loads external gr
   )
   assert.match(result, /&lt;mark&gt;文字&lt;\/mark&gt;/)
   assert.doesNotMatch(result, /<img\b/)
+})
+
+test('note blocks retain their source ranges while rendering formulas, code and references', () => {
+  const parts = ['## 思路', '公式 $x^2$ 与 [参考][ref]。', '```cpp\r\nint x = 2;\r\n```']
+  const note = parts.join('\r\n\r\n') + '\r\n\r\n[ref]: https://example.com'
+  const blocks = prepareNoteBlocks(note)
+  assert.deepEqual(
+    blocks.map(({ start, end }) => note.slice(start, end)),
+    parts,
+  )
+  assert.match(blocks[1]!.content.render(), /class="katex"/)
+  assert.match(blocks[1]!.content.render(), /href="https:\/\/example\.com"/)
+  assert.equal(blocks[2]!.content.hasCode, true)
+  assert.match(blocks[2]!.content.render(), /data-copy-code/)
 })
