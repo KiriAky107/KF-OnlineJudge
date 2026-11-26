@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DisclosureHeading from './DisclosureHeading.vue'
 import { computed, onUnmounted, ref } from 'vue'
 import { api } from '../api/client'
 import type { components } from '../api/generated/schema'
@@ -85,7 +86,7 @@ onUnmounted(() => controller.abort())
 
 <template>
   <details class="reporting native-form" @toggle="read">
-    <summary>举报此版本</summary>
+    <DisclosureHeading icon="bell" tone="warning">举报此版本</DisclosureHeading>
     <p v-if="error" role="alert">{{ error }}</p>
     <el-button v-if="error && page && !pending" :disabled="busy" @click="perform('load')"
       >重新读取</el-button

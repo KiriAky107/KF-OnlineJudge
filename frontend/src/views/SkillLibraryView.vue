@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DisclosureHeading from '../components/DisclosureHeading.vue'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api/client'
@@ -174,7 +175,9 @@ onUnmounted(() => {
       class="result"
       @toggle="setExpanded($event, item.version_id)"
     >
-      <summary>{{ item.document.title }} · v{{ item.version }}</summary>
+      <DisclosureHeading icon="trainings"
+        >{{ item.document.title }} · v{{ item.version }}</DisclosureHeading
+      >
       <p class="small muted">
         {{ skillPurposes[item.document.purpose] }} · {{ item.author }} ·
         {{ displayTime(item.published_at) }}

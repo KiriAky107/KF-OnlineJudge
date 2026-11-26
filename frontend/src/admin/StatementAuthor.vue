@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DisclosureHeading from '../components/DisclosureHeading.vue'
 import { computed, nextTick, ref } from 'vue'
 import StatementMarkdown from '../components/StatementMarkdown.vue'
 
@@ -108,7 +109,7 @@ function download() {
 
 <template>
   <details class="statement-author" :open="publishing || undefined">
-    <summary>编辑题面和插入图片</summary>
+    <DisclosureHeading icon="document" tone="accent">编辑题面和插入图片</DisclosureHeading>
     <div class="author-body">
       <p v-if="!publishing" class="admin-muted">编写并预览题面，下载后放入题目导入包。</p>
       <label for="statement-source">Markdown 题面</label>

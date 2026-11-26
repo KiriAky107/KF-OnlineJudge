@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from '../api/client'
 import type { components } from '../api/generated/schema'
 import { errorText, unwrap } from '../api/transport'
+import DisclosureHeading from './DisclosureHeading.vue'
 
 type Run = components['schemas']['AgentRunView']
 type Step = components['schemas']['AgentTraceStep']
@@ -148,13 +149,15 @@ onBeforeUnmount(() => request?.abort())
 
 <template>
   <details v-if="chatRun" class="chat-activity" @toggle="toggle">
-    <summary>
-      <span class="activity-indicator" :class="{ pulsing: inProgress }" aria-hidden="true" />
+    <DisclosureHeading>
+      <template #indicator>
+        <span class="activity-indicator" :class="{ pulsing: inProgress }" aria-hidden="true" />
+      </template>
       <span role="status">执行记录 · {{ activity }}</span>
       <span v-if="!inProgress && trace?.duration_ms != null" class="muted">
         · {{ duration(trace.duration_ms) }}
       </span>
-    </summary>
+    </DisclosureHeading>
     <div class="activity-details">
       <p v-if="error" class="small muted">
         处理步骤暂时无法读取。
@@ -177,7 +180,7 @@ onBeforeUnmount(() => request?.abort())
     </div>
   </details>
   <details v-else class="run-trace" @toggle="toggle">
-    <summary>查看执行步骤</summary>
+    <DisclosureHeading icon="clock" tone="accent">查看执行步骤</DisclosureHeading>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="loading" role="status">正在读取执行步骤…</p>
     <div v-if="trace" class="stack">
@@ -234,25 +237,6 @@ onBeforeUnmount(() => request?.abort())
   margin-block: 0.2rem 0.6rem;
   color: var(--secondary-ink);
   font-size: 0.86rem;
-}
-.chat-activity summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  cursor: pointer;
-  color: var(--strong-ink);
-}
-.chat-activity summary::after {
-  content: '';
-  width: 0.35rem;
-  height: 0.35rem;
-  margin-inline-start: 0.15rem;
-  border-inline-end: 1px solid currentColor;
-  border-bottom: 1px solid currentColor;
-  transform: translateY(-0.1rem) rotate(45deg);
-}
-.chat-activity[open] summary::after {
-  transform: translateY(0.1rem) rotate(225deg);
 }
 .activity-indicator,
 .activity-steps li::before {

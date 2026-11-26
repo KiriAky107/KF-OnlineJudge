@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DisclosureHeading from './DisclosureHeading.vue'
 import type { components } from '../api/generated/schema'
 import { trainingRankingLabels } from '../api/trainingRanking'
 import { displayTime } from '../lib/presentation'
@@ -108,7 +109,7 @@ const focusLabels = {
         v-if="run.result?.purpose === 'guided_help' && run.result.model_hint"
         class="chat-feedback"
       >
-        <summary>反馈</summary>
+        <DisclosureHeading icon="chat" tone="muted">反馈</DisclosureHeading>
         <LearningRunFeedback
           :key="run.run_id"
           :run-id="run.run_id"
@@ -297,7 +298,7 @@ const focusLabels = {
             </p>
             <p>周期 {{ run.result.cycle_days }} 天 · 每周 {{ run.result.sessions_per_week }} 次</p>
             <details v-if="run.result.evidence.length">
-              <summary>复习依据</summary>
+              <DisclosureHeading icon="reading">复习依据</DisclosureHeading>
               <ul>
                 <li v-for="row in run.result.evidence" :key="row.submission_id">
                   <RouterLink :to="'/submissions/' + row.submission_id">

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DisclosureHeading from './DisclosureHeading.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from '../api/client'
 import type { components } from '../api/generated/schema'
@@ -66,7 +67,7 @@ async function preview() {
 
 <template>
   <details class="source-excerpt">
-    <summary>预览本人源码片段</summary>
+    <DisclosureHeading icon="document" tone="muted">预览本人源码片段</DisclosureHeading>
     <form class="stack" @submit.prevent="preview">
       <div class="excerpt-range">
         <label class="field">

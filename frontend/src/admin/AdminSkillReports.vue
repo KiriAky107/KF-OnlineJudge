@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DisclosureHeading from '../components/DisclosureHeading.vue'
 import { onUnmounted, ref, watch } from 'vue'
 import { api } from '../api/client'
 import type { components } from '../api/generated/schema'
@@ -102,9 +103,9 @@ onUnmounted(() => controller?.abort())
     <p v-if="loading" role="status">正在读取举报…</p>
     <p v-else-if="page && !page.items.length">此状态暂无举报。</p>
     <details v-for="item in page?.items ?? []" :key="item.report_id" class="report">
-      <summary>
+      <DisclosureHeading icon="bell" tone="warning">
         {{ item.release_title }} · v{{ item.version }} · {{ skillReportReasons[item.reason] }}
-      </summary>
+      </DisclosureHeading>
       <p>提交于 {{ displayTime(item.submitted_at) }}</p>
       <p class="report-text">{{ item.details }}</p>
       <p v-if="item.decision_note" class="report-text">处理说明 · {{ item.decision_note }}</p>
