@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import socket
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from .clangd_completion import (
 )
 
 _LIMIT = 800 * 1024
+_SCOPE = re.compile(r"[0-9a-f-]{36}/[0-9a-f-]{36}")
 
 
 def _frame(data) -> bytes:
@@ -53,12 +55,23 @@ class SocketClangdCompletion:
         except CompletionUnavailable:
             return False
 
+    async def prepare(self, language: CompletionLanguage, source: str, scope: str) -> None:
+        await self._request(dict(kind="prepare", language=language, source=source, scope=scope))
+
     async def complete(
-        self, language: CompletionLanguage, source: str, line: int, character: int
+        self,
+        language: CompletionLanguage,
+        source: str,
+        line: int,
+        character: int,
+        scope: str | None = None,
     ) -> tuple[SemanticCandidate, ...]:
-        result = await self._request(
-            dict(kind="complete", language=language, source=source, line=line, character=character)
+        message = dict(
+            kind="complete", language=language, source=source, line=line, character=character
         )
+        if scope is not None:
+            message["scope"] = scope
+        result = await self._request(message)
         if not isinstance(result, list) or len(result) > 40:
             raise CompletionUnavailable
         try:
@@ -79,19 +92,24 @@ async def serve(listener: socket.socket, completion: ClangdCompletion) -> None:
                 message = await _read(reader)
             if message == {"kind": "probe"}:
                 result = True
-            elif (
-                isinstance(message, dict)
-                and set(message) == {"kind", "language", "source", "line", "character"}
-                and message["kind"] == "complete"
-                and message["language"] in ("c17", "cpp20")
-                and isinstance(message["source"], str)
-                and type(message["line"]) is int
-                and type(message["character"]) is int
-                and not slot.locked()
-            ):
-                async with slot:
-                    del message["kind"]
-                    result = [asdict(item) for item in await completion.complete(**message)]
+            elif isinstance(message, dict) and not slot.locked():
+                kind, language, source = (
+                    message.get(name) for name in ("kind", "language", "source")
+                )
+                scope = message.get("scope")
+                scoped = isinstance(scope, str) and _SCOPE.fullmatch(scope) is not None
+                if language in ("c17", "cpp20") and isinstance(source, str):
+                    async with slot:
+                        if kind == "prepare" and scoped:
+                            await completion.prepare(language, source, scope)
+                            result = True
+                        elif kind == "complete" and (scoped or "scope" not in message):
+                            line, character = message.get("line"), message.get("character")
+                            if type(line) is int and type(character) is int:
+                                items = await completion.complete(
+                                    language, source, line, character, scope
+                                )
+                                result = [asdict(item) for item in items]
         except (
             OSError,
             EOFError,
@@ -110,8 +128,11 @@ async def serve(listener: socket.socket, completion: ClangdCompletion) -> None:
         finally:
             writer.close()
 
-    async with await asyncio.start_unix_server(handle, sock=listener, limit=_LIMIT) as server:
-        await server.serve_forever()
+    try:
+        async with await asyncio.start_unix_server(handle, sock=listener, limit=_LIMIT) as server:
+            await server.serve_forever()
+    finally:
+        await completion.close()
 
 
 def main() -> None:

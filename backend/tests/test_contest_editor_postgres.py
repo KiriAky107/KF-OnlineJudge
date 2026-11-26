@@ -22,8 +22,12 @@ def test_editor_policy_controls_registered_accounts_and_assigned_versions(
         app, engine, module = await setup_app(postgres_url, tmp_path)
         monkeypatch.setattr(module, "build_engine", lambda _: engine)
         calls = []
+        warmups = []
 
         class Analyzer:
+            async def prepare(self, *request):
+                warmups.append(request)
+
             async def complete(self, *request):
                 calls.append(request)
                 return (SemanticCandidate("push_back", "method"),)
@@ -95,11 +99,16 @@ def test_editor_policy_controls_registered_accounts_and_assigned_versions(
                     assert (await practice.get(PROBLEMS)).json() == []
                     assert (await entrant.get(editor)).json() == {"enabled": False}
                     assert (await entrant.post(editor, json=payload)).json() == []
-                    assert not calls
+                    preamble = payload | {"source": "#include <vector>\n;\n", "prepare": True}
+                    assert (await entrant.post(editor, json=preamble)).json() == []
+                    assert not calls and not warmups
+                    assert (await practice.post(editor, json=preamble)).json() == []
+                    assert len(warmups) == 1
                     assert (await practice.post(editor, json=payload)).json() == [
                         {"name": "push_back", "kind": "method"}
                     ]
                     assert len(calls) == 1
+                    assert calls[0][-1] == warmups[0][-1]
 
                     change = policy | {"semantic_completion_enabled": True}
                     assert (await admin.put(POLICY, json=change)).json() == change
@@ -107,6 +116,7 @@ def test_editor_policy_controls_registered_accounts_and_assigned_versions(
                         "name"
                     ] == "push_back"
                     assert len(calls) == 2
+                    assert calls[0][-1] != calls[1][-1]
         finally:
             await operator.close()
 

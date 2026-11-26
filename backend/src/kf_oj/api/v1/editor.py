@@ -55,11 +55,17 @@ async def semantic_completion(
     busy = state.editor_completion_busy
     if slots.locked() or principal.account_id in busy:
         return ()
+    scope = f"{principal.account_id}/{version_id}"
     busy.add(principal.account_id)
     try:
         async with slots:
+            if body.prepare:
+                if len(body.source.encode("utf-8")) > 16 * 1024:
+                    raise HTTPException(422, "editor preamble is too large")
+                await state.editor_completion.prepare(body.language, body.source, scope)
+                return ()
             items = await state.editor_completion.complete(
-                body.language, body.source, body.line, body.character
+                body.language, body.source, body.line, body.character, scope
             )
     except ValueError:
         raise HTTPException(422, "invalid editor source or position") from None

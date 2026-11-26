@@ -2072,6 +2072,11 @@
             "title": "Line",
             "type": "integer"
           },
+          "prepare": {
+            "default": false,
+            "title": "Prepare",
+            "type": "boolean"
+          },
           "source": {
             "maxLength": 131072,
             "title": "Source",

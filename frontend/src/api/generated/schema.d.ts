@@ -2258,6 +2258,11 @@ export interface components {
             language: "c17" | "cpp20";
             /** Line */
             line: number;
+            /**
+             * Prepare
+             * @default false
+             */
+            prepare: boolean;
             /** Source */
             source: string;
         };

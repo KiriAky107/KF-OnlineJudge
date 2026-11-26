@@ -65,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = None
         store = None
         staging = None
+        editor = None
         try:
             if settings.database_url is not None:
                 engine = build_engine(settings)
@@ -77,7 +78,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 app.state.contest_schedules = ContestSchedules(
                     app.state.sessions, app.state.identity
                 )
-                editor = None
                 if settings.editor_completion_socket is not None:
                     editor = SocketClangdCompletion(settings.editor_completion_socket)
                 elif settings.editor_toolchain_usr is not None:
@@ -167,6 +167,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 app.state.skill_reports = SkillReports(app.state.sessions, app.state.identity)
             yield
         finally:
+            if isinstance(editor, ClangdCompletion):
+                await editor.close()
             app.state.skill_reports = None
             app.state.skill_publications = None
             app.state.skill_drafts = None
