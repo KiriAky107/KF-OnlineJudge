@@ -233,7 +233,7 @@ impl<'a, A: ArtifactPort> Attempt<'a, A> {
         let id = spec.run_id.clone();
         let validated = spec
             .clone()
-            .validate(&kf_sandbox::spec::SpecPolicy::default())
+            .validate_for_factory_client()
             .map_err(|_| stage_error(FailureCode::SandboxUnavailable, true))?;
         let result = self.factory.execute_controlled(
             spec,

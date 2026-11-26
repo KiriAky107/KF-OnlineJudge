@@ -240,7 +240,7 @@ impl FactoryClient {
         }
         let validated = spec
             .clone()
-            .validate(&crate::spec::SpecPolicy::default())
+            .validate_for_factory_client()
             .map_err(|_| denied())?;
         let stream = UnixStream::connect(&self.socket)?;
         let interrupter = stream.try_clone()?;
