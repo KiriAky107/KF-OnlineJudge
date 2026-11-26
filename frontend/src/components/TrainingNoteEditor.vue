@@ -19,6 +19,7 @@ const active = ref<(Range & { separator: string }) | null>(null)
 const editor = ref<HTMLTextAreaElement>()
 const toolbar = ref<HTMLElement>()
 const append = ref<HTMLButtonElement>()
+const editOriginal = ref<HTMLButtonElement>()
 function bindEditor(element: Element | ComponentPublicInstance | null) {
   editor.value = element instanceof HTMLTextAreaElement ? element : undefined
 }
@@ -114,7 +115,7 @@ function editBlock(event: MouseEvent, range: Range) {
 
 function closeBlock() {
   finish()
-  void nextTick(() => append.value?.focus())
+  void nextTick(() => (append.value?.disabled ? editOriginal.value : append.value)?.focus())
 }
 
 function save() {
@@ -145,6 +146,14 @@ watch(
         >
           <UiIcon v-if="tool.icon" :name="tool.icon" />
           <span v-else aria-hidden="true">{{ tool.glyph }}</span>
+        </button>
+        <button
+          ref="editOriginal"
+          type="button"
+          :disabled="disabled"
+          @click="begin({ start: 0, end: note.length })"
+        >
+          编辑原文
         </button>
       </div>
     </header>
