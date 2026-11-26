@@ -136,34 +136,45 @@ function trackEditorWarmup(
   let timer: ReturnType<typeof setTimeout> | undefined
   let pending: Promise<void> | undefined
   let lastAttempt = 0
-  let draft = ''
+  let lastKey = ''
+  let scheduledKey = ''
+
+  function currentPreamble() {
+    const id = getVersion()
+    const language = getLanguage()
+    if (!id || (language !== 'c' && language !== 'cpp')) return
+    const source = editorPreamble(model)
+    if (source) return { id, language, source, key: JSON.stringify([id, language, source]) }
+  }
 
   function cancelTimer() {
     clearTimeout(timer)
     timer = undefined
+    scheduledKey = ''
   }
 
   function schedule() {
-    const id = getVersion()
-    const language = getLanguage()
-    const source = id && (language === 'c' || language === 'cpp') ? editorPreamble(model) : ''
-    const key = source ? JSON.stringify([id, language, source]) : ''
-    if (key === draft && (timer || pending || performance.now() - lastAttempt < 30_000)) return
+    if (model.isDisposed()) return
+    const draft = currentPreamble()
+    if (!draft || (draft.key === lastKey && performance.now() - lastAttempt < 30_000)) {
+      cancelTimer()
+      return
+    }
+    if (pending || scheduledKey === draft.key) return
     cancelTimer()
-    draft = key
-    if (!id || !source) return
+    scheduledKey = draft.key
     timer = setTimeout(() => {
-      timer = undefined
-      if (pending) return
+      cancelTimer()
+      lastKey = draft.key
       lastAttempt = performance.now()
       pending = api
         .POST('/api/v1/problems/versions/{version_id}/editor-completion', {
-          params: { path: { version_id: id } },
+          params: { path: { version_id: draft.id } },
           headers: csrfHeaders(),
           signal: AbortSignal.timeout(8_000),
           body: {
-            language: language === 'c' ? 'c17' : 'cpp20',
-            source,
+            language: draft.language === 'c' ? 'c17' : 'cpp20',
+            source: draft.source,
             prepare: true,
             line: 0,
             character: 0,
@@ -175,6 +186,7 @@ function trackEditorWarmup(
         )
         .finally(() => {
           pending = undefined
+          schedule()
         })
     }, 350)
   }
@@ -186,6 +198,7 @@ function trackEditorWarmup(
     schedule,
     beforeCompletion: () => {
       cancelTimer()
+      lastKey = currentPreamble()?.key ?? ''
       lastAttempt = performance.now()
       return pending
     },

@@ -170,7 +170,7 @@ class ClangdCompletion:
                 self._document.process.returncode is not None or loop.time() >= self._expires
             ):
                 await self._discard()
-            if preparing and self._document is not None:
+            if preparing and self._document is not None and self._scope != key:
                 # Warming is optional. Leave a recently used document available.
                 yield None
                 return
@@ -206,9 +206,10 @@ class ClangdCompletion:
     async def prepare(self, language: CompletionLanguage, source: str, scope: str) -> None:
         _validate_source(source)
         async with self._open(language, scope, preparing=True) as document:
-            if document is not None:
-                await document.update(source)
-                await document.request("textDocument/documentSymbol", document.params)
+            if document is None or document.source == source:
+                return
+            await document.update(source)
+            await document.request("textDocument/documentSymbol", document.params)
 
     async def complete(
         self,
