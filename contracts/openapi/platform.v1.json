@@ -1310,6 +1310,50 @@
         "title": "ContestAgentAccess",
         "type": "object"
       },
+      "ContestEditorPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "semantic_completion_enabled": {
+            "title": "Semantic Completion Enabled",
+            "type": "boolean"
+          },
+          "version_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 24,
+            "title": "Version Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "semantic_completion_enabled",
+          "version_ids"
+        ],
+        "title": "ContestEditorPolicy",
+        "type": "object"
+      },
+      "ContestEditorProblem": {
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version_id": {
+            "format": "uuid",
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "title"
+        ],
+        "title": "ContestEditorProblem",
+        "type": "object"
+      },
       "ContestRating": {
         "additionalProperties": false,
         "properties": {
@@ -1382,6 +1426,11 @@
             "pattern": "^[a-z0-9][a-z0-9_-]{0,79}$",
             "title": "Key",
             "type": "string"
+          },
+          "semantic_completion_enabled": {
+            "default": true,
+            "title": "Semantic Completion Enabled",
+            "type": "boolean"
           },
           "starts_at": {
             "format": "date-time",
@@ -1965,6 +2014,77 @@
           "reason"
         ],
         "title": "DisableSkillVersion",
+        "type": "object"
+      },
+      "EditorCompletion": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "EditorCompletion",
+        "type": "object"
+      },
+      "EditorCompletionAccess": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "EditorCompletionAccess",
+        "type": "object"
+      },
+      "EditorCompletionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "character": {
+            "maximum": 131072.0,
+            "minimum": 0.0,
+            "title": "Character",
+            "type": "integer"
+          },
+          "language": {
+            "enum": [
+              "c17",
+              "cpp20"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "line": {
+            "exclusiveMaximum": 131072.0,
+            "minimum": 0.0,
+            "title": "Line",
+            "type": "integer"
+          },
+          "source": {
+            "maxLength": 131072,
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "language",
+          "source",
+          "line",
+          "character"
+        ],
+        "title": "EditorCompletionRequest",
         "type": "object"
       },
       "FailureCode": {
@@ -8710,6 +8830,98 @@
         ]
       }
     },
+    "/api/v1/admin/contest-schedules/{key}/editor-policy": {
+      "get": {
+        "operationId": "read_editor_policy_api_v1_admin_contest_schedules__key__editor_policy_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestEditorPolicy"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Editor Policy",
+        "tags": [
+          "contest-schedule"
+        ]
+      },
+      "put": {
+        "operationId": "save_editor_policy_api_v1_admin_contest_schedules__key__editor_policy_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContestEditorPolicy"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContestEditorPolicy"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Editor Policy",
+        "tags": [
+          "contest-schedule"
+        ]
+      }
+    },
     "/api/v1/admin/contest-settlements": {
       "post": {
         "operationId": "settle_api_v1_admin_contest_settlements_post",
@@ -10214,6 +10426,52 @@
           }
         },
         "summary": "Schedule",
+        "tags": [
+          "contest-schedule"
+        ]
+      }
+    },
+    "/api/v1/contests/{key}/editor-problems": {
+      "get": {
+        "operationId": "editor_problems_api_v1_contests__key__editor_problems_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ContestEditorProblem"
+                  },
+                  "title": "Response Editor Problems Api V1 Contests  Key  Editor Problems Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Editor Problems",
         "tags": [
           "contest-schedule"
         ]
@@ -12356,6 +12614,104 @@
         "summary": "Problem Version",
         "tags": [
           "problems"
+        ]
+      }
+    },
+    "/api/v1/problems/versions/{version_id}/editor-completion": {
+      "get": {
+        "operationId": "semantic_completion_access_api_v1_problems_versions__version_id__editor_completion_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorCompletionAccess"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Semantic Completion Access",
+        "tags": [
+          "editor"
+        ]
+      },
+      "post": {
+        "operationId": "semantic_completion_api_v1_problems_versions__version_id__editor_completion_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditorCompletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EditorCompletion"
+                  },
+                  "title": "Response Semantic Completion Api V1 Problems Versions  Version Id  Editor Completion Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Semantic Completion",
+        "tags": [
+          "editor"
         ]
       }
     },

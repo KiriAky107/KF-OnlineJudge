@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     )
     session_lifetime_seconds: int = Field(default=43200, ge=300, le=86400)
     artifact_root: Path | None = None
+    editor_toolchain_usr: Path | None = None
     import_staging_root: Path | None = None
     import_worker_cgroup: Path | None = None
     artifact_max_bytes: int = Field(default=536870912, ge=1, le=16 * 1024**3)

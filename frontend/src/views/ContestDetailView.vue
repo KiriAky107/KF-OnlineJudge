@@ -19,6 +19,8 @@ const acknowledging = ref(false)
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
+const workbenchProblems = ref<components['schemas']['ContestEditorProblem'][]>([])
+const workbenchError = ref('')
 const ended = computed(() => contest.value && Date.parse(contest.value.ends_at) <= Date.now())
 let request = new AbortController()
 
@@ -55,6 +57,38 @@ watch(
   },
   { immediate: true },
 )
+
+watch([contest, confirmed], ([schedule, joined], _, cleanup) => {
+  workbenchProblems.value = []
+  workbenchError.value = ''
+  if (!schedule || !joined) return
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  cleanup(() => {
+    controller.abort()
+    clearTimeout(timer)
+  })
+  async function load() {
+    if (!schedule || controller.signal.aborted) return
+    const delay = Date.parse(schedule.starts_at) - Date.now()
+    if (delay > 0) {
+      timer = setTimeout(load, Math.min(delay + 250, 2_147_483_647))
+      return
+    }
+    try {
+      const rows = unwrap(
+        await api.GET('/api/v1/contests/{key}/editor-problems', {
+          params: { path: { key: schedule.key } },
+          signal: controller.signal,
+        }),
+      )
+      if (!controller.signal.aborted) workbenchProblems.value = rows
+    } catch (cause) {
+      if (!controller.signal.aborted) workbenchError.value = errorText(cause)
+    }
+  }
+  void load()
+})
 
 async function confirm() {
   if (!acknowledging.value || busy.value) return
@@ -99,6 +133,7 @@ async function confirm() {
       </div>
     </dl>
     <p>确认参赛后，上述时段内暂时停用此账号在全站的学习助手。比赛结束后自动恢复。</p>
+    <p v-if="contest.semantic_completion_enabled === false">比赛期间，比赛题目仅提供基础补全。</p>
     <p v-if="confirmed" role="status"><el-tag type="success">已确认参赛</el-tag></p>
     <p v-else-if="ended">比赛已结束。</p>
     <RouterLink v-else-if="!user" :to="{ path: '/login', query: { next: route.fullPath } }">
@@ -112,5 +147,13 @@ async function confirm() {
         </el-button>
       </div>
     </form>
+  </PanelCard>
+  <p v-if="workbenchError" role="alert">{{ workbenchError }}</p>
+  <PanelCard v-if="workbenchProblems.length" title="比赛题目" icon="problems">
+    <ol>
+      <li v-for="item in workbenchProblems" :key="item.version_id">
+        <RouterLink :to="'/problems/' + item.version_id">{{ item.title }}</RouterLink>
+      </li>
+    </ol>
   </PanelCard>
 </template>

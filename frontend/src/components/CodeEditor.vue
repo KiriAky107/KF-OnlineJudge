@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as monaco from 'monaco-editor/editor/editor.api'
+import 'monaco-editor/editor/contrib/suggest/browser/suggestController'
 import 'monaco-editor/features/bracketMatching/register'
 import 'monaco-editor/features/clipboard/register'
 import 'monaco-editor/features/comment/register'
@@ -12,6 +13,7 @@ import 'monaco-editor/languages/definitions/cpp/register'
 import 'monaco-editor/languages/definitions/python/register'
 import 'monaco-editor/languages/definitions/java/register'
 import 'monaco-editor/languages/definitions/rust/register'
+import { enableEditorCompletions } from '../lib/editorCompletions'
 import { editorLanguage, type EditorTheme } from '../lib/editorHighlighting'
 import { currentMonacoTheme, initializeEditorHighlighting } from '../lib/monacoHighlighting'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
@@ -21,6 +23,7 @@ const props = defineProps<{
   theme: EditorTheme
   fontSize: number
   readOnly?: boolean
+  semanticVersionId?: string
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const container = ref<HTMLDivElement>()
@@ -51,8 +54,17 @@ onMounted(async () => {
     wordWrap: 'on',
     renderLineHighlight: 'line',
     contextmenu: true,
+    acceptSuggestionOnEnter: 'off',
+    acceptSuggestionOnCommitCharacter: false,
+    tabCompletion: 'off',
+    wordBasedSuggestions: 'off',
   })
   if (!props.readOnly) {
+    enableEditorCompletions(
+      model,
+      () => props.language,
+      () => props.semanticVersionId,
+    )
     subscription = editor.onDidChangeModelContent(() => {
       emit('update:modelValue', editor!.getValue())
     })

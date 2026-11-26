@@ -97,6 +97,27 @@ let alive = true
 const intents = new Map<string, ReturnType<typeof submissionIntent>>()
 const capability = computed(() => languageCapability(problem.value, language.value))
 const wireLanguage = computed(() => capability.value?.wire ?? null)
+const semanticAvailable = ref(false)
+const semanticEnabled = ref(true)
+watch(
+  [() => session.user.value?.id, wireLanguage, settingsOpen],
+  async ([account, selected], _, onCleanup) => {
+    semanticAvailable.value = false
+    if (!account || (selected !== 'c17' && selected !== 'cpp20')) return
+    const controller = new AbortController()
+    onCleanup(() => controller.abort())
+    try {
+      const { data } = await api.GET('/api/v1/problems/versions/{version_id}/editor-completion', {
+        params: { path: { version_id: id } },
+        signal: controller.signal,
+      })
+      if (!controller.signal.aborted) semanticAvailable.value = data?.enabled === true
+    } catch {
+      // Basic completion remains available when the language service is unavailable.
+    }
+  },
+  { immediate: true },
+)
 const supported = computed(() => capability.value !== null)
 const executionUnavailable = computed(() => problem.value?.execution_available === false)
 const runLimits = computed(() => capability.value?.runLimits)
@@ -407,11 +428,23 @@ onBeforeUnmount(() => {
                 :max="editorFontSize.max"
                 show-input
               />
+              <label v-if="semanticAvailable" class="small">
+                <input v-model="semanticEnabled" type="checkbox" /> 语义补全
+                <small class="muted">候选项由站内语言服务分析当前草稿生成。</small>
+              </label>
+              <small v-else class="muted">当前仅提供基础补全。</small>
+              <small class="muted">按 Tab 接受补全候选。</small>
             </div>
           </el-popover>
         </header>
         <div class="editor-area">
-          <CodeEditor v-model="code" :language="language" :theme="theme" :font-size="fontSize" />
+          <CodeEditor
+            v-model="code"
+            :language="language"
+            :theme="theme"
+            :font-size="fontSize"
+            :semantic-version-id="semanticAvailable && semanticEnabled ? id : undefined"
+          />
         </div>
         <div
           v-if="executionUnavailable || !supported || capability?.configuration || submitError"

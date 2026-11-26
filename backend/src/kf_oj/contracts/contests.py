@@ -1,4 +1,5 @@
 from typing import Annotated
+from uuid import UUID
 
 from pydantic import AwareDatetime, Field, model_validator
 
@@ -58,6 +59,7 @@ class ContestSchedule(WireModel):
     title: Annotated[str, Field(min_length=1, max_length=120)]
     starts_at: AwareDatetime
     ends_at: AwareDatetime
+    semantic_completion_enabled: bool = True
 
     @model_validator(mode="after")
     def ordered_window(self):
@@ -68,6 +70,22 @@ class ContestSchedule(WireModel):
 
 class ContestRegistration(WireModel):
     confirmed: bool
+
+
+class ContestEditorPolicy(WireModel):
+    semantic_completion_enabled: bool
+    version_ids: Annotated[tuple[UUID, ...], Field(max_length=24)]
+
+    @model_validator(mode="after")
+    def distinct_versions(self):
+        if len(set(self.version_ids)) != len(self.version_ids):
+            raise ValueError("contest problems must be distinct")
+        return self
+
+
+class ContestEditorProblem(WireModel):
+    version_id: UUID
+    title: str
 
 
 class ContestAgentAccess(WireModel):

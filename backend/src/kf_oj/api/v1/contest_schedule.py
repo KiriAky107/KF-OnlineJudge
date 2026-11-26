@@ -3,7 +3,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from kf_oj.api.dependencies import current_principal, unsafe_principal
-from kf_oj.contracts.contests import ContestAgentAccess, ContestRegistration, ContestSchedule
+from kf_oj.contracts.contests import (
+    ContestAgentAccess,
+    ContestEditorPolicy,
+    ContestEditorProblem,
+    ContestRegistration,
+    ContestSchedule,
+)
 from kf_oj.modules.contests.public import agent_access
 from kf_oj.modules.contests.schedule import ContestSchedules, ScheduleConflict, ScheduleUnavailable
 from kf_oj.modules.identity.public import AdministrationDenied, AuthenticationFailed, Principal
@@ -53,6 +59,40 @@ async def publish(body: ContestSchedule, principal: Writer, schedules: Schedules
         raise HTTPException(401, "authentication required") from None
     except ScheduleConflict as error:
         raise HTTPException(409, str(error)) from None
+
+
+async def editor_policy_result(schedules, principal, key, body=None):
+    try:
+        return await schedules.editor_policy(principal, key, body)
+    except AdministrationDenied:
+        raise HTTPException(403, "contest scheduling requires administrator access") from None
+    except AuthenticationFailed:
+        raise HTTPException(401, "authentication required") from None
+    except ScheduleUnavailable:
+        raise HTTPException(404, "contest unavailable") from None
+    except ScheduleConflict as error:
+        raise HTTPException(409, str(error)) from None
+
+
+@router.get("/admin/contest-schedules/{key}/editor-policy", response_model=ContestEditorPolicy)
+async def read_editor_policy(key: str, principal: Reader, schedules: Schedules):
+    return await editor_policy_result(schedules, principal, key)
+
+
+@router.put("/admin/contest-schedules/{key}/editor-policy", response_model=ContestEditorPolicy)
+async def save_editor_policy(
+    key: str, body: ContestEditorPolicy, principal: Writer, schedules: Schedules
+):
+    return await editor_policy_result(schedules, principal, key, body)
+
+
+@router.get("/contests/{key}/editor-problems", response_model=tuple[ContestEditorProblem, ...])
+async def editor_problems(key: str, response: Response, principal: Reader, schedules: Schedules):
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await schedules.editor_problems(principal, key)
+    except AuthenticationFailed:
+        raise HTTPException(401, "authentication required") from None
 
 
 async def registration_result(

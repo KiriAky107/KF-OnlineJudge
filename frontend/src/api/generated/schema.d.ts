@@ -21,6 +21,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/contest-schedules/{key}/editor-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Editor Policy */
+        get: operations["read_editor_policy_api_v1_admin_contest_schedules__key__editor_policy_get"];
+        /** Save Editor Policy */
+        put: operations["save_editor_policy_api_v1_admin_contest_schedules__key__editor_policy_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/contest-settlements": {
         parameters: {
             query?: never;
@@ -542,6 +560,23 @@ export interface paths {
         };
         /** Schedule */
         get: operations["schedule_api_v1_contests__key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contests/{key}/editor-problems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Editor Problems */
+        get: operations["editor_problems_api_v1_contests__key__editor_problems_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1150,6 +1185,24 @@ export interface paths {
         get: operations["problem_version_api_v1_problems_versions__version_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/problems/versions/{version_id}/editor-completion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Semantic Completion Access */
+        get: operations["semantic_completion_access_api_v1_problems_versions__version_id__editor_completion_get"];
+        put?: never;
+        /** Semantic Completion */
+        post: operations["semantic_completion_api_v1_problems_versions__version_id__editor_completion_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1923,6 +1976,23 @@ export interface components {
             /** Next Start At */
             next_start_at: string | null;
         };
+        /** ContestEditorPolicy */
+        ContestEditorPolicy: {
+            /** Semantic Completion Enabled */
+            semantic_completion_enabled: boolean;
+            /** Version Ids */
+            version_ids: string[];
+        };
+        /** ContestEditorProblem */
+        ContestEditorProblem: {
+            /** Title */
+            title: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
         /** ContestRating */
         ContestRating: {
             /** Highest Rating */
@@ -1948,6 +2018,11 @@ export interface components {
             ends_at: string;
             /** Key */
             key: string;
+            /**
+             * Semantic Completion Enabled
+             * @default true
+             */
+            semantic_completion_enabled: boolean;
             /**
              * Starts At
              * Format: date-time
@@ -2159,6 +2234,32 @@ export interface components {
         DisableSkillVersion: {
             /** Reason */
             reason: string;
+        };
+        /** EditorCompletion */
+        EditorCompletion: {
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+        };
+        /** EditorCompletionAccess */
+        EditorCompletionAccess: {
+            /** Enabled */
+            enabled: boolean;
+        };
+        /** EditorCompletionRequest */
+        EditorCompletionRequest: {
+            /** Character */
+            character: number;
+            /**
+             * Language
+             * @enum {string}
+             */
+            language: "c17" | "cpp20";
+            /** Line */
+            line: number;
+            /** Source */
+            source: string;
         };
         /**
          * FailureCode
@@ -4638,6 +4739,72 @@ export interface operations {
             };
         };
     };
+    read_editor_policy_api_v1_admin_contest_schedules__key__editor_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestEditorPolicy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_editor_policy_api_v1_admin_contest_schedules__key__editor_policy_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContestEditorPolicy"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestEditorPolicy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     settle_api_v1_admin_contest_settlements_post: {
         parameters: {
             query?: never;
@@ -5632,6 +5799,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContestSchedule"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    editor_problems_api_v1_contests__key__editor_problems_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContestEditorProblem"][];
                 };
             };
             /** @description Validation Error */
@@ -6991,6 +7189,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    semantic_completion_access_api_v1_problems_versions__version_id__editor_completion_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorCompletionAccess"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    semantic_completion_api_v1_problems_versions__version_id__editor_completion_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditorCompletionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorCompletion"][];
                 };
             };
             /** @description Validation Error */

@@ -163,6 +163,26 @@ async def learning_difficulties(session, version_ids: set[UUID]):
     return {version_id: levels[key] for version_id, key in keys.items() if key in levels}
 
 
+async def editor_problem_titles(session, version_ids: tuple[UUID, ...]) -> dict[UUID, str]:
+    """Project only public, enabled versions, without judging data."""
+    from sqlalchemy import select
+
+    from .models import Problem, ProblemVersion
+
+    if not version_ids:
+        return {}
+    rows = await session.execute(
+        select(ProblemVersion.id, ProblemVersion.title)
+        .join(Problem, Problem.id == ProblemVersion.problem_id)
+        .where(
+            ProblemVersion.id.in_(version_ids),
+            ProblemVersion.published_at.is_not(None),
+            Problem.enabled.is_(True),
+        )
+    )
+    return {version_id: title for version_id, title in rows}
+
+
 async def learning_statement(session, version_id: UUID) -> tuple[str, str, int] | None:
     from .repository import public_version
 
