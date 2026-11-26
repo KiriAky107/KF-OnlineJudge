@@ -128,17 +128,21 @@ fn diagnostic_compilation_requires_opt_in_and_exact_pinned_gnu_command() {
         spec.env.clear();
         spec.stdin_artifact = None;
         assert!(spec.clone().validate(&SpecPolicy::default()).is_err());
+        assert!(spec.clone().validate_for_factory_client().is_ok());
         assert!(disabled.for_request(&spec).is_err());
         assert!(enabled.for_request(&spec).is_ok());
 
         let mut changed = spec.clone();
         changed.argv[2] = "-O2".into();
         assert!(enabled.for_request(&changed).is_err());
+        assert!(changed.validate_for_factory_client().is_err());
         let mut changed = spec.clone();
         changed.stdin_artifact = Some("input-001".into());
         assert!(enabled.for_request(&changed).is_err());
+        assert!(changed.validate_for_factory_client().is_err());
         spec.runtime_identity = None;
         assert!(enabled.for_request(&spec).is_err());
+        assert!(spec.validate_for_factory_client().is_err());
     }
 }
 

@@ -40,16 +40,16 @@ pub struct RuntimeAttempt<'a, A: ArtifactPort> {
     io: Attempt<'a, A>,
     program: Option<SealedProgram>,
 }
-fn failure(code: v1::FailureCode, cleanup_complete: bool) -> old::StageFailure {
+pub(crate) fn failure(code: v1::FailureCode, cleanup_complete: bool) -> old::StageFailure {
     old::StageFailure {
         code,
         cleanup_complete,
     }
 }
-fn artifact_error(_: io::Error) -> old::StageFailure {
+pub(crate) fn artifact_error(_: io::Error) -> old::StageFailure {
     failure(v1::FailureCode::ArtifactUnavailable, true)
 }
-fn with_publication<T>(
+pub(crate) fn with_publication<T>(
     mut publication: StagePublication,
     operation: impl FnOnce(&mut StagePublication) -> Result<T, old::StageFailure>,
 ) -> Result<T, old::StageFailure> {
@@ -61,7 +61,9 @@ fn with_publication<T>(
     }
     result
 }
-fn snapshot_reference(file: &SnapshotFile) -> Result<v1::ArtifactReference, old::StageFailure> {
+pub(crate) fn snapshot_reference(
+    file: &SnapshotFile,
+) -> Result<v1::ArtifactReference, old::StageFailure> {
     let mut h = Sha256::new();
     let mut reader = file.reader().map_err(artifact_error)?;
     let mut buffer = [0u8; 16384];

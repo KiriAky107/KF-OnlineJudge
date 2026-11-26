@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import StatementMarkdown from './StatementMarkdown.vue'
-import UiIcon from './UiIcon.vue'
+import DisclosureHeading from './DisclosureHeading.vue'
 
 defineProps<{ text: string; thinking?: boolean }>()
 </script>
 
 <template>
   <details class="model-reasoning">
-    <summary>
-      <UiIcon name="assistant" />
+    <DisclosureHeading icon="assistant" tone="muted">
       <span>{{ thinking ? '正在思考' : '已思考' }}</span>
-    </summary>
+    </DisclosureHeading>
     <StatementMarkdown :source="text" :links="false" highlight-code />
   </details>
 </template>
@@ -19,13 +18,6 @@ defineProps<{ text: string; thinking?: boolean }>()
 .model-reasoning {
   color: var(--secondary-ink);
   font-size: 0.875rem;
-}
-.model-reasoning summary {
-  cursor: pointer;
-}
-.model-reasoning summary > .ui-icon {
-  margin-inline: 0.15rem 0.35rem;
-  color: var(--accent-ink);
 }
 .model-reasoning .statement-markdown {
   max-block-size: 15rem;

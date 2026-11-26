@@ -379,6 +379,16 @@ fn validate_limits(limits: &ResourceLimits, cap: &ResourceLimits) -> Result<(), 
 }
 
 impl ExecutionSpec {
+    /// Validate request structure for the factory transport and its report.
+    /// The privileged factory checks its own image, limits and diagnostic policy.
+    pub fn validate_for_factory_client(self) -> Result<ValidatedSpec, SpecError> {
+        let policy = SpecPolicy {
+            allow_diagnostic_compilation: self.profile.diagnostic_compiler(),
+            ..SpecPolicy::default()
+        };
+        self.validate(&policy)
+    }
+
     pub fn validate(self, policy: &SpecPolicy) -> Result<ValidatedSpec, SpecError> {
         identifier(&self.run_id, "run_id")?;
         let diagnostic = self.profile.diagnostic_compiler();

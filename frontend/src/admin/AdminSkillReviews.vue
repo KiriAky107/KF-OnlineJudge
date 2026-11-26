@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DisclosureHeading from '../components/DisclosureHeading.vue'
 import { onUnmounted, ref, watch } from 'vue'
 import { api } from '../api/client'
 import type { components } from '../api/generated/schema'
@@ -130,7 +131,9 @@ onUnmounted(() => controller?.abort())
     <p v-if="loading" role="status">正在读取版本…</p>
     <p v-else-if="page && !page.items.length">此状态暂无版本。</p>
     <details v-for="item in page?.items ?? []" :key="item.version_id" class="review">
-      <summary>{{ item.document.title }} · v{{ item.version }}</summary>
+      <DisclosureHeading icon="trainings" tone="accent"
+        >{{ item.document.title }} · v{{ item.version }}</DisclosureHeading
+      >
       <p>
         {{ skillPurposes[item.document.purpose] }} · {{ item.author }} ·
         {{ displayTime(item.submitted_at) }}

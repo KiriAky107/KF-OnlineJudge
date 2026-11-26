@@ -31,6 +31,7 @@ import {
   Position,
   DArrowRight,
   View,
+  Picture,
 } from '@element-plus/icons-vue'
 const props = defineProps<{ name: string }>()
 const icons = {
@@ -64,6 +65,7 @@ const icons = {
   send: Position,
   collapse: DArrowRight,
   view: View,
+  picture: Picture,
 }
 const icon = computed(() => icons[props.name as keyof typeof icons] ?? Document)
 </script>

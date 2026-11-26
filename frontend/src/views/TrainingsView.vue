@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DisclosureHeading from '../components/DisclosureHeading.vue'
 import { ElInputNumber, vLoading } from 'element-plus'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -257,7 +258,7 @@ onBeforeUnmount(clear)
       </p>
     </section>
     <details class="training-extra">
-      <summary>按条件创建</summary>
+      <DisclosureHeading icon="settings" tone="accent">按条件创建</DisclosureHeading>
       <PanelCard title="按目标生成计划" icon="trainings" subtitle="确定性规则推荐，不是模型分析">
         <el-form label-position="top" :disabled="busy">
           <el-form-item label="计划名称"><el-input v-model="title" maxlength="120" /></el-form-item>
@@ -341,7 +342,7 @@ onBeforeUnmount(clear)
       </PanelCard>
     </details>
     <details class="training-extra">
-      <summary>本人学习概况</summary>
+      <DisclosureHeading icon="rankings">本人学习概况</DisclosureHeading>
       <PanelCard title="本人学习概况" icon="submissions">
         <template #actions
           ><el-button :disabled="loading || busy" @click="load">刷新</el-button></template
@@ -380,7 +381,7 @@ onBeforeUnmount(clear)
               {{ overview.missing_metadata_count }} 条记录缺少学习元数据，未推测知识点或难度。
             </p>
             <details>
-              <summary>最近提交与证据</summary>
+              <DisclosureHeading icon="submissions" tone="muted">最近提交与证据</DisclosureHeading>
               <ul>
                 <li v-for="record in overview.recent" :key="record.submission_id">
                   <RouterLink :to="'/submissions/' + record.submission_id"

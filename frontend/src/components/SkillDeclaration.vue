@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DisclosureHeading from './DisclosureHeading.vue'
 import type { components } from '../api/generated/schema'
 
 defineProps<{ declaration: components['schemas']['SkillDraftDocument'] }>()
@@ -18,7 +19,7 @@ defineProps<{ declaration: components['schemas']['SkillDraftDocument'] }>()
           :key="reference.path"
           class="reference"
         >
-          <summary>{{ reference.path }}</summary>
+          <DisclosureHeading icon="document" tone="muted">{{ reference.path }}</DisclosureHeading>
           <pre>{{ reference.content }}</pre>
         </details>
       </dd>

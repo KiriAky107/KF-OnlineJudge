@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DisclosureHeading from '../components/DisclosureHeading.vue'
 import { vLoading } from 'element-plus'
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -518,7 +519,7 @@ onBeforeUnmount(clear)
             >
           </div>
           <details v-if="training.schedule" class="follow-up-pace native-form">
-            <summary>调整下一轮节奏</summary>
+            <DisclosureHeading icon="clock" tone="accent">调整下一轮节奏</DisclosureHeading>
             <form class="stack" @submit.prevent="followUpAtNewPace">
               <label v-if="training.schedule.purpose === 'focused_training'">
                 每日分钟数

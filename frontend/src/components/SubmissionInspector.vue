@@ -12,6 +12,7 @@ import SubmissionPerformance from './SubmissionPerformance.vue'
 import SubmissionReview from './SubmissionReview.vue'
 import { editorLanguages, preparationName } from '../composables/judgingLanguage'
 import { displayTime } from '../lib/presentation'
+import { formatMeasurement } from '../lib/performance'
 import { useSiteTheme } from '../composables/useSiteTheme'
 import { editorThemePresets, savedEditorTheme, type EditorTheme } from '../lib/editorHighlighting'
 import { languageLabels } from '../composables/useCodeDraft'
@@ -55,12 +56,11 @@ const passedCases = computed(() => cases.value.filter((row) => row.verdict === '
 const sourceHeight = computed(() =>
   Math.min(520, Math.max(144, (source.value?.split('\n').length ?? 1) * 20 + 30)),
 )
-const memoryFormat = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 })
 function cpuTime(value?: number | null) {
-  return value == null ? '—' : `${value / 1000} ms`
+  return value == null ? '—' : `${formatMeasurement(value, 'cpu_microseconds')} ms`
 }
 function memory(value?: number | null) {
-  return value == null ? '—' : `${memoryFormat.format(value / 1048576)} MiB`
+  return value == null ? '—' : `${formatMeasurement(value, 'bytes')} MiB`
 }
 function visibility() {
   poll?.visible(document.visibilityState === 'visible')

@@ -101,6 +101,16 @@ watch(
 </template>
 
 <style scoped>
+.problem-note {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.problem-note > :deep(.training-note-editor) {
+  flex: 1;
+  height: auto;
+}
 .note-status {
   margin: 0.75rem 0.85rem;
 }

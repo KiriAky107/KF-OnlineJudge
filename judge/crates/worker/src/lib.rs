@@ -126,6 +126,9 @@ pub mod runtime_specs;
 pub mod pipeline_v2;
 
 #[cfg(target_os = "linux")]
+pub mod diagnostic;
+
+#[cfg(target_os = "linux")]
 mod java_entry;
 
 #[cfg(target_os = "linux")]

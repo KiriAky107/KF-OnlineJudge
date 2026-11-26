@@ -1,14 +1,21 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue'
-import { prepareStatement } from '../lib/statementMarkdown'
+import { prepareStatement, type PreparedStatement } from '../lib/statementMarkdown'
 import type { markdownHighlighter } from '../lib/markdownHighlighting'
 import 'katex/dist/katex.min.css'
 
 const props = withDefaults(
-  defineProps<{ source: string; links?: boolean; highlightCode?: boolean }>(),
-  { links: true },
+  defineProps<{
+    source?: string
+    prepared?: PreparedStatement
+    links?: boolean
+    highlightCode?: boolean
+  }>(),
+  { source: '', prepared: undefined, links: true },
 )
-const content = computed(() => prepareStatement(props.source, props.links, props.highlightCode))
+const content = computed(
+  () => props.prepared ?? prepareStatement(props.source, props.links, props.highlightCode),
+)
 const highlighter = shallowRef<Awaited<ReturnType<typeof markdownHighlighter>>>()
 const rendered = computed(() => content.value.render(highlighter.value))
 watch(

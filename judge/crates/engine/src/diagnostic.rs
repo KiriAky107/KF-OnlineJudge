@@ -58,7 +58,7 @@ pub fn observe_optimization<P: OptimizationPreparationPort + RunPort + ControlPo
     port: &mut P,
     request: &OptimizationRequest<'_>,
 ) -> Result<OptimizationObservation, OptimizationError> {
-    validate(request).map_err(OptimizationError::InvalidRequest)?;
+    validate_request(request).map_err(OptimizationError::InvalidRequest)?;
     let o2 = probe(port, request, OptimizationLevel::O2)?;
     let o0 = if matches!(o2, Verdict::WrongAnswer | Verdict::RuntimeError) {
         Some(probe(port, request, OptimizationLevel::O0)?)
@@ -73,7 +73,8 @@ pub fn observe_optimization<P: OptimizationPreparationPort + RunPort + ControlPo
     })
 }
 
-fn validate(request: &OptimizationRequest<'_>) -> Result<(), &'static str> {
+/// Validate before a trusted adapter reads or stages diagnostic artifacts.
+pub fn validate_request(request: &OptimizationRequest<'_>) -> Result<(), &'static str> {
     let configuration = request.configuration;
     if !matches!(configuration.language, Language::C17 | Language::Cpp20) {
         return Err("optimization comparison supports only C17 and C++20");
