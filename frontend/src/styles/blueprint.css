@@ -51,6 +51,10 @@
   width: min(calc(100% - clamp(24px, 3.5vw, 52px)), 1760px);
   margin-block: 18px 28px;
 }
+.app-main.app-main--assistant {
+  width: min(calc(100% - clamp(16px, 2vw, 32px)), 1600px);
+  margin-block: 0.55rem 1rem;
+}
 .app-footer {
   background: transparent;
   box-shadow: none;

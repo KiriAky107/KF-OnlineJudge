@@ -1118,7 +1118,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <PageHeading v-if="!embedded" title="学习助手">
+  <PageHeading v-if="!embedded" class="assistant-heading" title="学习助手">
     <RouterLink class="el-button" to="/trainings/skill-drafts">技能草稿</RouterLink>
     <RouterLink class="el-button" to="/trainings/skill-library">技能目录</RouterLink>
     <RouterLink class="el-button" to="/trainings">返回训练集</RouterLink>
@@ -1129,7 +1129,12 @@ onBeforeUnmount(() => {
   <div
     v-else
     class="agent-layout native-form"
-    :class="{ 'agent-layout--embedded': embedded, 'agent-layout--floating': floating }"
+    :class="{
+      'agent-layout--page': !embedded,
+      'agent-layout--conversing': !embedded && user,
+      'agent-layout--embedded': embedded,
+      'agent-layout--floating': floating,
+    }"
   >
     <header class="agent-toolbar">
       <span class="agent-modes"
@@ -1710,6 +1715,19 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.assistant-heading {
+  gap: 0.4rem 0.75rem;
+  margin-bottom: 0.55rem;
+}
+.assistant-heading :deep(h1) {
+  margin: 0;
+  font-size: 1.3rem;
+}
+.assistant-heading :deep(.el-button) {
+  height: 1.8rem;
+  padding-inline: 0.6rem;
+  font-size: 0.8rem;
+}
 .agent-layout {
   display: flex;
   flex-direction: column;
@@ -1719,6 +1737,14 @@ onBeforeUnmount(() => {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
+}
+.agent-layout--page {
+  max-width: none;
+  min-height: 0;
+}
+.agent-layout--conversing {
+  height: max(26rem, calc(100dvh - 6.6rem));
+  overflow: hidden;
 }
 .agent-conversation {
   display: contents;
@@ -1732,16 +1758,17 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 0;
 }
-.agent-layout--floating :is(.agent-toolbar, .agent-composer) {
+:is(.agent-layout--floating, .agent-layout--conversing) :is(.agent-toolbar, .agent-composer) {
   flex: none;
 }
-.agent-layout--floating .conversation-feed {
+:is(.agent-layout--floating, .agent-layout--conversing) .conversation-feed {
   min-height: 0;
   flex: 1;
   overflow: auto;
   overscroll-behavior: contain;
 }
-.agent-layout--floating :is(.agent-settings, .agent-history, .chat-source) {
+:is(.agent-layout--floating, .agent-layout--conversing)
+  :is(.agent-settings, .agent-history, .chat-source) {
   max-height: 13rem;
   overflow: auto;
 }
@@ -1820,6 +1847,9 @@ onBeforeUnmount(() => {
 }
 .agent-layout--embedded .agent-welcome {
   margin: clamp(3rem, 11svh, 6rem) auto auto;
+}
+.agent-layout--page .agent-welcome {
+  margin: clamp(0.75rem, 3vh, 2rem) auto auto;
 }
 .agent-welcome > .el-icon {
   color: var(--accent-ink);

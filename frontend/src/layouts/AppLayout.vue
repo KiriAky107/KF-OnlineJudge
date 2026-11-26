@@ -130,7 +130,13 @@ const showFloatingAssistant = computed(
         </div>
       </div>
     </header>
-    <main id="main-content" class="app-main"><slot /></main>
+    <main
+      id="main-content"
+      class="app-main"
+      :class="{ 'app-main--assistant': route.name === assistantRouteName }"
+    >
+      <slot />
+    </main>
     <FloatingAssistant v-if="showFloatingAssistant" />
     <footer class="app-footer">
       <div class="footer-inner">
