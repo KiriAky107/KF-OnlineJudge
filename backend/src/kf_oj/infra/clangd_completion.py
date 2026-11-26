@@ -60,6 +60,7 @@ class ClangdCompletion:
                 await process.wait()
 
     def _command(self) -> tuple[str, ...]:
+        lib64 = "usr/lib64" if (self.toolchain_usr / "lib64").is_dir() else "usr/lib"
         return (
             str(self.resource_limiter),
             "--as=805306368:805306368",
@@ -88,7 +89,7 @@ class ClangdCompletion:
             "usr/lib",
             "/lib",
             "--symlink",
-            "usr/lib",
+            lib64,
             "/lib64",
             "--dev",
             "/dev",

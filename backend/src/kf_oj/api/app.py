@@ -31,6 +31,7 @@ from kf_oj.infra.artifacts.repository import ArtifactRepository
 from kf_oj.infra.artifacts.staging import ImportStaging
 from kf_oj.infra.artifacts.store import ArtifactStore
 from kf_oj.infra.clangd_completion import ClangdCompletion
+from kf_oj.infra.clangd_socket import SocketClangdCompletion
 from kf_oj.infra.coordinator import CoordinatorControl
 from kf_oj.infra.db.session import build_engine, build_session_factory
 from kf_oj.modules.contests.schedule import ContestSchedules
@@ -76,8 +77,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 app.state.contest_schedules = ContestSchedules(
                     app.state.sessions, app.state.identity
                 )
-                if settings.editor_toolchain_usr is not None:
+                editor = None
+                if settings.editor_completion_socket is not None:
+                    editor = SocketClangdCompletion(settings.editor_completion_socket)
+                elif settings.editor_toolchain_usr is not None:
                     editor = ClangdCompletion(settings.editor_toolchain_usr)
+                if editor is not None:
                     if await editor.available():
                         app.state.editor_completion = editor
                         app.state.editor_completion_slots = Semaphore(2)
