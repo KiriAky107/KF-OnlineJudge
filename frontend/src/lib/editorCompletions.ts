@@ -95,6 +95,17 @@ const itemKinds = new Map([
   ['enum', monaco.languages.CompletionItemKind.Enum],
 ])
 
+function onlyTypedMemberPrefix(source: string, cursorOffset: number, current: string) {
+  const afterCursor = source.slice(cursorOffset)
+  return (
+    current.length > source.length &&
+    current.length <= maxDocumentLength &&
+    current.startsWith(source.slice(0, cursorOffset)) &&
+    current.endsWith(afterCursor) &&
+    /^[A-Za-z_0-9]+$/.test(current.slice(cursorOffset, current.length - afterCursor.length))
+  )
+}
+
 async function semanticCandidates(
   model: monaco.editor.ITextModel,
   position: monaco.Position,
@@ -109,6 +120,7 @@ async function semanticCandidates(
   const source = model.getValue()
   if (new TextEncoder().encode(source).byteLength > maxDocumentLength) return { suggestions: [] }
   const version = model.getVersionId()
+  const cursorOffset = model.getOffsetAt(position)
   const controller = new AbortController()
   const subscription = token.onCancellationRequested(() => controller.abort())
   try {
@@ -128,7 +140,9 @@ async function semanticCandidates(
       !data ||
       controller.signal.aborted ||
       model.isDisposed() ||
-      model.getVersionId() !== version ||
+      // Monaco can filter suggestions and extend their insertion range as the member is typed.
+      (model.getVersionId() !== version &&
+        !onlyTypedMemberPrefix(source, cursorOffset, model.getValue())) ||
       owner?.semanticVersion() !== id ||
       owner?.language() !== language
     )
