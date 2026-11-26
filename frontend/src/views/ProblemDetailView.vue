@@ -2,7 +2,10 @@
 import { sample } from '../lib/publicSample'
 import { displayRuntimeVersion } from '../lib/presentation'
 import {
+  editorFontSize,
   editorThemePresets,
+  saveEditorFontSize,
+  savedEditorFontSize,
   savedEditorTheme,
   type EditorAppearancePreference,
   type EditorThemePreset,
@@ -72,7 +75,8 @@ watch([themePreset, appearance], ([preset, mode]) => {
     // Keep the active selection for this page.
   }
 })
-const fontSize = ref(14)
+const fontSize = ref(savedEditorFontSize())
+watch(fontSize, saveEditorFontSize, { flush: 'sync' })
 const error = ref('')
 const submitError = ref('')
 const busy = ref(false)
@@ -397,7 +401,12 @@ onBeforeUnmount(() => {
                 <el-option label="暗色" value="dark" />
               </el-select>
               <label>字号</label>
-              <el-slider v-model="fontSize" :min="12" :max="22" show-input />
+              <el-slider
+                v-model="fontSize"
+                :min="editorFontSize.min"
+                :max="editorFontSize.max"
+                show-input
+              />
             </div>
           </el-popover>
         </header>

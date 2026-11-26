@@ -12,6 +12,32 @@ export type EditorAppearance = 'light' | 'dark'
 export type EditorAppearancePreference = EditorAppearance | 'site'
 export type EditorTheme = (typeof editorThemePresets)[EditorThemePreset][EditorAppearance]
 
+export const editorFontSize = { min: 12, max: 22, default: 14 } as const
+const fontSizeKey = 'kf-editor-font-size'
+
+function validFontSize(value: number) {
+  return Number.isInteger(value) && value >= editorFontSize.min && value <= editorFontSize.max
+}
+
+export function savedEditorFontSize() {
+  try {
+    const value = Number(localStorage.getItem(fontSizeKey))
+    if (validFontSize(value)) return value
+  } catch {
+    // Storage can be unavailable on this origin.
+  }
+  return editorFontSize.default
+}
+
+export function saveEditorFontSize(value: number) {
+  if (!validFontSize(value)) return
+  try {
+    localStorage.setItem(fontSizeKey, String(value))
+  } catch {
+    // The editor can keep using the selected size until it closes.
+  }
+}
+
 export function savedEditorTheme(): {
   preset: EditorThemePreset
   appearance: EditorAppearancePreference
