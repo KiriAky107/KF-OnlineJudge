@@ -13,10 +13,13 @@ const keywords = new Map<string, string[]>(
   }).map(([language, words]) => [language, words.split(' ')]),
 )
 
-const models = new WeakMap<
-  monaco.editor.ITextModel,
-  { language: () => string; semanticVersion: () => string | undefined }
->()
+type ModelCompletionContext = {
+  language: () => string
+  semanticVersion: () => string | undefined
+  beforeCompletion: () => Promise<void> | undefined
+}
+
+const models = new WeakMap<monaco.editor.ITextModel, ModelCompletionContext>()
 const identifier = /^[A-Za-z_][A-Za-z_0-9]*$/
 const maxDocumentLength = 128_000
 let registered = false
@@ -26,8 +29,13 @@ export function enableEditorCompletions(
   language: () => string,
   semanticVersion: () => string | undefined,
 ) {
-  models.set(model, { language, semanticVersion })
-  if (registered) return
+  const warmup = trackEditorWarmup(model, language, semanticVersion)
+  models.set(model, { language, semanticVersion, beforeCompletion: warmup.beforeCompletion })
+  if (!registered) registerCompletionProvider()
+  return warmup.schedule
+}
+
+function registerCompletionProvider() {
   registered = true
 
   monaco.languages.registerCompletionItemProvider(['cpp', 'python', 'java', 'rust'], {
@@ -47,7 +55,15 @@ export function enableEditorCompletions(
       if (/(?:\.|->|::)\s*$/.test(beforeWord)) {
         const id = owner?.semanticVersion()
         if (id && (language === 'c' || language === 'cpp')) {
-          return semanticCandidates(model, position, range, language, id, token)
+          return semanticCandidates(
+            model,
+            position,
+            range,
+            language,
+            id,
+            owner?.beforeCompletion(),
+            token,
+          )
         }
         return { suggestions: [] }
       }
@@ -86,6 +102,96 @@ export function enableEditorCompletions(
   })
 }
 
+const maxPreambleLength = 16 * 1024
+
+function editorPreamble(model: monaco.editor.ITextModel) {
+  let source = ''
+  let hasInclude = false
+  for (
+    let number = 1;
+    number <= model.getLineCount() && source.length < maxPreambleLength;
+    number++
+  ) {
+    const line = model.getLineContent(number)
+    const whitespace = line.match(/^\s*/)?.[0] ?? ''
+    if (!/^\s*(?:#.*|\/\/.*|\/\*.*\*\/\s*)?$/.test(line)) {
+      // The first non-directive token fixes the same preamble boundary as the full document.
+      source += whitespace + ';' + model.getEOL()
+      return hasInclude && new TextEncoder().encode(source).byteLength <= maxPreambleLength
+        ? source
+        : ''
+    }
+    if (/\\\s*$/.test(line)) return ''
+    hasInclude ||= /^\s*#\s*include\b/.test(line)
+    source += line + model.getEOL()
+  }
+  return ''
+}
+
+function trackEditorWarmup(
+  model: monaco.editor.ITextModel,
+  getLanguage: () => string,
+  getVersion: () => string | undefined,
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let pending: Promise<void> | undefined
+  let lastAttempt = 0
+  let draft = ''
+
+  function cancelTimer() {
+    clearTimeout(timer)
+    timer = undefined
+  }
+
+  function schedule() {
+    const id = getVersion()
+    const language = getLanguage()
+    const source = id && (language === 'c' || language === 'cpp') ? editorPreamble(model) : ''
+    const key = source ? JSON.stringify([id, language, source]) : ''
+    if (key === draft && (timer || pending || performance.now() - lastAttempt < 30_000)) return
+    cancelTimer()
+    draft = key
+    if (!id || !source) return
+    timer = setTimeout(() => {
+      timer = undefined
+      if (pending) return
+      lastAttempt = performance.now()
+      pending = api
+        .POST('/api/v1/problems/versions/{version_id}/editor-completion', {
+          params: { path: { version_id: id } },
+          headers: csrfHeaders(),
+          signal: AbortSignal.timeout(8_000),
+          body: {
+            language: language === 'c' ? 'c17' : 'cpp20',
+            source,
+            prepare: true,
+            line: 0,
+            character: 0,
+          },
+        })
+        .then(
+          () => undefined,
+          () => undefined,
+        )
+        .finally(() => {
+          pending = undefined
+        })
+    }, 350)
+  }
+
+  model.onDidChangeContent(schedule)
+  model.onWillDispose(cancelTimer)
+  schedule()
+  return {
+    schedule,
+    beforeCompletion: () => {
+      cancelTimer()
+      lastAttempt = performance.now()
+      return pending
+    },
+  }
+}
+
 const itemKinds = new Map([
   ['method', monaco.languages.CompletionItemKind.Method],
   ['function', monaco.languages.CompletionItemKind.Function],
@@ -112,6 +218,7 @@ async function semanticCandidates(
   range: monaco.Range,
   language: 'c' | 'cpp',
   id: string,
+  warmup: Promise<void> | undefined,
   token: monaco.CancellationToken,
 ): Promise<monaco.languages.CompletionList> {
   if (token.isCancellationRequested || model.getValueLength() > maxDocumentLength) {
@@ -124,6 +231,8 @@ async function semanticCandidates(
   const controller = new AbortController()
   const subscription = token.onCancellationRequested(() => controller.abort())
   try {
+    if (warmup) await warmup
+    if (controller.signal.aborted) return { suggestions: [] }
     const { data } = await api.POST('/api/v1/problems/versions/{version_id}/editor-completion', {
       params: { path: { version_id: id } },
       headers: csrfHeaders(),
@@ -131,6 +240,7 @@ async function semanticCandidates(
       body: {
         language: language === 'c' ? 'c17' : 'cpp20',
         source,
+        prepare: false,
         line: position.lineNumber - 1,
         character: position.column - 1,
       },

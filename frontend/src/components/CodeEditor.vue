@@ -32,6 +32,7 @@ let alive = true
 let editor: monaco.editor.IStandaloneCodeEditor | undefined
 let model: monaco.editor.ITextModel | undefined
 let subscription: monaco.IDisposable | undefined
+let scheduleCompletionWarmup: (() => void) | undefined
 ;(
   globalThis as typeof globalThis & { MonacoEnvironment?: { getWorker: () => Worker } }
 ).MonacoEnvironment = { getWorker: () => new EditorWorker() }
@@ -60,7 +61,7 @@ onMounted(async () => {
     wordBasedSuggestions: 'off',
   })
   if (!props.readOnly) {
-    enableEditorCompletions(
+    scheduleCompletionWarmup = enableEditorCompletions(
       model,
       () => props.language,
       () => props.semanticVersionId,
@@ -87,7 +88,12 @@ watch(
   () => props.language,
   (value) => {
     if (model) monaco.editor.setModelLanguage(model, editorLanguage(value))
+    scheduleCompletionWarmup?.()
   },
+)
+watch(
+  () => props.semanticVersionId,
+  () => scheduleCompletionWarmup?.(),
 )
 watch(
   () => props.theme,
