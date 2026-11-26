@@ -36,7 +36,7 @@ class SocketClangdCompletion:
     async def _request(self, message):
         writer = None
         try:
-            async with asyncio.timeout(4):
+            async with asyncio.timeout(8):
                 reader, writer = await asyncio.open_unix_connection(self.path, limit=_LIMIT)
                 writer.write(_frame(message))
                 await writer.drain()

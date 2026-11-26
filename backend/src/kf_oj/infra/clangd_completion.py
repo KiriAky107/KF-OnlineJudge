@@ -64,8 +64,8 @@ class ClangdCompletion:
         return (
             str(self.resource_limiter),
             "--as=805306368:805306368",
-            "--cpu=2:2",
-            "--fsize=8388608:8388608",
+            "--cpu=6:6",
+            "--fsize=33554432:33554432",
             "--nofile=64:64",
             "--core=0:0",
             "--",
@@ -135,7 +135,7 @@ class ClangdCompletion:
 
         process = None
         try:
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(7):
                 process = await asyncio.create_subprocess_exec(
                     *self._command(),
                     stdin=asyncio.subprocess.PIPE,
