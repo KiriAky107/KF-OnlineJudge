@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -153,6 +154,7 @@ def test_concurrent_different_account_revocations_preserve_one_admin(postgres_ur
 
 def test_real_cli_uses_dedicated_login_and_never_prints_database_secret(postgres_url):
     role = "authority_test_" + uuid4().hex
+    password = secrets.token_hex(24)
 
     async def setup():
         c = await connect(postgres_url)
@@ -160,14 +162,18 @@ def test_real_cli_uses_dedicated_login_and_never_prints_database_secret(postgres
             await seed(c, "cli_admin", "cli_backup")
             await c.execute(
                 f"CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
-                "NOREPLICATION NOBYPASSRLS"
+                f"NOREPLICATION NOBYPASSRLS PASSWORD '{password}'"
             )
             await c.execute(f"GRANT kf_oj_identity_operator TO {role}")
         finally:
             await c.close()
 
     asyncio.run(setup())
-    url = make_url(postgres_url).set(username=role).render_as_string(hide_password=False)
+    url = (
+        make_url(postgres_url)
+        .set(username=role, password=password)
+        .render_as_string(hide_password=False)
+    )
     env = os.environ | {
         "KF_OJ_DATABASE_URL": postgres_url,
         "KF_OJ_IDENTITY_OPERATOR_DATABASE_URL": url,
@@ -185,6 +191,7 @@ def test_real_cli_uses_dedicated_login_and_never_prints_database_secret(postgres
         )
         assert result.returncode == expected, result.stderr
         assert url not in result.stdout + result.stderr
+        assert password not in result.stdout + result.stderr
         assert "Traceback" not in result.stderr
         return result.stdout
 

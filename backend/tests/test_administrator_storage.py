@@ -1,7 +1,7 @@
 """Actual temporary PG migration and authority storage; API/CLI acceptance is separate."""
 
 import asyncio
-import subprocess
+import json
 from datetime import timedelta
 from uuid import uuid4
 
@@ -19,24 +19,28 @@ class RollBackAuthorityChange(Exception):
     """Abort the test transaction before any authority change commits."""
 
 
-async def submission_snapshot(connection):
-    # Synthetic queued metadata only; this does not claim real program execution.
-    return {
-        table: list(
-            await connection.fetch(
-                f"SELECT to_jsonb(t)::text FROM {table} t ORDER BY to_jsonb(t)::text"
-            )
-        )
-        for table in (
-            "artifacts",
-            "problems",
-            "problem_versions",
-            "problem_cases",
-            "submissions",
-            "evaluations",
-            "outbox",
-        )
-    }
+async def submission_snapshot(connection, previous=None):
+    # Compare values from the old schema even when a later migration adds columns.
+    tables = (
+        "artifacts",
+        "problems",
+        "problem_versions",
+        "problem_cases",
+        "submissions",
+        "evaluations",
+        "outbox",
+    )
+    snapshot = {}
+    for table in tables:
+        rows = [
+            json.loads(row["data"])
+            for row in await connection.fetch(f"SELECT to_jsonb(t) AS data FROM {table} t")
+        ]
+        if previous is not None and previous[table]:
+            columns = previous[table][0]
+            rows = [{key: row[key] for key in columns} for row in rows]
+        snapshot[table] = sorted(rows, key=lambda row: json.dumps(row, sort_keys=True))
+    return snapshot
 
 
 async def account_and_session(connection):
@@ -81,7 +85,7 @@ def test_upgrade_preserves_ordinary_account_and_current_session(postgres_url):
             row = await connection.fetchrow("SELECT * FROM accounts WHERE id=$1", account)
             assert row["enabled"] and not row["is_administrator"]
             assert row["authorization_version"] == 1
-            assert await submission_snapshot(connection) == before
+            assert await submission_snapshot(connection, before) == before
             service = IdentityService(async_sessionmaker(engine, expire_on_commit=False))
             assert await service.authenticate(token, csrf_token=csrf) == Principal(
                 account, "storage_user"
@@ -240,5 +244,5 @@ def test_authority_history_cannot_be_erased_by_downgrade(postgres_url):
             await connection.close()
 
     asyncio.run(change())
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(AssertionError, match="cannot discard authority or revocation history"):
         migrate(postgres_url, "downgrade", "0004_performance_watermark")

@@ -5,7 +5,6 @@ import copy
 import hashlib
 import json
 import secrets
-import subprocess
 from pathlib import Path
 from uuid import uuid4
 
@@ -141,6 +140,7 @@ def test_sql_configuration_constraints_authority_and_downgrade_refusal(postgres_
     async def run():
         c = await connect(postgres_url)
         try:
+            starting_revision = await c.fetchval("SELECT version_num FROM alembic_version")
             await c.execute("SET ROLE kf_oj_platform")
             problem = uuid4()
             await c.execute("INSERT INTO problems(id,slug) VALUES($1,'multi-sql')", problem)
@@ -199,14 +199,13 @@ def test_sql_configuration_constraints_authority_and_downgrade_refusal(postgres_
                 await c.execute("INSERT INTO problems(id,slug) VALUES($1,'forbidden')", uuid4())
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await c.execute("UPDATE problem_versions SET language_configurations='[]'")
-            return version
+            return version, starting_revision
         finally:
             await c.close()
 
-    version = asyncio.run(run())
-    with pytest.raises(subprocess.CalledProcessError) as rejected:
+    version, starting_revision = asyncio.run(run())
+    with pytest.raises(AssertionError, match="cannot downgrade while multi-runtime data exists"):
         migrate(postgres_url, "downgrade", "0001_judging_foundation")
-    assert b"cannot downgrade while multi-runtime data exists" in rejected.value.stderr
 
     async def preserved():
         c = await connect(postgres_url)
@@ -214,9 +213,7 @@ def test_sql_configuration_constraints_authority_and_downgrade_refusal(postgres_
             assert (
                 await c.fetchval("SELECT count(*) FROM problem_versions WHERE id=$1", version) == 1
             )
-            assert (
-                await c.fetchval("SELECT version_num FROM alembic_version") == "0002_multi_runtime"
-            )
+            assert await c.fetchval("SELECT version_num FROM alembic_version") == starting_revision
         finally:
             await c.close()
 
