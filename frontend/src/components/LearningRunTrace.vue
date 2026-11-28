@@ -23,6 +23,7 @@ const names: Record<string, string> = {
   'responses-review-control-flow': '模型复盘代码结构',
   'responses-review-control-flow-focus': '模型复盘代码结构并选择线索',
   'responses-review-comparison-cases': '模型复盘比较条件',
+  'responses-review-mcp': '模型结合站内资料复盘',
   'responses-source-excerpt': '本机模型分析源码片段',
   'responses-plan-explanation': '模型训练说明',
   'responses-guided-chat': '生成答复',
@@ -34,7 +35,9 @@ const stepErrors: Record<string, string> = {
   model_rate_limited: '模型提供商暂时限制请求',
   model_provider_rejected: '模型提供商未接受请求',
   model_invalid_response: '模型返回内容无效',
-  model_output_limit: '模型输出达到本次长度上限',
+  model_output_limit: '模型服务达到自身的输出上限',
+  model_context_limit: '本次输入超出模型上下文预算',
+  model_budget_exhausted: '本次请求达到模型调用额度',
   learning_execution_interrupted: '前一执行已中断',
   learning_attempts_exhausted: '已用完接续次数',
   tool_timeout: '工具响应超时',
@@ -70,6 +73,14 @@ const activity = computed(() => {
   if (state === 'running' && liveStep.value) return stepTitle(liveStep.value) + '中'
   return phases[state]
 })
+const resourceLabels = {
+  problem: '公开题面',
+  evaluations: '评测统计',
+  code: '代码改动摘要',
+  batch_diagnostics: '批量诊断',
+  recent_practice: '近期做题概览',
+}
+const consultedResources = computed(() => props.chatRun?.result?.model_hint?.review_resources ?? [])
 const inProgress = computed(() => {
   const state = props.chatRun?.state
   return state === 'queued' || state === 'retry_wait' || (state !== undefined && active(state))
@@ -177,6 +188,9 @@ onBeforeUnmount(() => request?.abort())
         {{ inProgress || loading ? '等待可显示的处理步骤…' : '暂无可显示的处理步骤。' }}
       </p>
       <p v-if="trace?.truncated" class="small muted">仅展示最近 12 步。</p>
+      <p v-if="consultedResources.length" class="small muted">
+        模型查阅了{{ consultedResources.map((resource) => resourceLabels[resource]).join('、') }}。
+      </p>
     </div>
   </details>
   <details v-else class="run-trace" @toggle="toggle">

@@ -319,6 +319,28 @@ class SkillBindings:
             return None
         return await db.get(SkillBindingRow, key)
 
+    async def require_enabled_tool(
+        self,
+        db: AsyncSession,
+        principal: Principal,
+        version_id: UUID,
+        *,
+        purpose: AgentPurpose,
+        required_tool: ToolKey,
+    ) -> WireModel:
+        version = await self._version(db, principal, version_id)
+        if version.declaration.purpose != purpose:
+            raise SkillBindingUnavailable("skill unavailable for this learning purpose")
+        binding = await self._enabled_binding(db, principal, version)
+        if (
+            binding is None
+            or binding.version_id != version_id
+            or required_tool not in _decode_tools(binding.authorized_tools)
+            or required_tool not in self.approved_tools(version)
+        ):
+            raise SkillBindingUnavailable("required skill tool unavailable")
+        return _preferences(version, binding.preferences)
+
     async def _current_configuration(
         self,
         db: AsyncSession,

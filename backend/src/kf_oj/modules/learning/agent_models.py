@@ -128,6 +128,7 @@ class AgentPartialAnswerRow(Base):
     )
     text: Mapped[str | None] = mapped_column(Text)
     reasoning: Mapped[str | None] = mapped_column(Text)
+    reasoning_is_original: Mapped[bool] = mapped_column(server_default="false")
 
 
 class AgentFeedbackRow(Base):
@@ -208,6 +209,7 @@ class AgentModelAttemptRow(Base):
     __table_args__ = (
         CheckConstraint("expires_at > started_at", name="expires"),
         CheckConstraint("finished_at IS NULL OR finished_at >= started_at", name="finished"),
+        CheckConstraint("provider_requests BETWEEN 1 AND 2", name="provider_requests"),
     )
 
     run_id: Mapped[UUID] = mapped_column(ForeignKey("learning_agent_runs.id"), primary_key=True)
@@ -216,3 +218,4 @@ class AgentModelAttemptRow(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reported_usage: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    provider_requests: Mapped[int] = mapped_column(server_default="1")

@@ -2,12 +2,12 @@
 
 import re
 
-from kf_oj.contracts.judging import Verdict
 from kf_oj.contracts.learning_model import (
     GuidedChatModelFacts,
     GuidedDiagnosticCheck,
     GuidedDiagnosticChoice,
     ProgressiveHintLevel,
+    ReviewEvaluationCategory,
     SourceExcerptModelFacts,
 )
 
@@ -36,14 +36,12 @@ _BOUNDARIES = (
     "从题面允许的最小规模开始，手算第一步和最后一步，检查初值和结束条件是否一致。",
     "从公开约束挑一个边界值，分别检查边界两侧哪些分支会执行、哪些分支不会执行。",
 )
-_VERDICT_CHECKS = {
-    Verdict.ACCEPTED: "这次提交已通过。用公开样例重述哪条状态条件保证了结果。",
-    Verdict.COMPILATION_ERROR: "这次提交遇到编译错误。先在提交详情查看首条编译诊断的位置。",
-    Verdict.WRONG_ANSWER: "这次提交的判定是答案错误。先对照公开样例的首处输出差异。",
-    Verdict.RUNTIME_ERROR: "这次提交遇到运行错误。先用最小合法输入手算每一步读写的有效范围。",
-    Verdict.TIME_LIMIT: "这次提交超时。按题目最大规模估算最内层操作执行次数。",
-    Verdict.MEMORY_LIMIT: "这次提交超出内存限制。列出随输入规模增长的数组和容器。",
-    Verdict.OUTPUT_LIMIT: "这次提交输出超限。核对重复输出的位置和题面要求的总行数。",
+_EVALUATION_CHECKS: dict[ReviewEvaluationCategory, str] = {
+    "accepted": "这次提交已通过。用公开样例重述哪条状态条件保证了结果。",
+    "compilation_error": "这次提交遇到编译错误。先在提交详情查看首条编译诊断的位置。",
+    "wrong_answer": "这次提交的判定是答案错误。先对照公开样例的首处输出差异。",
+    "runtime_error": "这次提交遇到运行错误。先用最小合法输入手算每一步读写的有效范围。",
+    "resource_limit": "这次提交遇到资源限制。按公开约束估算操作次数、占用空间和输出量。",
 }
 _LOCAL_CHECKS: dict[GuidedDiagnosticCheck, str] = {
     "values": "手算这行执行前后的变量值，先找哪个值第一次与预期不同。",
@@ -103,8 +101,8 @@ def hint_choices(
             )
         return _DIRECTIONS
     if level in ("L2", "L3"):
-        verdict = facts.submission.verdict if facts.submission else None
-        check = _VERDICT_CHECKS.get(verdict)
+        category = facts.submission.evaluation.category if facts.submission else None
+        check = _EVALUATION_CHECKS.get(category)
         if level == "L3":
             return (LOCAL_SOURCE_REQUEST, check) if check is not None else (LOCAL_SOURCE_REQUEST,)
         options = _BOUNDARIES

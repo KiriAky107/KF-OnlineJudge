@@ -5,8 +5,14 @@ from urllib.parse import urlsplit
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from kf_oj.contracts.diagnostic_batch import RegisteredBatchOffer
 from kf_oj.contracts.judging_v2 import NodeAdmission
-from kf_oj.contracts.learning_model import ProgressiveHintLevel
+from kf_oj.contracts.learning_model import (
+    DEFAULT_MODEL_CONTEXT_BYTES,
+    MAX_MODEL_CONTEXT_BYTES,
+    MIN_MODEL_CONTEXT_BYTES,
+    ProgressiveHintLevel,
+)
 
 
 class Settings(BaseSettings):
@@ -16,6 +22,12 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     database_url: SecretStr | None = None
     learning_database_url: SecretStr | None = None
+    learning_diagnostics_enabled: bool = False
+    learning_diagnostics_ubsan_enabled: bool = False
+    learning_diagnostic_batch_offers: tuple[RegisteredBatchOffer, ...] = Field(
+        default=(), max_length=128
+    )
+    learning_review_mcp_enabled: bool = False
     learning_model_base_url: str | None = None
     learning_model_name: str | None = Field(default=None, min_length=1, max_length=96)
     learning_model_api_key: SecretStr | None = None
@@ -24,8 +36,12 @@ class Settings(BaseSettings):
     learning_chat_max_hint_level: ProgressiveHintLevel = "L3"
     learning_member_max_hint_level: ProgressiveHintLevel = "L3"
     learning_admin_max_hint_level: ProgressiveHintLevel = "L3"
-    learning_model_account_calls_per_hour: int = Field(default=12, ge=1, le=1000)
-    learning_model_service_calls_per_hour: int = Field(default=120, ge=1, le=10000)
+    learning_model_context_bytes: int = Field(
+        default=DEFAULT_MODEL_CONTEXT_BYTES, ge=MIN_MODEL_CONTEXT_BYTES, le=MAX_MODEL_CONTEXT_BYTES
+    )
+    learning_model_record_usage: bool = False
+    learning_model_account_calls_per_hour: int | None = Field(default=None, ge=1, le=1000)
+    learning_model_service_calls_per_hour: int | None = Field(default=None, ge=1, le=10000)
     identity_operator_database_url: SecretStr | None = None
     amqp_url: SecretStr | None = None
     login_require_trusted_origin: bool = True
@@ -51,6 +67,9 @@ class Settings(BaseSettings):
     def secure_origins(self):
         from ipaddress import ip_address
 
+        pins = {offer.manifest_sha256 for offer in self.learning_diagnostic_batch_offers}
+        if len(pins) != len(self.learning_diagnostic_batch_offers):
+            raise ValueError("duplicate registered diagnostic batch offer")
         if (self.learning_model_base_url is None) != (self.learning_model_name is None):
             raise ValueError("both Responses base URL and model name are required")
         if self.learning_model_base_url is not None:

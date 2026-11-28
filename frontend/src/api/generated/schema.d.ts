@@ -639,6 +639,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/learning/agent/diagnostic-batches/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Diagnostic Batch Options */
+        get: operations["diagnostic_batch_options_api_v1_learning_agent_diagnostic_batches_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/diagnostic-batches/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Diagnostic Batch */
+        get: operations["diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__get"];
+        /** Confirm Diagnostic Batch */
+        put: operations["confirm_diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/diagnostic-batches/{request_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Diagnostic Batch */
+        post: operations["cancel_diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/diagnostics/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public Sample Diagnostic Availability */
+        get: operations["public_sample_diagnostic_availability_api_v1_learning_agent_diagnostics_availability_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/diagnostics/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public Sample Diagnostic */
+        get: operations["public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__get"];
+        /** Confirm Public Sample Diagnostic */
+        put: operations["confirm_public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/diagnostics/{request_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Public Sample Diagnostic */
+        post: operations["cancel_public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/diagnostics/{request_id}/mistake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Confirm Personal Mistake */
+        put: operations["confirm_personal_mistake_api_v1_learning_agent_diagnostics__request_id__mistake_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/learning/agent/hint-ceiling": {
         parameters: {
             query?: never;
@@ -654,6 +775,59 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/mistakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Personal Mistakes */
+        get: operations["list_personal_mistakes_api_v1_learning_agent_mistakes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/mistakes/practice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Practice From Personal Mistake */
+        post: operations["practice_from_personal_mistake_api_v1_learning_agent_mistakes_practice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/mistakes/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Personal Mistake */
+        get: operations["personal_mistake_api_v1_learning_agent_mistakes__request_id__get"];
+        put?: never;
+        post?: never;
+        /** Withdraw Personal Mistake */
+        delete: operations["withdraw_personal_mistake_api_v1_learning_agent_mistakes__request_id__delete"];
+        options?: never;
+        head?: never;
+        /** Edit Personal Mistake */
+        patch: operations["edit_personal_mistake_api_v1_learning_agent_mistakes__request_id__patch"];
         trace?: never;
     };
     "/api/v1/learning/agent/runs": {
@@ -1496,6 +1670,8 @@ export interface components {
             question: string | null;
             /** Reasoning */
             reasoning?: string | null;
+            /** Reasoning Kind */
+            reasoning_kind?: "text" | null;
             /**
              * Run Id
              * Format: uuid
@@ -1656,6 +1832,70 @@ export interface components {
             bytes: number;
             /** Digest */
             digest: string;
+        };
+        /** BatchDiagnosticOption */
+        BatchDiagnosticOption: {
+            /** Manifest Sha256 */
+            manifest_sha256: string;
+            /**
+             * Purpose
+             * @enum {string}
+             */
+            purpose: "differential" | "boundary";
+            /** Title */
+            title: string;
+        };
+        /** BatchDiagnosticOptions */
+        BatchDiagnosticOptions: {
+            /** Options */
+            options: components["schemas"]["BatchDiagnosticOption"][];
+        };
+        /** BatchDiagnosticSummary */
+        BatchDiagnosticSummary: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "reference_pending" | "input_not_verified" | "reduction_verified" | "reduction_unverified" | "accepted" | "completed" | "compilation_error" | "wrong_answer" | "runtime_error" | "resource_limit";
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * Purpose
+             * @enum {string}
+             */
+            purpose: "differential" | "boundary";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
+        /** BatchDiagnosticView */
+        BatchDiagnosticView: {
+            /**
+             * Queue Deadline
+             * Format: date-time
+             */
+            queue_deadline: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "running" | "cancel_pending" | "cancelled" | "expired" | "unavailable" | "observed" | "failed";
+            summary?: components["schemas"]["BatchDiagnosticSummary"] | null;
         };
         /** CancellationAccepted */
         CancellationAccepted: {
@@ -1911,6 +2151,66 @@ export interface components {
                 [key: string]: components["schemas"]["JsonValue"];
             };
         };
+        /** ConfirmBatchDiagnostic */
+        ConfirmBatchDiagnostic: {
+            /** Manifest Sha256 */
+            manifest_sha256: string;
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /** Review Run Id */
+            review_run_id?: string | null;
+            /**
+             * Source Execution Confirmed
+             * @constant
+             */
+            source_execution_confirmed: true;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
+        /** ConfirmPersonalMistake */
+        ConfirmPersonalMistake: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+            /** Note */
+            note: string;
+        };
+        /** ConfirmPublicSampleDiagnostic */
+        ConfirmPublicSampleDiagnostic: {
+            /**
+             * Mode
+             * @default optimization
+             * @enum {string}
+             */
+            mode: "optimization" | "ubsan";
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /** Review Run Id */
+            review_run_id?: string | null;
+            /** Sample Ordinal */
+            sample_ordinal: number;
+            /**
+             * Source Execution Confirmed
+             * @constant
+             */
+            source_execution_confirmed: true;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
         /** ContestAgentAccess */
         ContestAgentAccess: {
             /** Blocked Until */
@@ -2022,6 +2322,8 @@ export interface components {
         };
         /** CreateSelfTest */
         CreateSelfTest: {
+            /** Diagnostic Request Id */
+            diagnostic_request_id?: string | null;
             /**
              * Idempotency Key
              * Format: uuid
@@ -2033,6 +2335,8 @@ export interface components {
              * Format: uuid
              */
             problem_version_id: string;
+            /** Public Sample Ordinal */
+            public_sample_ordinal?: number | null;
             /** Source */
             source: string;
             /**
@@ -2130,6 +2434,32 @@ export interface components {
             /** Username */
             username: string;
         };
+        /** DiagnosticMistakeEvidence */
+        DiagnosticMistakeEvidence: {
+            finding: components["schemas"]["UbsanFinding"];
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Sample Ordinal */
+            sample_ordinal: number;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
+        /** DiagnosticObservation */
+        DiagnosticObservation: {
+            o0: components["schemas"]["Verdict"] | null;
+            o2: components["schemas"]["Verdict"];
+        };
         DifficultyKey: string;
         /** DifficultyLevel */
         DifficultyLevel: {
@@ -2180,7 +2510,7 @@ export interface components {
             items: components["schemas"]["ProposedExercise"][];
             model_hint?: components["schemas"]["ModelHint"] | null;
             /** Model Status */
-            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "context_limit" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2225,7 +2555,7 @@ export interface components {
             /** Model Hint Basis */
             model_hint_basis?: "topic_and_verdict" | null;
             /** Model Status */
-            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "context_limit" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2329,6 +2659,8 @@ export interface components {
              * @default false
              */
             include_submission_details: boolean;
+            /** Practice Tool Only */
+            practice_tool_only?: boolean;
             /** Previous Run Id */
             previous_run_id?: string | null;
             /** Problem Version Id */
@@ -2709,6 +3041,54 @@ export interface components {
              */
             schema_version: 1;
         };
+        /** MistakePractice */
+        MistakePractice: {
+            /** Available Minutes */
+            available_minutes?: number | null;
+            evidence: components["schemas"]["DiagnosticMistakeEvidence"];
+            /** Focus */
+            focus: string;
+            /** Gaps */
+            gaps: string[];
+            /** Items */
+            items: components["schemas"]["MistakePracticeItem"][];
+            /** Review Minutes */
+            review_minutes?: number | null;
+            /** Source Available */
+            source_available: boolean;
+            /** Source Title */
+            source_title: string | null;
+            /** Verification Minutes */
+            verification_minutes?: number | null;
+        };
+        /** MistakePracticeItem */
+        MistakePracticeItem: {
+            /** Estimated Minutes */
+            estimated_minutes?: number | null;
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /** Shared Tags */
+            shared_tags: string[];
+            /** Title */
+            title: string;
+        };
+        /** MistakePracticeRequest */
+        MistakePracticeRequest: {
+            /** Available Minutes */
+            available_minutes?: number | null;
+            /** Request Id */
+            request_id?: string | null;
+            /**
+             * Skill Version Id
+             * Format: uuid
+             */
+            skill_version_id: string;
+            /** Submission Id */
+            submission_id?: string | null;
+        };
         /** ModelHint */
         ModelHint: {
             /** Latency Ms */
@@ -2717,12 +3097,16 @@ export interface components {
             model: string;
             /** Reasoning */
             reasoning?: string | null;
+            /** Reasoning Kind */
+            reasoning_kind?: "text" | null;
             /** Response Id */
             response_id: string;
             /** Review Comparison Case */
             review_comparison_case?: ("less" | "equal" | "greater") | null;
             /** Review Focus */
             review_focus?: ("wrong_answer" | "compilation_error" | "later_accepted") | null;
+            /** Review Resources */
+            review_resources?: ("problem" | "evaluations" | "code" | "batch_diagnostics" | "recent_practice")[] | null;
             /** Source Line */
             source_line?: number | null;
             /** Text */
@@ -2805,7 +3189,7 @@ export interface components {
             items: components["schemas"]["ProposedExercise"][];
             model_hint?: components["schemas"]["ModelHint"] | null;
             /** Model Status */
-            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "context_limit" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2836,6 +3220,46 @@ export interface components {
             purpose: "periodic_review";
             /** Sessions Per Week */
             sessions_per_week: number;
+        };
+        /** PersonalMistake */
+        PersonalMistake: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            finding: components["schemas"]["UbsanFinding"];
+            /** Note */
+            note: string;
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Sample Ordinal */
+            sample_ordinal: number;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** PersonalMistakePage */
+        PersonalMistakePage: {
+            /** Items */
+            items: components["schemas"]["PersonalMistake"][];
+            /** Next Before */
+            next_before: string | null;
         };
         /**
          * PreparationKind
@@ -3212,6 +3636,48 @@ export interface components {
             /** Position */
             position: number;
             verdict: components["schemas"]["Verdict"];
+        };
+        /** PublicDiagnosticAvailability */
+        PublicDiagnosticAvailability: {
+            /** Available */
+            available: boolean;
+            /**
+             * Registered Batches
+             * @default false
+             */
+            registered_batches: boolean;
+            /**
+             * Ubsan
+             * @default false
+             */
+            ubsan: boolean;
+        };
+        /** PublicDiagnosticView */
+        PublicDiagnosticView: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "optimization" | "ubsan";
+            observation?: components["schemas"]["DiagnosticObservation"] | null;
+            /**
+             * Queue Deadline
+             * Format: date-time
+             */
+            queue_deadline: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Sample Ordinal */
+            sample_ordinal: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "running" | "cancel_pending" | "cancelled" | "expired" | "unavailable" | "observed" | "failed";
+            ubsan?: components["schemas"]["UbsanObservation"] | null;
         };
         /** PublicJudgement */
         PublicJudgement: {
@@ -3938,11 +4404,8 @@ export interface components {
             request_id: string;
             /** Review Question */
             review_question?: string | null;
-            /**
-             * Skill Version Id
-             * Format: uuid
-             */
-            skill_version_id: string;
+            /** Skill Version Id */
+            skill_version_id?: string | null;
             /** Submission Id */
             submission_id?: string | null;
             training_set?: components["schemas"]["TrainingSetDraft"] | null;
@@ -4147,7 +4610,7 @@ export interface components {
             /** Model Review Basis */
             model_review_basis?: ("evaluations" | "evaluations_and_code_counts" | "evaluations_and_control_flow" | "evaluations_and_comparison_cases" | "source_excerpt") | null;
             /** Model Status */
-            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "context_limit" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4304,9 +4767,13 @@ export interface components {
              * @enum {string}
              */
             max_hint_level: "L0" | "L1" | "L2" | "L3";
+            /** Official Publication Id */
+            official_publication_id?: string | null;
             parameters: components["schemas"]["LearningParameters"];
             /** Previous Plan Id */
             previous_plan_id?: string | null;
+            /** Publication Max Hint Level */
+            publication_max_hint_level?: ("L0" | "L1" | "L2" | "L3") | null;
             /** Rule Version */
             rule_version: string;
             /** Schedule */
@@ -4544,6 +5011,28 @@ export interface components {
              * @enum {string}
              */
             status: "review_due" | "practice" | "review_later" | "recent_attempt" | "recent_plan";
+        };
+        /** UbsanFinding */
+        UbsanFinding: {
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "signed_integer_overflow" | "division_by_zero" | "index_out_of_bounds" | "invalid_shift";
+            /** Column */
+            column: number;
+            /** Line */
+            line: number;
+        };
+        /** UbsanObservation */
+        UbsanObservation: {
+            finding: components["schemas"]["UbsanFinding"] | null;
+            verdict: components["schemas"]["Verdict"];
+        };
+        /** UpdatePersonalMistake */
+        UpdatePersonalMistake: {
+            /** Note */
+            note: string;
         };
         /** UpdateRunFeedback */
         UpdateRunFeedback: {
@@ -5829,6 +6318,283 @@ export interface operations {
             };
         };
     };
+    diagnostic_batch_options_api_v1_learning_agent_diagnostic_batches_options_get: {
+        parameters: {
+            query: {
+                submission_id: string;
+                problem_version_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchDiagnosticOptions"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchDiagnosticView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmBatchDiagnostic"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchDiagnosticView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    public_sample_diagnostic_availability_api_v1_learning_agent_diagnostics_availability_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDiagnosticAvailability"];
+                };
+            };
+        };
+    };
+    public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDiagnosticView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmPublicSampleDiagnostic"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDiagnosticView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_personal_mistake_api_v1_learning_agent_diagnostics__request_id__mistake_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmPersonalMistake"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalMistake"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     hint_ceiling_api_v1_learning_agent_hint_ceiling_get: {
         parameters: {
             query: {
@@ -5848,6 +6614,166 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LearningHintCeiling"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_personal_mistakes_api_v1_learning_agent_mistakes_get: {
+        parameters: {
+            query?: {
+                before?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalMistakePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    practice_from_personal_mistake_api_v1_learning_agent_mistakes_practice_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MistakePracticeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MistakePractice"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    personal_mistake_api_v1_learning_agent_mistakes__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalMistake"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdraw_personal_mistake_api_v1_learning_agent_mistakes__request_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_personal_mistake_api_v1_learning_agent_mistakes__request_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePersonalMistake"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalMistake"];
                 };
             };
             /** @description Validation Error */

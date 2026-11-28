@@ -15,7 +15,11 @@ defineProps<{
 <template>
   <div class="timeline-turn">
     <p class="agent-request">{{ turn.question ?? label }}</p>
-    <LearningModelReasoning v-if="turn.reasoning" :text="turn.reasoning" />
+    <LearningModelReasoning
+      v-if="turn.reasoning"
+      :text="turn.reasoning"
+      :kind="turn.reasoning_kind"
+    />
     <StatementMarkdown
       v-if="turn.answer"
       class="timeline-answer"

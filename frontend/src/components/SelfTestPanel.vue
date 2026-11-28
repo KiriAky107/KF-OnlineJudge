@@ -8,14 +8,17 @@ import { useSession } from '../composables/useSession'
 import type { components } from '../api/generated/schema'
 import { sample } from '../lib/publicSample'
 import { newRequestId } from '../lib/requestCrypto'
+import DisclosureHeading from './DisclosureHeading.vue'
 import JudgementStatus from './JudgementStatus.vue'
 import UiIcon from './UiIcon.vue'
 const props = defineProps<{
   problem: components['schemas']['ProblemDetail']
   language: components['schemas']['SubmissionSummary']['language'] | null
   source: string
+  requestedSample?: number | null
+  requestedDiagnostic?: string
 }>()
-const emit = defineEmits<{ run: [] }>()
+const emit = defineEmits<{ run: []; sampleConsumed: [index: number] }>()
 const session = useSession()
 const router = useRouter()
 const route = useRoute()
@@ -25,6 +28,7 @@ const byteLimit = 65536
 const encoder = new TextEncoder()
 const inputBytes = computed(() => encoder.encode(input.value).length)
 const sampleIndex = ref<number | null>(null)
+const sampleDiagnostic = ref<string>()
 const expected = computed(() =>
   sampleIndex.value === null ? null : props.problem.samples[sampleIndex.value]?.output,
 )
@@ -71,6 +75,7 @@ const comparison = computed(() => {
     : 'different'
 })
 function selectSample(index: number) {
+  sampleDiagnostic.value = undefined
   try {
     input.value = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
       Uint8Array.from(atob(props.problem.samples[index]!.input), (c) => c.charCodeAt(0)),
@@ -78,9 +83,15 @@ function selectSample(index: number) {
     sampleIndex.value = index
     error.value = ''
     tab.value = 'input'
+    return true
   } catch {
     error.value = '该样例不是文本，请自行填写自测输入。'
+    return false
   }
+}
+function clearSample() {
+  sampleIndex.value = null
+  sampleDiagnostic.value = undefined
 }
 function reset() {
   generation++
@@ -147,6 +158,8 @@ async function run() {
     language: props.language,
     source: props.source,
     stdin: input.value,
+    public_sample_ordinal: sampleIndex.value ?? undefined,
+    diagnostic_request_id: sampleIndex.value === null ? undefined : sampleDiagnostic.value,
   }
   snapshot.value = {
     source: body.source,
@@ -190,7 +203,7 @@ watch(
   () => {
     reset()
     input.value = ''
-    sampleIndex.value = null
+    clearSample()
     if (props.problem.samples.length) selectSample(0)
   },
   { immediate: true, flush: 'sync' },
@@ -200,10 +213,24 @@ watch(
   () => {
     reset()
     input.value = ''
-    sampleIndex.value = null
+    clearSample()
     if (props.problem.samples.length) selectSample(0)
   },
   { flush: 'sync' },
+)
+watch(
+  [() => props.requestedSample, () => props.requestedDiagnostic, () => session.user.value?.id],
+  ([index, diagnostic, owner]) => {
+    if (index == null || !owner) return
+    if (selectSample(index)) {
+      sampleDiagnostic.value = diagnostic
+    } else {
+      input.value = ''
+      clearSample()
+    }
+    emit('sampleConsumed', index)
+  },
+  { immediate: true, flush: 'post' },
 )
 onBeforeUnmount(() => {
   generation++
@@ -249,11 +276,18 @@ onBeforeUnmount(() => {
         resize="vertical"
         aria-label="自测输入"
         placeholder="输入自测数据（可留空）"
-        @input="sampleIndex = null"
+        @input="clearSample"
       />
       <p class="input-budget" :class="{ 'input-budget--exceeded': inputBytes > byteLimit }">
         {{ inputBytes.toLocaleString() }} / {{ byteLimit.toLocaleString() }} 字节
       </p>
+      <details v-if="expected != null && sampleIndex != null" class="public-expectation">
+        <DisclosureHeading icon="document" tone="muted">
+          预期输出 · 题面公开样例 {{ sampleIndex + 1 }}
+        </DisclosureHeading>
+        <p class="small muted">题面给定，运行后与实际输出核对。自测使用工作台当前代码。</p>
+        <pre tabindex="0">{{ sample(expected) || '（空）' }}</pre>
+      </details>
       <p v-if="error" role="alert">{{ error }}</p>
     </div>
 
@@ -322,7 +356,7 @@ onBeforeUnmount(() => {
             </dd>
           </div>
           <div v-if="snapshot.expected !== null">
-            <dt>预期输出</dt>
+            <dt>预期输出 · 题面公开样例 {{ (snapshot.sampleIndex ?? 0) + 1 }}</dt>
             <dd>
               <pre tabindex="0">{{ sample(snapshot.expected) || '（空）' }}</pre>
             </dd>
@@ -393,6 +427,7 @@ onBeforeUnmount(() => {
   flex: 1;
 }
 .test-input :deep(textarea),
+.public-expectation pre,
 .test-output pre {
   font: 0.9375rem / 1.65 var(--judge-sample-font, ui-monospace, monospace);
 }
@@ -466,10 +501,13 @@ onBeforeUnmount(() => {
   padding-top: 6px;
   font-weight: 600;
 }
+.public-expectation p,
+.public-expectation pre,
 .test-output dd,
 .test-output pre {
   margin: 0;
 }
+.public-expectation pre,
 .test-output pre {
   padding: 6px 9px;
   max-height: 16rem;

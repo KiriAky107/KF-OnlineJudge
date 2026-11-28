@@ -1,10 +1,13 @@
 """Authenticated entry for a learning run and execution of a claimed workflow."""
 
 import hashlib
+import json
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from kf_oj.contracts.agent_api import (
@@ -12,10 +15,13 @@ from kf_oj.contracts.agent_api import (
     AgentHistoryPage,
     AgentRunTrace,
     ConversationPage,
+    MistakePractice,
+    MistakePracticeRequest,
 )
 from kf_oj.contracts.agent_learning import (
     AgentExecution,
     AgentLearningInput,
+    FocusedTrainingParameters,
     FocusedTrainingResult,
     GuidedHelpParameters,
     GuidedHelpResult,
@@ -28,16 +34,15 @@ from kf_oj.contracts.agent_learning import (
     UpdateRunFeedback,
 )
 from kf_oj.contracts.agent_runtime import AgentPurpose, AgentRun, AgentSession, AgentStep, RunState
-from kf_oj.contracts.judging import Verdict
+from kf_oj.contracts.diagnostic_batch import RegisteredBatchOffer
 from kf_oj.contracts.learning import TrainingDetail
 from kf_oj.contracts.learning_model import (
     CHAT_HISTORY_LIMIT,
     CHAT_MODEL_REQUEST_SECONDS,
     CHAT_STATEMENT_LIMIT,
-    MAX_MODEL_HINT_CHARS,
     MODEL_REQUEST_SECONDS,
     PROGRESSIVE_HINT_LEVELS,
-    ChatSubmissionDetails,
+    REVIEW_MODEL_REQUEST_SECONDS,
     GuidedChatModelFacts,
     GuidedDiagnosticChoice,
     GuidedHelpModelFacts,
@@ -51,7 +56,10 @@ from kf_oj.contracts.learning_model import (
     ModelOutputChannel,
     PlanModelFacts,
     RecentPracticeFact,
+    ReviewBatchOutcome,
+    ReviewEvaluationSummary,
     ReviewModelFacts,
+    ReviewResourceName,
     SourceExcerptModelContext,
     SourceExcerptModelFacts,
 )
@@ -65,12 +73,15 @@ from kf_oj.modules.identity.public import (
 from kf_oj.modules.learning.agent_model_budget import DEFAULT_MODEL_LIMITS, AgentModelLimits
 from kf_oj.modules.learning.agent_queue import AgentQueue
 from kf_oj.modules.learning.agent_store import PostgresAgentStorage
+from kf_oj.modules.learning.agent_tool_policy import reserve_review_evaluation_read
+from kf_oj.modules.learning.diagnostic_queue import DiagnosticQueue
 from kf_oj.modules.learning.guided_delivery import (
     LOCAL_SOURCE_REQUEST,
     hint_choices,
     local_diagnostic,
 )
 from kf_oj.modules.learning.hint_policy import DEFAULT_HINT_POLICY, HintCeilingDenied, HintPolicy
+from kf_oj.modules.learning.mistakes import PersonalMistakes
 from kf_oj.modules.learning.public import (
     AGENT_TOOL_SCOPES,
     SOURCE_EVIDENCE,
@@ -85,6 +96,7 @@ from kf_oj.modules.skills.public import (
     BuiltinSkills,
     SkillBindings,
     SkillBindingUnavailable,
+    SkillConfiguration,
     SkillVersionUnavailable,
     load_builtin_skills,
 )
@@ -92,12 +104,17 @@ from kf_oj.modules.submissions.public import (
     SubmissionEvidencePort,
     SubmissionUnavailable,
     accepted_versions,
+    owned_guided_submission_details,
+    owned_review_evaluation_category,
     recent_practice_versions,
 )
 from kf_oj.runtime.model import (
+    ChatResourceModel,
     LearningHintModel,
     ModelBudgetExceeded,
+    ReviewResourceModel,
     StreamingLearningHintModel,
+    StreamingReviewModel,
     guided_help_model_facts,
     plan_model_facts,
     review_focus_targets,
@@ -129,6 +146,7 @@ _FAILURE_CODES = {
     HintCeilingDenied: "hint_level_unavailable",
 }
 _EXPECTED_FAILURES = tuple(_FAILURE_CODES)
+_BASIC_CHAT_DIGEST = hashlib.sha256(b"kf-oj:basic-learning-chat:v1").hexdigest()
 
 
 def _failure_code(error: Exception) -> str:
@@ -151,6 +169,8 @@ class AgentLearning:
         model_limits: AgentModelLimits = DEFAULT_MODEL_LIMITS,
         hint_policy: HintPolicy = DEFAULT_HINT_POLICY,
         claim: AgentRun | None = None,
+        diagnostics: DiagnosticQueue | None = None,
+        review_batch_offers: tuple[RegisteredBatchOffer, ...] = (),
     ) -> None:
         self._sessions = sessions
         self._identity = identity
@@ -158,6 +178,9 @@ class AgentLearning:
         self._model = model
         self._model_limits = model_limits
         self._hint_policy = hint_policy
+        self.diagnostics = diagnostics
+        self._review_batch_offers = review_batch_offers
+        self.mistakes = PersonalMistakes(sessions, identity)
         self.catalog = catalog if catalog is not None else load_builtin_skills()
         self.skills = SkillBindings(
             sessions, identity, self.catalog, AGENT_TOOL_SCOPES, claim=claim
@@ -169,6 +192,22 @@ class AgentLearning:
     async def check_contest_access(self, principal: Principal) -> None:
         async with self._sessions() as db:
             await require_agent_access(db, principal.account_id)
+
+    async def practice_mistake(
+        self, principal: Principal, request: MistakePracticeRequest
+    ) -> MistakePractice:
+        async def authorize_tool(db: AsyncSession) -> FocusedTrainingParameters:
+            parameters = await self.skills.require_enabled_tool(
+                db,
+                principal,
+                request.skill_version_id,
+                purpose=AgentPurpose.FOCUSED_TRAINING,
+                required_tool=TRAINING_CANDIDATES,
+            )
+            assert isinstance(parameters, FocusedTrainingParameters)
+            return parameters
+
+        return await self.mistakes.practice(principal, request, authorize_tool)
 
     async def _authenticate(self, principal: Principal) -> bool:
         async with self._sessions.begin() as db:
@@ -307,16 +346,43 @@ class AgentLearning:
                 return False
         return True
 
+    @staticmethod
+    async def _recent_practice_facts(
+        db: AsyncSession, principal: Principal, as_of: datetime
+    ) -> tuple[RecentPracticeFact, ...]:
+        recent = await recent_practice_versions(
+            db, principal, since=as_of - timedelta(days=30), as_of=as_of
+        )
+        metadata = await problems.learning_versions(db, set(recent))
+        available = {version_id for version_id, problem in metadata.items() if problem.available}
+        passed = await accepted_versions(db, principal, available, as_of=as_of)
+        difficulties = await problems.learning_difficulties(db, available)
+        practice = []
+        for version_id in recent:
+            if version_id not in available:
+                continue
+            difficulty = difficulties.get(version_id)
+            practice.append(
+                RecentPracticeFact(
+                    title=metadata[version_id].title,
+                    difficulty=difficulty.label if difficulty else metadata[version_id].difficulty,
+                    difficulty_score=difficulty.score if difficulty else None,
+                    accepted=version_id in passed,
+                )
+            )
+        return tuple(practice)
+
     async def _chat_context(
         self,
         principal: Principal,
         storage: PostgresAgentStorage,
         session_id: UUID,
-        skill_version_id: UUID,
+        configuration: SkillConfiguration,
         chat: LearningChatRequest,
         *,
         include_source: bool,
     ) -> GuidedChatModelFacts:
+        basic_chat = configuration.digest == _BASIC_CHAT_DIGEST
         level = (chat.hint_level or "L0") if chat.problem_version_id else None
         if level is None and (
             chat.hint_level or chat.training_id or chat.include_submission_details or include_source
@@ -334,7 +400,11 @@ class AgentLearning:
             previous = await storage.execution(chat.previous_run_id)
             if (
                 previous.run.session_id != session_id
-                or previous.run.skill_version_id != skill_version_id
+                or (
+                    previous.run.skill_version_id != configuration.version_id
+                    and not basic_chat
+                    and previous.run.configuration_digest != _BASIC_CHAT_DIGEST
+                )
                 or previous.run.state
                 not in (RunState.SUCCEEDED, RunState.FAILED, RunState.CANCELLED)
                 or previous.chat is None
@@ -350,9 +420,16 @@ class AgentLearning:
             )
             can_advance = prior_hint is not None and previous.chat.hint_level is not None
             previous_level = PROGRESSIVE_HINT_LEVELS.index(previous.chat.hint_level or "L0")
-            if level is None or (
-                previous.chat.hint_level is not None
-                and PROGRESSIVE_HINT_LEVELS.index(level) >= previous_level
+            same_evidence_scope = previous.run.configuration_digest in (
+                configuration.digest,
+                _BASIC_CHAT_DIGEST,
+            )
+            if same_evidence_scope and (
+                level is None
+                or (
+                    previous.chat.hint_level is not None
+                    and PROGRESSIVE_HINT_LEVELS.index(level) >= previous_level
+                )
             ):
                 history = previous.chat_history
                 if prior_hint is not None and not previous.chat_private_turn:
@@ -360,7 +437,7 @@ class AgentLearning:
                         *history,
                         LearningChatTurn(
                             question=previous.chat.question,
-                            answer=prior_hint.text[:MAX_MODEL_HINT_CHARS],
+                            answer=prior_hint.text,
                         ),
                     )[-CHAT_HISTORY_LIMIT:]
 
@@ -384,29 +461,6 @@ class AgentLearning:
                 title, statement, sample_count = context
                 statement = statement[:CHAT_STATEMENT_LIMIT]
 
-            recent = await recent_practice_versions(
-                db, principal, since=datetime.now(UTC) - timedelta(days=30)
-            )
-            metadata = await problems.learning_versions(db, set(recent))
-            available = {
-                version_id for version_id, problem in metadata.items() if problem.available
-            }
-            passed = await accepted_versions(db, principal, available)
-            difficulties = await problems.learning_difficulties(db, available)
-            practice = []
-            for version_id in recent:
-                if version_id in available:
-                    difficulty = difficulties.get(version_id)
-                    practice.append(
-                        RecentPracticeFact(
-                            title=metadata[version_id].title,
-                            difficulty=difficulty.label
-                            if difficulty
-                            else metadata[version_id].difficulty,
-                            difficulty_score=difficulty.score if difficulty else None,
-                            accepted=version_id in passed,
-                        )
-                    )
         return GuidedChatModelFacts(
             question=chat.question,
             hint_level=level,
@@ -414,77 +468,64 @@ class AgentLearning:
             problem_title=title,
             problem_statement=statement,
             public_sample_count=sample_count,
-            recent_practice=tuple(practice),
         )
 
-    async def _chat_submission(
+    async def _chat_source(
         self,
         principal: Principal,
         snapshot: StoredAgentLearningInput,
-    ) -> tuple[StoredAgentLearningInput, bytes | None]:
-        chat, facts, submission_id = snapshot.chat, snapshot.chat_context, snapshot.submission_id
-        assert chat is not None and facts is not None and submission_id is not None
+    ) -> tuple[StoredAgentLearningInput, bytes]:
+        chat, submission_id, selection = (
+            snapshot.chat,
+            snapshot.submission_id,
+            snapshot.model_source_excerpt,
+        )
+        assert chat is not None and submission_id is not None and selection is not None
         if self._source_reader is None:
             raise LearningUnavailable("submission evidence unavailable")
 
-        def check_version(version_id: UUID) -> None:
-            if chat.problem_version_id is not None and chat.problem_version_id != version_id:
-                raise SubmissionUnavailable("submission is for a different problem")
-
-        excerpt_bytes = None
         try:
-            if chat.include_submission_details:
-                submission = await self._source_reader.detail(principal, submission_id)
-                check_version(submission.problem_version_id)
-                result = submission.result
-                details = ChatSubmissionDetails(
-                    verdict=submission.verdict,
-                    language=submission.language,
-                    compilation_status=result.compilation_status if result else None,
-                    cpu_time_us=result.cpu_time_us if result else None,
-                    memory_peak_bytes=result.memory_peak_bytes if result else None,
-                    accepted_cases=(
-                        sum(case.verdict == Verdict.ACCEPTED for case in result.cases)
-                        if result
-                        else None
-                    ),
-                    executed_cases=len(result.cases) if result else None,
-                )
-                snapshot = snapshot.model_copy(
-                    update={"chat_context": facts.model_copy(update={"submission": details})}
-                )
-            if (selection := snapshot.model_source_excerpt) is not None:
-                excerpt = await self._source_reader.owned_source_excerpt(
-                    principal, submission_id, selection.start_line, selection.end_line
-                )
-                check_version(excerpt.source.problem_version_id)
-                if not excerpt.text.strip():
-                    raise ValueError("source excerpt is empty")
-                snapshot = snapshot.model_copy(
-                    update={
-                        "chat_source": SourceExcerptModelContext(
-                            start_line=excerpt.start_line,
-                            end_line=excerpt.end_line,
-                            language=excerpt.source.language,
-                        )
-                    }
-                )
-                excerpt_bytes = excerpt.text.encode("utf-8")
+            excerpt = await self._source_reader.owned_source_excerpt(
+                principal, submission_id, selection.start_line, selection.end_line
+            )
+            if chat.problem_version_id != excerpt.source.problem_version_id:
+                raise SubmissionUnavailable("submission is for a different problem")
         except SubmissionUnavailable:
             raise AgentRecordUnavailable("submission evidence unavailable") from None
-        return snapshot, excerpt_bytes
+        if not excerpt.text.strip():
+            raise ValueError("source excerpt is empty")
+        source = SourceExcerptModelContext(
+            start_line=excerpt.start_line,
+            end_line=excerpt.end_line,
+            language=excerpt.source.language,
+        )
+        return snapshot.model_copy(update={"chat_source": source}), excerpt.text.encode("utf-8")
 
     async def prepare(
         self,
         principal: Principal,
         session_id: UUID,
         request_id: UUID,
-        skill_version_id: UUID,
+        skill_version_id: UUID | None,
         body: AgentLearningInput,
     ) -> AgentExecution:
         administrator = await self._authenticate(principal)
         storage = self._store(principal)
         session = await storage.get_session(session_id)
+        basic_chat = skill_version_id is None
+        if skill_version_id is None:
+            if (
+                session.purpose != AgentPurpose.GUIDED_HELP
+                or body.chat is None
+                or body.chat.include_submission_details
+                or body.model_dump(exclude={"chat"}, exclude_defaults=True)
+            ):
+                raise ValueError("this request needs an explicit skill grant")
+            version = max(
+                self.catalog.list_versions(AgentPurpose.GUIDED_HELP),
+                key=lambda entry: entry.declaration.release,
+            )
+            skill_version_id = version.version_id
         if session.purpose == AgentPurpose.GUIDED_HELP and body.chat is None:
             self._require_legacy_guided_ceiling(body, administrator)
         if body.periodic_review is not None and session.purpose != AgentPurpose.PERIODIC_REVIEW:
@@ -567,7 +608,11 @@ class AgentLearning:
         input_digest = _digest(body.model_dump_json(exclude=scope).encode())
 
         def same_request(run: AgentRun) -> bool:
-            return run.skill_version_id == skill_version_id and run.input_digest == input_digest
+            return (
+                run.skill_version_id == skill_version_id
+                and run.input_digest == input_digest
+                and (run.configuration_digest == _BASIC_CHAT_DIGEST) == basic_chat
+            )
 
         existing = await storage.find_request(session_id, request_id)
         if existing is not None:
@@ -581,18 +626,22 @@ class AgentLearning:
             required_tool = TRAINING_CANDIDATES
         elif body.review_question is not None:
             required_tool = SUBMISSION_HISTORY
-        configuration = await self.skills.freeze(
-            principal,
-            skill_version_id,
-            purpose=session.purpose,
-            required_tool=required_tool,
+        configuration = (
+            SkillConfiguration(skill_version_id, _BASIC_CHAT_DIGEST, GuidedHelpParameters())
+            if basic_chat
+            else await self.skills.freeze(
+                principal,
+                skill_version_id,
+                purpose=session.purpose,
+                required_tool=required_tool,
+            )
         )
         chat_context = (
             await self._chat_context(
                 principal,
                 storage,
                 session_id,
-                skill_version_id,
+                configuration,
                 body.chat,
                 include_source=selection is not None,
             )
@@ -613,7 +662,7 @@ class AgentLearning:
             else None,
         )
         source_excerpt = None
-        if body.chat is not None and body.submission_id is not None:
+        if body.chat is not None and selection is not None:
             async with self._sessions.begin() as db:
                 await require_agent_access(db, principal.account_id)
                 administrator = await self._identity.require_active_session(db, principal)
@@ -633,7 +682,7 @@ class AgentLearning:
                     snapshot.chat,
                     include_source=selection is not None,
                 )
-                snapshot, source_excerpt = await self._chat_submission(principal, snapshot)
+                snapshot, source_excerpt = await self._chat_source(principal, snapshot)
         elif body.review_question is not None and selection is not None:
             assert body.submission_id is not None
             if self._source_reader is None:
@@ -665,46 +714,89 @@ class AgentLearning:
                 }
             )
             source_excerpt = excerpt.text.encode("utf-8")
-        elif body.include_source_evidence:
+        elif body.include_source_evidence or (
+            body.review_question is not None and self._source_reader is not None
+        ):
             if self._source_reader is None:
                 raise LearningUnavailable("source evidence unavailable")
             review = configuration.parameters
             review = review if isinstance(review, SubmissionReviewParameters) else None
+            captured = None
             async with self._sessions.begin() as db:
+                await require_agent_access(db, principal.account_id)
                 await self._identity.require_active_session(db, principal)
                 grant = await self.skills.for_current_skill(
                     db, principal, skill_version_id, configuration.digest
                 )
-                if grant is None or SOURCE_EVIDENCE not in grant.tools:
-                    raise SkillBindingUnavailable("source evidence unavailable")
-                try:
-                    captured = await self._source_reader.learning_code_evidence(
-                        db,
-                        principal,
-                        since=now - timedelta(days=review.days if review else 90),
-                        as_of=now,
-                        problem_ids=review.problem_ids if review else (),
-                        submission_id=body.submission_id,
-                        comparison=session.purpose == AgentPurpose.SUBMISSION_REVIEW,
-                        collect_control_flow=body.include_model_control_flow,
-                    )
-                    if selection is not None:
-                        if captured is None or not captured.source_available:
-                            raise SubmissionUnavailable("submission source unavailable")
-                        excerpt = await self._source_reader.owned_source_excerpt(
+                if grant is not None and SOURCE_EVIDENCE in grant.tools:
+                    try:
+                        captured = await self._source_reader.learning_code_evidence(
+                            db,
                             principal,
-                            captured.source.submission_id,
-                            selection.start_line,
-                            selection.end_line,
+                            since=now - timedelta(days=review.days if review else 90),
+                            as_of=now,
+                            problem_ids=review.problem_ids if review else (),
+                            submission_id=body.submission_id,
+                            comparison=session.purpose == AgentPurpose.SUBMISSION_REVIEW,
+                            collect_control_flow=body.include_model_control_flow,
                         )
-                        if excerpt.source != captured.source:
-                            raise SubmissionUnavailable("submission source changed")
-                        if not excerpt.text.strip():
-                            raise ValueError("source excerpt is empty")
-                        source_excerpt = excerpt.text.encode("utf-8")
-                except SubmissionUnavailable:
-                    raise AgentRecordUnavailable("submission evidence unavailable") from None
+                        if selection is not None:
+                            if captured is None or not captured.source_available:
+                                raise SubmissionUnavailable("submission source unavailable")
+                            excerpt = await self._source_reader.owned_source_excerpt(
+                                principal,
+                                captured.source.submission_id,
+                                selection.start_line,
+                                selection.end_line,
+                            )
+                            if excerpt.source != captured.source:
+                                raise SubmissionUnavailable("submission source changed")
+                            if not excerpt.text.strip():
+                                raise ValueError("source excerpt is empty")
+                            source_excerpt = excerpt.text.encode("utf-8")
+                    except SubmissionUnavailable:
+                        raise AgentRecordUnavailable("submission evidence unavailable") from None
+                elif body.include_source_evidence:
+                    raise SkillBindingUnavailable("source evidence unavailable")
             snapshot = snapshot.model_copy(update={"source_evidence": captured})
+
+        async def freeze_chat_evaluation(
+            db: AsyncSession, workflow_input: StoredAgentLearningInput
+        ) -> StoredAgentLearningInput:
+            chat, facts = workflow_input.chat, workflow_input.chat_context
+            submission_id, as_of = workflow_input.submission_id, workflow_input.evidence_as_of
+            assert chat is not None and chat.problem_version_id is not None
+            assert facts is not None and submission_id is not None and as_of is not None
+            await require_agent_access(db, principal.account_id)
+            administrator = await self._identity.require_active_session(db, principal)
+            include_source = workflow_input.chat_source is not None
+            await self._require_chat_ceiling(
+                db, principal, chat, administrator, include_source=include_source
+            )
+            await self._require_chat_evidence_grants(
+                db,
+                principal,
+                skill_version_id,
+                configuration.digest,
+                chat,
+                include_source=include_source,
+            )
+            evidence = await owned_guided_submission_details(
+                db,
+                principal,
+                submission_id=submission_id,
+                problem_version_id=chat.problem_version_id,
+                as_of=as_of,
+            )
+            if evidence is None:
+                raise AgentRecordUnavailable("submission evidence unavailable")
+            if not await reserve_review_evaluation_read(
+                db, principal.account_id, chat.problem_version_id
+            ):
+                return workflow_input
+            return workflow_input.model_copy(
+                update={"chat_context": facts.model_copy(update={"submission": evidence})}
+            )
 
         try:
             run = await storage.enqueue(
@@ -716,6 +808,9 @@ class AgentLearning:
                 workflow_input=snapshot,
                 receipt=AcceptedSession.from_principal(principal),
                 source_excerpt=source_excerpt,
+                freeze_workflow=freeze_chat_evaluation
+                if snapshot.chat is not None and snapshot.chat.include_submission_details
+                else None,
             )
         except AgentRecordConflict:
             existing = await storage.find_request(session_id, request_id)
@@ -771,12 +866,20 @@ class AgentLearning:
         async with self._sessions.begin() as db:
             administrator = await self._identity.require_active_session(db, principal)
             execution = await self._store(principal).execution_in(db, run_id)
-            if execution.chat and (execution.partial_answer or execution.partial_reasoning):
+            if execution.partial_answer or execution.partial_reasoning:
                 try:
-                    await self._require_chat_ceiling(
-                        db, principal, execution.chat, administrator, include_source=False
-                    )
-                except HintCeilingDenied:
+                    if execution.chat:
+                        await self._require_chat_ceiling(
+                            db, principal, execution.chat, administrator, include_source=False
+                        )
+                    if execution.run.configuration_digest != _BASIC_CHAT_DIGEST:
+                        await self.skills.require_execution_configuration(
+                            db,
+                            principal,
+                            execution.run.skill_version_id,
+                            execution.run.configuration_digest,
+                        )
+                except (HintCeilingDenied, SkillBindingUnavailable, SkillVersionUnavailable):
                     return execution.model_copy(
                         update={"partial_answer": None, "partial_reasoning": None}
                     )
@@ -862,6 +965,119 @@ class AgentLearning:
             )
             return await service.save_agent_plan(db, principal, run_id, result, config.parameters)
 
+    async def _review_resource_access(
+        self,
+        db: AsyncSession,
+        principal: Principal,
+        running: AgentRun,
+        resource: ReviewResourceName,
+    ) -> None:
+        await self._identity.require_active_session(db, principal)
+        await require_agent_access(db, principal.account_id)
+        grant = await self.skills.for_current_skill(
+            db, principal, running.skill_version_id, running.configuration_digest
+        )
+        key = SOURCE_EVIDENCE if resource == "code" else SUBMISSION_HISTORY
+        if grant is None or key not in grant.tools:
+            raise SkillBindingUnavailable("review resource unavailable")
+        await self._store(principal).require_running(db, running)
+
+    def _review_resources(
+        self,
+        principal: Principal,
+        running: AgentRun,
+        result: SubmissionReviewResult,
+        facts: ReviewModelFacts,
+    ) -> dict[ReviewResourceName, Callable[[], Awaitable[str]]]:
+        anchor = result.records[0]
+        code = review_model_facts(result, include_code_counts=True)
+
+        async def evaluations() -> str:
+            async with self._sessions.begin() as db:
+                await self._review_resource_access(db, principal, running, "evaluations")
+                if anchor.submission_id != result.anchor_submission_id:
+                    raise LookupError("selected evaluation unavailable")
+                if not await reserve_review_evaluation_read(
+                    db, principal.account_id, anchor.problem_version_id
+                ):
+                    raise LookupError("evaluation summary unavailable")
+                category = await owned_review_evaluation_category(
+                    db,
+                    principal,
+                    submission_id=anchor.submission_id,
+                    evaluation_id=anchor.evaluation_id,
+                    problem_version_id=anchor.problem_version_id,
+                    as_of=result.evidence_as_of or running.created_at,
+                )
+            evidence = facts.model_dump(mode="json", exclude={"question", "code", "focus_options"})
+            evidence["selected_evaluation"] = ReviewEvaluationSummary(category=category).model_dump(
+                mode="json"
+            )
+            return json.dumps(evidence, ensure_ascii=False)
+
+        async def problem() -> str:
+            async with self._sessions.begin() as db:
+                await self._review_resource_access(db, principal, running, "problem")
+                public = await problems.learning_review_problem(db, anchor.problem_version_id)
+            if public is None:
+                raise LookupError("public statement unavailable")
+            return json.dumps(public, ensure_ascii=False)
+
+        async def code_summary() -> str:
+            async with self._sessions.begin() as db:
+                await self._review_resource_access(db, principal, running, "code")
+            if code is None or code.code is None:
+                raise LookupError("code evidence unavailable")
+            return code.code.model_dump_json(exclude_none=True)
+
+        resources: dict[ReviewResourceName, Callable[[], Awaitable[str]]] = {
+            "evaluations": evaluations,
+            "problem": problem,
+        }
+        if code is not None and code.code is not None:
+            resources["code"] = code_summary
+        if self._review_batch_offers and result.anchor_submission_id == anchor.submission_id:
+
+            async def batches() -> str:
+                offers, outcomes = await self._review_batches(principal, running, result)
+                return json.dumps(
+                    {
+                        "options": [
+                            {"title": offer.title, "purpose": offer.purpose} for offer in offers
+                        ],
+                        "results": [row.model_dump(mode="json") for row in outcomes],
+                    },
+                    ensure_ascii=False,
+                )
+
+            resources["batch_diagnostics"] = batches
+        return resources
+
+    async def _review_batches(
+        self, principal: Principal, running: AgentRun, result: SubmissionReviewResult
+    ) -> tuple[tuple[RegisteredBatchOffer, ...], tuple[ReviewBatchOutcome, ...]]:
+        async with self._sessions.begin() as db:
+            await self._review_resource_access(db, principal, running, "batch_diagnostics")
+            view = await db.scalar(
+                select(func.kf_review_batch_context(running.run_id, running.revision))
+            )
+        if view is None:
+            return (), ()
+        anchor = result.records[0]
+        offers = {
+            offer.manifest_sha256: offer
+            for offer in self._review_batch_offers
+            if offer.problem_version_id == anchor.problem_version_id
+            and offer.language == view["language"]
+        }
+        outcomes = tuple(
+            ReviewBatchOutcome(purpose=row["purpose"], outcome=row["outcome"])
+            for row in view["outcomes"]
+            if (offer := offers.get(row["manifest_sha256"])) is not None
+            and row["purpose"] == offer.purpose
+        )
+        return tuple(offers.values())[:8], outcomes
+
     async def _add_model_hint[
         WithHint: (
             GuidedHelpResult,
@@ -885,6 +1101,24 @@ class AgentLearning:
         model = self._model
         if source_context is not None and not getattr(model, "accepts_source_excerpt", False):
             model = None
+        practice_tool_only = chat is not None and chat.practice_tool_only
+        if practice_tool_only and isinstance(content, GuidedChatModelFacts):
+            content = content.model_copy(update={"recent_practice": ()})
+        practice = content.recent_practice if isinstance(content, GuidedChatModelFacts) else ()
+        practice_in_context = bool(practice)
+        practice_granted = False
+        chat_model = (
+            model if isinstance(model, ChatResourceModel) and model.supports_review_mcp else None
+        )
+
+        async def verify_practice(db: AsyncSession) -> None:
+            await self.skills.require_execution_configuration(
+                db,
+                principal,
+                running.skill_version_id,
+                running.configuration_digest,
+                required_tool=SUBMISSION_HISTORY,
+            )
 
         async def verify_chat(db: AsyncSession) -> None:
             administrator = await self._identity.require_active_session(db, principal)
@@ -901,17 +1135,44 @@ class AgentLearning:
                     chat,
                     include_source=include_source,
                 )
+            if practice_in_context:
+                await verify_practice(db)
 
         async def verify(db: AsyncSession) -> None:
             await require_agent_access(db, principal.account_id)
-            await self.skills.require_execution_configuration(
-                db, principal, running.skill_version_id, running.configuration_digest
-            )
+            if running.configuration_digest != _BASIC_CHAT_DIGEST:
+                await self.skills.require_execution_configuration(
+                    db, principal, running.skill_version_id, running.configuration_digest
+                )
+
+        if (
+            isinstance(content, GuidedChatModelFacts)
+            and model is not None
+            and running.configuration_digest != _BASIC_CHAT_DIGEST
+        ):
+            async with self._sessions.begin() as db:
+                await verify_chat(db)
+                grant = await self.skills.for_current_skill(
+                    db, principal, running.skill_version_id, running.configuration_digest
+                )
+                practice_granted = grant is not None and SUBMISSION_HISTORY in grant.tools
+                if (
+                    practice_granted
+                    and chat_model is None
+                    and not practice
+                    and not practice_tool_only
+                ):
+                    await require_agent_access(db, principal.account_id)
+                    await storage.require_running(db, running)
+                    practice = await self._recent_practice_facts(db, principal, running.created_at)
+                    practice_in_context = bool(practice)
+                    content = content.model_copy(update={"recent_practice": practice})
 
         previous_invocations = ()
-        discarded_invocation = None
+        discarded_invocations = ()
         choices = ()
         guarded_diagnostic = False
+        review_resources = None
         if isinstance(content, GuidedChatModelFacts):
             invocation = "responses-guided-chat-v1"
             level = chat.bounded_hint_level() if chat is not None else None
@@ -919,13 +1180,16 @@ class AgentLearning:
             if not guarded_diagnostic:
                 choices = hint_choices(content, level)
             if choices or guarded_diagnostic:
-                discarded_invocation = invocation
+                discarded_invocations = (invocation,)
                 invocation = (
                     "responses-guided-diagnostic-v1"
                     if guarded_diagnostic
                     else "responses-guided-choice-v1"
                 )
                 content = content.model_copy(update={"hint_level": level, "hint_choices": choices})
+            if chat is not None and chat.include_submission_details:
+                discarded_invocations += (invocation,)
+                invocation = invocation.removesuffix("-v1") + "-v2"
             raw = content.model_dump_json(exclude_none=True).encode()
             if chat_source is not None:
                 raw += chat_source.model_dump_json().encode()
@@ -951,6 +1215,12 @@ class AgentLearning:
             previous_invocations = (invocation, prefix + "-v2")
             invocation = prefix + "-v3"
             raw = content.model_dump_json().encode()
+            if content.question is not None and isinstance(result, SubmissionReviewResult):
+                previous_invocations += ("responses-review-mcp-v1", "responses-review-mcp-v2")
+                if isinstance(model, ReviewResourceModel) and model.supports_review_mcp:
+                    review_resources = self._review_resources(principal, running, result, content)
+                    previous_invocations += (invocation,)
+                    invocation = "responses-review-mcp-v2"
         elif isinstance(content, GuidedHelpModelFacts):
             invocation = "responses-concept-verdict-v1"
             raw = content.model_dump_json().encode()
@@ -963,6 +1233,17 @@ class AgentLearning:
         open_chat = (
             isinstance(content, GuidedChatModelFacts) and not choices and not guarded_diagnostic
         )
+        typed_review = (
+            isinstance(content, (ReviewModelFacts, SourceExcerptModelContext))
+            and content.question is not None
+        )
+        request_seconds = (
+            CHAT_MODEL_REQUEST_SECONDS
+            if open_chat
+            else REVIEW_MODEL_REQUEST_SECONDS
+            if typed_review
+            else MODEL_REQUEST_SECONDS
+        )
         try:
             async with self._sessions.begin() as db:
                 await verify_chat(db)
@@ -973,11 +1254,9 @@ class AgentLearning:
                     _digest(raw),
                     self._model_limits if model is not None else None,
                     verify,
-                    request_seconds=CHAT_MODEL_REQUEST_SECONDS
-                    if open_chat
-                    else MODEL_REQUEST_SECONDS,
+                    request_seconds=request_seconds,
                     previous_invocations=previous_invocations,
-                    discarded_invocation=discarded_invocation,
+                    discarded_invocations=discarded_invocations,
                 )
                 if dispatch and source_context is not None:
                     excerpt = await storage.take_source_excerpt(db, running)
@@ -1006,32 +1285,111 @@ class AgentLearning:
                         "model_status": "generated",
                     }
                 )
-            status = (
-                "output_limit"
-                if isinstance(content, GuidedChatModelFacts)
-                and step.error_code == "model_output_limit"
-                else "unavailable"
-                if step.state == "failed"
-                else "uncertain"
-            )
+            status = "uncertain"
+            if step.state == "failed":
+                status = self._model_failure_status(content, step.error_code)
             return result.model_copy(update={"model_status": status})
         assert model is not None
+
+        async def preview(channel: ModelOutputChannel, text: str) -> None:
+            await storage.publish_chat_output(running, channel, text, verify=verify_chat)
+
+        async def read_practice() -> str:
+            nonlocal practice_in_context
+            async with self._sessions.begin() as db:
+                await verify_chat(db)
+                await require_agent_access(db, principal.account_id)
+                await storage.require_running(db, running)
+                if not practice_in_context:
+                    await verify_practice(db)
+                facts = practice or await self._recent_practice_facts(
+                    db, principal, running.created_at
+                )
+                practice_in_context = True
+            return json.dumps(
+                {"recent_practice": [item.model_dump(mode="json") for item in facts]},
+                ensure_ascii=False,
+            )
+
+        async def continue_request(resources: tuple[ReviewResourceName, ...]) -> bool:
+            async def verify_resources(db: AsyncSession) -> None:
+                await verify_chat(db)
+                await verify(db)
+                if review_resources is not None:
+                    for resource in resources:
+                        await self._review_resource_access(db, principal, running, resource)
+
+            return await storage.begin_model_continuation(
+                running, self._model_limits, verify_resources
+            )
+
+        async def review_preview(channel: ModelOutputChannel, text: str) -> None:
+            if (
+                channel == "answer"
+                and review_resources is None
+                and (
+                    isinstance(content, SourceExcerptModelFacts)
+                    or (
+                        isinstance(content, ReviewModelFacts)
+                        and (
+                            content.focus_options
+                            or (content.code and content.code.comparison_cases)
+                        )
+                    )
+                )
+            ):
+                return
+
+            async def verify_preview(db: AsyncSession) -> None:
+                await verify_chat(db)
+                await verify(db)
+
+            await storage.publish_chat_output(running, channel, text, verify=verify_preview)
+
         try:
             if (
                 open_chat
                 and isinstance(content, GuidedChatModelFacts)
+                and practice_granted
+                and chat_model is not None
+            ):
+                hint = await chat_model.chat_with_tools(
+                    content.model_copy(update={"recent_practice": ()}),
+                    preview,
+                    read_practice,
+                    continue_request,
+                )
+            elif (
+                open_chat
+                and isinstance(content, GuidedChatModelFacts)
                 and isinstance(model, StreamingLearningHintModel)
             ):
-
-                async def preview(channel: ModelOutputChannel, text: str) -> None:
-                    await storage.publish_chat_output(
-                        running,
-                        channel,
-                        text,
-                        verify=verify_chat if chat is not None else None,
-                    )
-
                 hint = await model.stream_hint(content, preview)
+            elif review_resources is not None:
+                assert isinstance(content, ReviewModelFacts)
+                assert isinstance(model, ReviewResourceModel)
+
+                if "batch_diagnostics" in review_resources:
+                    assert isinstance(result, SubmissionReviewResult)
+                    _, outcomes = await self._review_batches(principal, running, result)
+                    content = content.model_copy(update={"batch_diagnostics": outcomes})
+                if isinstance(model, StreamingReviewModel):
+                    hint = await model.stream_review(
+                        content,
+                        review_preview,
+                        resources=review_resources,
+                        continue_request=continue_request,
+                    )
+                else:
+                    hint = await model.review_with_tools(
+                        content, review_resources, continue_request
+                    )
+            elif (
+                typed_review
+                and isinstance(content, (ReviewModelFacts, SourceExcerptModelFacts))
+                and isinstance(model, StreamingReviewModel)
+            ):
+                hint = await model.stream_review(content, review_preview)
             else:
                 hint = await model.hint(content)
             if choices or guarded_diagnostic:
@@ -1093,13 +1451,21 @@ class AgentLearning:
                 running.revision,
                 model_usage=error.usage,
             )
-            status = (
-                "output_limit"
-                if isinstance(content, GuidedChatModelFacts) and error.code == "model_output_limit"
-                else "unavailable"
-            )
+            status = self._model_failure_status(content, error.code)
             return result.model_copy(update={"model_status": status})
         return result.model_copy(update={"model_hint": hint, "model_status": "generated"})
+
+    @staticmethod
+    def _model_failure_status(
+        content: ModelHintInput | SourceExcerptModelContext, code: str | None
+    ):
+        if code == "model_output_limit" and isinstance(
+            content, (GuidedChatModelFacts, ReviewModelFacts, SourceExcerptModelContext)
+        ):
+            return "output_limit"
+        if code == "model_budget_exhausted":
+            return "budget_exhausted"
+        return "context_limit" if code == "model_context_limit" else "unavailable"
 
     async def execute_claimed(
         self, principal: Principal, run_id: UUID, revision: int
@@ -1169,13 +1535,19 @@ class AgentLearning:
                 if body.training_set is not None or body.periodic_review is not None
                 else None
             )
-            config = await self.skills.configuration(
-                principal,
-                running.skill_version_id,
-                running.configuration_digest,
-                required_tool=required_tool,
-            )
-            if isinstance(config.parameters, GuidedHelpParameters) and body.chat is None:
+            if running.configuration_digest == _BASIC_CHAT_DIGEST:
+                if body.chat is None or body.chat.include_submission_details or body.chat_source:
+                    raise SkillBindingUnavailable("plain chat cannot read submission evidence")
+                parameters = GuidedHelpParameters()
+            else:
+                config = await self.skills.configuration(
+                    principal,
+                    running.skill_version_id,
+                    running.configuration_digest,
+                    required_tool=required_tool,
+                )
+                parameters = config.parameters
+            if isinstance(parameters, GuidedHelpParameters) and body.chat is None:
                 self._require_legacy_guided_ceiling(body, administrator)
             workflow = LearningWorkflow(invoke)
             try:
@@ -1185,7 +1557,7 @@ class AgentLearning:
             except (AgentRecordUnavailable, ValueError) as error:
                 raise LearningEvidenceUnavailable("training set draft unavailable") from error
             result = await workflow.run(
-                config.parameters,
+                parameters,
                 body,
                 review_anchor=body.review_anchor,
                 training_source=training_source,
@@ -1244,7 +1616,7 @@ class AgentLearning:
             elif (
                 body.include_model_review
                 and isinstance(result, SubmissionReviewResult)
-                and isinstance(config.parameters, SubmissionReviewParameters)
+                and isinstance(parameters, SubmissionReviewParameters)
             ):
                 targets = review_focus_targets(result) if body.include_model_evidence_focus else {}
                 facts = review_model_facts(
@@ -1267,7 +1639,9 @@ class AgentLearning:
                         )
                         if facts.code.comparison_cases is not None:
                             basis = "evaluations_and_comparison_cases"
-                    result = result.model_copy(update={"model_review_basis": basis})
+                    result = result.model_copy(
+                        update={"model_review_basis": basis, "evidence_as_of": body.evidence_as_of}
+                    )
                     result = await self._add_model_hint(
                         principal, storage, running, result, facts, ordinal + 1
                     )
@@ -1276,9 +1650,7 @@ class AgentLearning:
                         ordinal += 1
                         sequence = await storage.last_step_sequence(running)
                         try:
-                            verified = await workflow.verify_review_evidence(
-                                config.parameters, target
-                            )
+                            verified = await workflow.verify_review_evidence(parameters, target)
                         except (ToolBudgetExceeded, ToolTimedOut):
                             verified = None
                         if verified is not None:
@@ -1321,13 +1693,14 @@ class AgentLearning:
                     self._require_legacy_guided_ceiling(body, administrator)
 
                 async def verify(actual: AgentRun) -> None:
-                    await self.skills.require_execution_configuration(
-                        db,
-                        principal,
-                        actual.skill_version_id,
-                        actual.configuration_digest,
-                        required_tool=required_tool,
-                    )
+                    if actual.configuration_digest != _BASIC_CHAT_DIGEST:
+                        await self.skills.require_execution_configuration(
+                            db,
+                            principal,
+                            actual.skill_version_id,
+                            actual.configuration_digest,
+                            required_tool=required_tool,
+                        )
 
                 result = result.model_copy(update={"evidence_as_of": body.evidence_as_of})
                 assisted_version = (

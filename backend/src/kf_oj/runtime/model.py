@@ -1,6 +1,7 @@
 """The model capability offered to the learning runtime."""
 
 from collections import Counter
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Protocol, runtime_checkable
 
 from kf_oj.contracts.agent_learning import (
@@ -24,6 +25,8 @@ from kf_oj.contracts.learning_model import (
     ReviewComparisonCases,
     ReviewFocusCategory,
     ReviewModelFacts,
+    ReviewResourceName,
+    SourceExcerptModelFacts,
 )
 from kf_oj.contracts.submission_evidence import CodeSubmissionRef
 
@@ -43,6 +46,43 @@ class LearningHintModel(Protocol):
 class StreamingLearningHintModel(LearningHintModel, Protocol):
     async def stream_hint(
         self, content: GuidedChatModelFacts, on_output: ModelOutput
+    ) -> ModelHint: ...
+
+
+@runtime_checkable
+class ChatResourceModel(StreamingLearningHintModel, Protocol):
+    supports_review_mcp: bool
+
+    async def chat_with_tools(
+        self,
+        content: GuidedChatModelFacts,
+        on_output: ModelOutput,
+        read_practice: Callable[[], Awaitable[str]],
+        continue_request: Callable[[tuple[ReviewResourceName, ...]], Awaitable[bool]],
+    ) -> ModelHint: ...
+
+
+@runtime_checkable
+class ReviewResourceModel(LearningHintModel, Protocol):
+    supports_review_mcp: bool
+
+    async def review_with_tools(
+        self,
+        content: ReviewModelFacts,
+        resources: Mapping[ReviewResourceName, Callable[[], Awaitable[str]]],
+        continue_request: Callable[[tuple[ReviewResourceName, ...]], Awaitable[bool]],
+    ) -> ModelHint: ...
+
+
+@runtime_checkable
+class StreamingReviewModel(LearningHintModel, Protocol):
+    async def stream_review(
+        self,
+        content: ReviewModelFacts | SourceExcerptModelFacts,
+        on_output: ModelOutput,
+        *,
+        resources: Mapping[ReviewResourceName, Callable[[], Awaitable[str]]] | None = None,
+        continue_request: Callable[[tuple[ReviewResourceName, ...]], Awaitable[bool]] | None = None,
     ) -> ModelHint: ...
 
 

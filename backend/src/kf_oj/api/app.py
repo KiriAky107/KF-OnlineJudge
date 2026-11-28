@@ -34,6 +34,7 @@ from kf_oj.modules.contests.schedule import ContestSchedules
 from kf_oj.modules.contests.service import ContestRatings
 from kf_oj.modules.identity.service import IdentityService
 from kf_oj.modules.learning.agent_application import AgentLearning
+from kf_oj.modules.learning.diagnostic_queue import DiagnosticQueue
 from kf_oj.modules.learning.hint_policy import HintPolicy
 from kf_oj.modules.learning.public import AGENT_TOOL_SCOPES
 from kf_oj.modules.learning.service import LearningService
@@ -135,6 +136,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         settings.learning_chat_max_hint_level,
                         settings.learning_member_max_hint_level,
                         settings.learning_admin_max_hint_level,
+                    ),
+                    diagnostics=(
+                        DiagnosticQueue(
+                            app.state.sessions,
+                            app.state.identity,
+                            ubsan_enabled=settings.learning_diagnostics_ubsan_enabled,
+                            batch_offers=settings.learning_diagnostic_batch_offers,
+                        )
+                        if artifacts is not None and settings.learning_diagnostics_enabled
+                        else None
                     ),
                 )
                 app.state.skill_drafts = SkillDrafts(

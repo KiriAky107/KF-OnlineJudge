@@ -5,6 +5,7 @@ from contextlib import suppress
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from kf_oj.contracts.diagnostic_batch import RegisteredBatchOffer
 from kf_oj.modules.identity.public import Principal, accepted_session_access
 from kf_oj.modules.learning.agent_application import AgentLearning
 from kf_oj.modules.learning.agent_model_budget import DEFAULT_MODEL_LIMITS, AgentModelLimits
@@ -23,11 +24,13 @@ class LearningWorker:
         *,
         model_limits: AgentModelLimits = DEFAULT_MODEL_LIMITS,
         hint_policy: HintPolicy = DEFAULT_HINT_POLICY,
+        review_batch_offers: tuple[RegisteredBatchOffer, ...] = (),
     ) -> None:
         self._sessions = sessions
         self._model = model
         self._model_limits = model_limits
         self._hint_policy = hint_policy
+        self._review_batch_offers = review_batch_offers
         self._queue = AgentQueue(sessions)
         self._catalog = load_builtin_skills()
 
@@ -47,6 +50,7 @@ class LearningWorker:
             model_limits=self._model_limits,
             hint_policy=self._hint_policy,
             claim=lease.run,
+            review_batch_offers=self._review_batch_offers,
         )
         running = asyncio.create_task(
             learning.execute_claimed(actor, lease.run.run_id, lease.run.revision)

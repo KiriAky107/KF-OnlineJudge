@@ -16,6 +16,10 @@ import AgentTimelineTurn from '../components/AgentTimelineTurn.vue'
 import { sha256Fingerprint } from '../lib/requestCrypto'
 import LearningSourceExcerpt from '../components/LearningSourceExcerpt.vue'
 import LearningReviewSubmission from '../components/LearningReviewSubmission.vue'
+import LearningPublicDiagnostic from '../components/LearningPublicDiagnostic.vue'
+import LearningBatchDiagnostic from '../components/LearningBatchDiagnostic.vue'
+import LearningPersonalMistakes from '../components/LearningPersonalMistakes.vue'
+import LearningMistakePractice from '../components/LearningMistakePractice.vue'
 import SkillVersionComparison from '../components/SkillVersionComparison.vue'
 import { useSession } from '../composables/useSession'
 import { useContestAgentAccess } from '../composables/useContestAgentAccess'
@@ -23,7 +27,13 @@ import { useAssistantTimeline } from '../composables/useAssistantTimeline'
 import { displayTime } from '../lib/presentation'
 import { assistantPage } from '../lib/assistantNavigation'
 import { hintIndex, hintLevels, type HintLevel } from '../lib/hintLevels'
-import { isProblemSearchQuestion, isTrainingMessage } from '../lib/trainingSetChat'
+import {
+  hasTrainingCandidateAccess,
+  isProblemSearchQuestion,
+  isTrainingMessage,
+  trainingChatSkill,
+} from '../lib/trainingSetChat'
+import { mistakePracticeTurn } from '../lib/mistakePractice'
 import { isSubmissionReviewQuestion } from '../lib/assistantReview'
 import { periodicReviewTurn, type PeriodicReviewRequest } from '../lib/assistantPeriodicReview'
 
@@ -76,6 +86,17 @@ const trainingRecord = ref<Run>()
 const switchingComposer = ref(false)
 const settingsOpen = ref(false)
 const historyOpen = ref(false)
+const mistakesOpen = ref(false)
+const mistakeRevision = ref(0)
+const withdrawnMistakeId = ref<string>()
+const practiceResult = ref<components['schemas']['MistakePractice']>()
+const practiceSource = ref<components['schemas']['DiagnosticMistakeEvidence']>()
+const practiceQuestion = ref('')
+const practiceNotice = ref('')
+const practiceBusy = ref(false)
+const waitingForPracticeTime = ref(false)
+const practicePanel = ref<HTMLElement>()
+let practiceRequest: AbortController | undefined
 const questionDraft = ref('')
 const questionLimit = 1200
 const pendingQuestion = ref<{ key: string | undefined; text: string }>()
@@ -232,9 +253,6 @@ const chatSkill = computed(() => {
     guided.find((skill) => skill.origin === 'builtin')
   )
 })
-const chatVersionUnavailable = computed(() =>
-  Boolean(continuingSkillId.value && !chatSkill.value?.binding),
-)
 const reviewSkill = computed(() => {
   const reviews = catalog.value.filter((skill) => skill.purpose === 'submission_review')
   return (
@@ -249,6 +267,10 @@ const reviewEnabled = computed(
   () =>
     reviewSkill.value?.binding?.enabled &&
     reviewSkill.value.binding.authorized_tools.some(({ name }) => name === 'submission_history'),
+)
+const practiceSkill = computed(() => trainingChatSkill(catalog.value))
+const practiceEnabled = computed(
+  () => practiceSkill.value && hasTrainingCandidateAccess(practiceSkill.value),
 )
 const periodicSkill = computed(() => {
   const versions = catalog.value.filter((skill) => skill.purpose === 'periodic_review')
@@ -271,8 +293,9 @@ const composerSkill = computed(() =>
 )
 const chatCanUseDetails = computed(
   () =>
+    !toReview.value &&
     authorizedChatTarget.value &&
-    (toReview.value || hintLevel.value === 'L2' || hintLevel.value === 'L3') &&
+    (hintLevel.value === 'L2' || hintLevel.value === 'L3') &&
     composerSkill.value?.binding?.authorized_tools?.some(
       (tool) => tool.name === 'submission_history',
     ),
@@ -339,6 +362,12 @@ const runId = computed(() => {
   const value = route.query[queryRun()]
   return isUuid(value) ? value : ''
 })
+
+function onMistakeSaved() {
+  withdrawnMistakeId.value = undefined
+  mistakeRevision.value += 1
+}
+
 const trainingId = computed(() => (isUuid(route.query.trainingRun) ? route.query.trainingRun : ''))
 watch(
   trainingId,
@@ -479,6 +508,9 @@ function applyRun(value: Run) {
     return
   }
   run.value = value
+  if (!submission.value && value.result?.purpose === 'submission_review') {
+    submission.value = value.result.anchor_submission_id ?? ''
+  }
   const known = history.value?.items.find((item) => item.run_id === value.run_id)
   if (known) known.state = value.state
 }
@@ -638,15 +670,15 @@ function splitList(value: string) {
   ]
 }
 
-function saveSkill(mode: 'settings' | 'guided' | 'review' | 'periodic' = 'settings') {
+function saveSkill(mode: 'settings' | 'review' | 'periodic' | 'practice' = 'settings') {
   const quick = mode !== 'settings'
   const skill =
     mode === 'review'
       ? reviewSkill.value
-      : mode === 'guided'
-        ? chatSkill.value
-        : mode === 'periodic'
-          ? periodicSkill.value
+      : mode === 'periodic'
+        ? periodicSkill.value
+        : mode === 'practice'
+          ? practiceSkill.value
           : selectedSkill.value
   if (!skill) return
   void act(async (signal) => {
@@ -659,7 +691,7 @@ function saveSkill(mode: 'settings' | 'guided' | 'review' | 'periodic' = 'settin
     const authorizedTools = skill.available_tools.filter((tool) =>
       quick
         ? (mode === 'review' && tool.name === 'submission_history') ||
-          (mode === 'periodic' && tool.name === 'training_candidates') ||
+          ((mode === 'periodic' || mode === 'practice') && tool.name === 'training_candidates') ||
           skill.binding?.authorized_tools.some((granted) => toolsKey(granted) === toolsKey(tool))
         : allowedTools.value.includes(toolsKey(tool)),
     )
@@ -691,17 +723,38 @@ function saveSkill(mode: 'settings' | 'guided' | 'review' | 'periodic' = 'settin
 function start(question?: string, workflow?: 'review' | PeriodicReviewRequest) {
   const review = workflow === 'review'
   const periodic = typeof workflow === 'object' ? workflow : undefined
+  const freeQuestion = Boolean(question && !workflow)
+  const previous = run.value
+  const problemVersion = contextProblem.value ?? previous?.chat?.problem_version_id ?? null
+  const chatBinding = chatSkill.value?.binding
+  const practiceGranted = Boolean(
+    chatBinding?.enabled &&
+    chatBinding.authorized_tools.some(({ name }) => name === 'submission_history'),
+  )
+  const practiceToolOnly = freeQuestion && !problemVersion && practiceGranted
+  const ownPracticeQuestion =
+    !!question &&
+    /(?:我(?:的|最近)(?:做题|刷题|练习|学习|提交|通过|做了)|(?:my|my recent) practice)/i.test(
+      question,
+    )
+  const usesChatEvidence =
+    (chatCanUseDetails.value && chatIncludeDetails.value) ||
+    (chatCanUseSource.value && !!chatSourceExcerpt.value) ||
+    practiceToolOnly ||
+    (ownPracticeQuestion && practiceGranted)
   const skill = review
     ? reviewSkill.value
     : periodic
       ? periodicSkill.value
-      : question
-        ? chatSkill.value
+      : freeQuestion
+        ? usesChatEvidence
+          ? chatSkill.value
+          : undefined
         : selectedSkill.value
   const owner = user.value?.id
-  if (!owner || !skill?.binding?.enabled) return
-  const previous = run.value
-  const problemVersion = contextProblem.value ?? previous?.chat?.problem_version_id ?? null
+  if (!owner || ((!freeQuestion || usesChatEvidence) && !skill?.binding?.enabled)) return
+  const purpose = skill?.purpose ?? 'guided_help'
+  const skillVersionId = skill?.version_id
   if (question && !workflow && problemVersion && hintCeiling.value === null) return
   const parent =
     question &&
@@ -709,7 +762,7 @@ function start(question?: string, workflow?: 'review' | PeriodicReviewRequest) {
     previous?.chat &&
     (previous.chat.problem_version_id ?? null) === problemVersion &&
     (previous.chat.training_id ?? undefined) === hintTraining.value &&
-    previous.skill_version_id === skill.version_id &&
+    (!skillVersionId || previous.skill_version_id === skillVersionId) &&
     terminal(previous)
       ? previous
       : null
@@ -720,13 +773,14 @@ function start(question?: string, workflow?: 'review' | PeriodicReviewRequest) {
           problem_version_id: problemVersion,
           previous_run_id: parent?.run_id ?? null,
           include_submission_details: Boolean(chatCanUseDetails.value && chatIncludeDetails.value),
+          ...(practiceToolOnly ? { practice_tool_only: true } : {}),
           ...(problemVersion ? { hint_level: hintLevel.value } : {}),
           ...(hintTraining.value ? { training_id: hintTraining.value } : {}),
         }
       : undefined
   const submittedDraftKey = question ? composerKey.value : undefined
   const anchor = conversationSession.value
-  const topic = !question && skill.purpose === 'guided_help' ? modelTopic.value : ''
+  const topic = !question && purpose === 'guided_help' ? modelTopic.value : ''
   const useModelVerdict = Boolean(
     !question && canUseModelVerdict.value && includeModelVerdict.value,
   )
@@ -736,11 +790,11 @@ function start(question?: string, workflow?: 'review' | PeriodicReviewRequest) {
       ? chatCanUseSource.value
         ? chatSourceExcerpt.value
         : null
-      : skill.purpose === 'submission_review' && canUseCode.value
+      : purpose === 'submission_review' && canUseCode.value
         ? modelSourceExcerpt.value
         : null
   const useModelReview =
-    skill.purpose === 'submission_review' &&
+    purpose === 'submission_review' &&
     (review || includeModelReview.value || Boolean(sourceExcerpt))
   const useCode = question
     ? Boolean(sourceExcerpt)
@@ -756,7 +810,7 @@ function start(question?: string, workflow?: 'review' | PeriodicReviewRequest) {
     question
       ? review || chat?.include_submission_details || sourceExcerpt
       : useModelVerdict ||
-        (!topic && (skill.purpose === 'guided_help' || skill.purpose === 'submission_review'))
+        (!topic && (purpose === 'guided_help' || purpose === 'submission_review'))
   )
     ? submission.value.trim()
     : ''
@@ -773,7 +827,7 @@ function start(question?: string, workflow?: 'review' | PeriodicReviewRequest) {
     const intent = agentRunIntent(
       sessionStorage,
       owner,
-      skill.version_id +
+      (skillVersionId ?? 'basic-chat') +
         ':' +
         (anchor ?? '') +
         ':' +
@@ -800,7 +854,7 @@ function start(question?: string, workflow?: 'review' | PeriodicReviewRequest) {
     if (!session) {
       const created = unwrap(
         await api.POST('/api/v1/learning/agent/sessions', {
-          body: { purpose: skill.purpose, conversation_session_id: anchor },
+          body: { purpose, conversation_session_id: anchor },
           signal,
           headers: csrfHeaders(),
         }),
@@ -814,7 +868,7 @@ function start(question?: string, workflow?: 'review' | PeriodicReviewRequest) {
         params: { path: { session_id: session } },
         body: {
           request_id: intent.requestId,
-          skill_version_id: skill.version_id,
+          skill_version_id: skillVersionId,
           submission_id: target || null,
           include_source_evidence: useCode,
           model_topic: topic || null,
@@ -849,7 +903,7 @@ function start(question?: string, workflow?: 'review' | PeriodicReviewRequest) {
       void loadHistory()
       return
     }
-    promptLabel.value = purposes[skill.purpose]
+    promptLabel.value = purposes[purpose]
     const query = { ...route.query }
     query.assistantTab = 'agent'
     query[queryRun()] = submitted.run_id
@@ -878,14 +932,102 @@ function turnLocation(id: string, training: boolean, currentConversation: boolea
   return { query }
 }
 
+const mistakeSubmission = computed(() => {
+  if (currentPurpose.value !== 'submission_review' && route.query.purpose !== 'submission_review')
+    return
+  const id = submission.value.trim()
+  return isUuid(id) ? id : undefined
+})
+const mistakeTurn = computed(() =>
+  mistakePracticeTurn(
+    composer.value,
+    Boolean(mistakeSubmission.value || practiceSource.value || waitingForPracticeTime.value),
+  ),
+)
+
+function clearPractice() {
+  practiceRequest?.abort()
+  practiceBusy.value = false
+  practiceNotice.value = practiceQuestion.value = ''
+  practiceResult.value = undefined
+  practiceSource.value = undefined
+  waitingForPracticeTime.value = false
+}
+
+function onMistakeWithdrawn(id: string) {
+  withdrawnMistakeId.value = id
+  if (practiceBusy.value || practiceSource.value?.request_id === id) clearPractice()
+}
+
+async function showPractice(question: string, requestId?: string, minutes?: number) {
+  if (!user.value || contestBlocked.value || practiceBusy.value) return false
+  const linkedSubmission = requestId ? undefined : mistakeSubmission.value
+  const selected = practiceSource.value
+  const sourceId =
+    requestId ||
+    (!linkedSubmission || selected?.submission_id === linkedSubmission
+      ? selected?.request_id
+      : undefined)
+  clearPractice()
+  practiceQuestion.value = question
+  const skill = practiceSkill.value
+  if (!skill || !practiceEnabled.value) {
+    practiceNotice.value = '启用已授权找题的专项训练技能后，可按错因找题。'
+    await nextTick()
+    practicePanel.value?.scrollIntoView({ block: 'nearest' })
+    return false
+  }
+  const { signal } = (practiceRequest = new AbortController())
+  practiceBusy.value = true
+  try {
+    const result = unwrap(
+      await api.POST('/api/v1/learning/agent/mistakes/practice', {
+        headers: csrfHeaders(),
+        body: {
+          skill_version_id: skill.version_id,
+          request_id: sourceId,
+          submission_id: linkedSubmission,
+          available_minutes: minutes,
+        },
+        signal,
+      }),
+    )
+    if (signal.aborted) return false
+    practiceResult.value = result
+    practiceSource.value = result.evidence
+    return true
+  } catch (cause) {
+    if (!signal.aborted)
+      practiceNotice.value =
+        cause instanceof ApiError && cause.status === 404
+          ? '没有可用于这次请求的已确认错因。可以在「错因」里核对记录后重试。'
+          : feedback(cause)
+    return false
+  } finally {
+    if (!signal.aborted) {
+      practiceBusy.value = false
+      await nextTick()
+      practicePanel.value?.scrollIntoView({ block: 'nearest' })
+    }
+  }
+}
+
+function practiceFromRecord(id: string, minutes?: number) {
+  void showPractice(minutes ? `${minutes} 分钟补练` : '找同类题', id, minutes)
+}
+
+watch([() => user.value?.id, contestBlocked, displayedRun, mistakeSubmission], clearPractice)
+
 const periodicTurn = computed(() => {
   const question = composer.value
+  if (mistakeTurn.value) return
   if (/训练集|训练题单/.test(question) || isProblemSearchQuestion(question, false)) return
   return periodicReviewTurn(question, pendingPeriodicQuestion.value || undefined)
 })
 const toPeriodic = computed(() => Boolean(periodicTurn.value))
 const toTraining = computed(
   () =>
+    !mistakeTurn.value &&
     !toPeriodic.value &&
     isTrainingMessage(
       composer.value,
@@ -896,6 +1038,7 @@ const toTraining = computed(
 )
 const toReview = computed(
   () =>
+    !mistakeTurn.value &&
     !toTraining.value &&
     !toPeriodic.value &&
     !hintTraining.value &&
@@ -905,9 +1048,7 @@ const toReview = computed(
         authorizedChatTarget.value || !!contextProblem.value,
       )),
 )
-const reviewReady = computed(
-  () => reviewEnabled.value && authorizedChatTarget.value && chatIncludeDetails.value,
-)
+const reviewReady = computed(() => reviewEnabled.value && authorizedChatTarget.value)
 watch([toReview, toPeriodic], () => {
   chatIncludeDetails.value = false
   chatSourceExcerpt.value = null
@@ -919,6 +1060,7 @@ watch([chatCanUseDetails, chatCanUseSource], ([details, source]) => {
 const conversationBusy = computed(() =>
   Boolean(
     busy.value ||
+    practiceBusy.value ||
     chatPending.value ||
     switchingComposer.value ||
     trainingChat.value?.busy ||
@@ -929,9 +1071,29 @@ const conversationBusy = computed(() =>
 async function send() {
   const question = composer.value.trim()
   if (conversationBusy.value || !question) return
+  const practice = mistakeTurn.value
+  if (practice) {
+    const key = composerKey.value
+    if ('clarification' in practice) {
+      const source = practiceSource.value
+      clearPractice()
+      practiceSource.value = source
+      waitingForPracticeTime.value = true
+      practiceQuestion.value = question
+      practiceNotice.value = practice.clarification
+      saveQuestionDraft(key, '')
+    } else if (await showPractice(question, undefined, practice.minutes)) {
+      saveQuestionDraft(key, '')
+    }
+    return
+  }
+  clearPractice()
   const timed = periodicTurn.value
   if (timed) {
-    if (!periodicEnabled.value) return
+    if (!periodicEnabled.value) {
+      start(question)
+      return
+    }
     if ('clarification' in timed) {
       pendingPeriodicQuestion.value ||= question
       periodicNotice.value = timed.clarification
@@ -943,8 +1105,8 @@ async function send() {
     return
   }
   pendingPeriodicQuestion.value = periodicNotice.value = ''
-  if (!toTraining.value) {
-    if (!toReview.value || reviewReady.value) start(question, toReview.value ? 'review' : undefined)
+  if (!toTraining.value || !practiceEnabled.value) {
+    start(question, toReview.value && reviewReady.value ? 'review' : undefined)
     return
   }
   if (chatIncludeDetails.value || chatSourceExcerpt.value) {
@@ -971,6 +1133,7 @@ function composerEnter(event: KeyboardEvent) {
 }
 
 async function newChat() {
+  clearPractice()
   saveQuestionDraft(draftKey(''), '')
   trainingChat.value?.resetLocalComposer()
   pendingPeriodicQuestion.value = periodicNotice.value = ''
@@ -983,17 +1146,6 @@ async function newChat() {
   delete query.assistantTab
   if (query.purpose === 'submission_review') delete query.purpose
   await router.replace({ query })
-}
-
-function enableChat() {
-  const skill = chatSkill.value
-  if (!skill) return
-  if (!skill.binding) {
-    saveSkill('guided')
-    return
-  }
-  selected.value = skill.version_id
-  settingsOpen.value = true
 }
 
 function cancel() {
@@ -1109,6 +1261,7 @@ onMounted(async () => {
   }
 })
 onBeforeUnmount(() => {
+  practiceRequest?.abort()
   monitor.dispose()
   document.removeEventListener('visibilitychange', syncVisibility)
   loadingController?.abort()
@@ -1160,6 +1313,9 @@ onBeforeUnmount(() => {
         <button type="button" :aria-expanded="historyOpen" @click="historyOpen = !historyOpen">
           <UiIcon name="clock" /> 历史
         </button>
+        <button type="button" :aria-expanded="mistakesOpen" @click="mistakesOpen = !mistakesOpen">
+          错因
+        </button>
         <button type="button" :aria-expanded="settingsOpen" @click="settingsOpen = !settingsOpen">
           <UiIcon name="settings" /> 设置
         </button>
@@ -1171,6 +1327,13 @@ onBeforeUnmount(() => {
         <RouterLink class="text-link" :to="loginPath">登录</RouterLink>后使用学习助手。
       </p>
       <template v-else>
+        <aside v-if="mistakesOpen" :key="user.id" class="agent-mistakes" aria-label="个人错因">
+          <LearningPersonalMistakes
+            :revision="mistakeRevision"
+            @withdrawn="onMistakeWithdrawn"
+            @practice="practiceFromRecord"
+          />
+        </aside>
         <aside v-show="settingsOpen" class="agent-settings" aria-label="技能配置">
           <p v-if="loading && !settingsCatalog.length" role="status">正在读取技能…</p>
           <el-button v-else-if="!settingsCatalog.length" @click="load">重试读取</el-button>
@@ -1510,14 +1673,22 @@ onBeforeUnmount(() => {
               @run-change="trainingRecord = $event"
             />
           </div>
-          <section v-if="activeChat === 'agent'" class="conversation" aria-label="学习对话">
+          <section
+            v-if="activeChat === 'agent' && (!practiceQuestion || run || runId || sendingQuestion)"
+            class="conversation"
+            :class="{ 'conversation--with-practice': practiceQuestion }"
+            aria-label="学习对话"
+          >
             <p v-if="runError" role="alert">
               {{ runError }} <button type="button" @click="refreshRun">重试读取</button>
             </p>
             <p v-if="pollPaused" role="status">
               已暂停自动刷新。<button type="button" @click="refreshRun">继续查看</button>
             </p>
-            <div v-if="!run && !runId && !sendingQuestion" class="agent-welcome">
+            <div
+              v-if="!run && !runId && !sendingQuestion && !practiceQuestion"
+              class="agent-welcome"
+            >
               <UiIcon name="assistant-face" />
               <h2>{{ contextProblem ? '需要一点解题提示？' : '今天想练什么？' }}</h2>
               <p>
@@ -1528,7 +1699,7 @@ onBeforeUnmount(() => {
                 }}
               </p>
             </div>
-            <p v-else-if="!run && !sendingQuestion" role="status">正在读取对话…</p>
+            <p v-else-if="!run && runId && !sendingQuestion" role="status">正在读取对话…</p>
             <template v-else-if="run">
               <p
                 :key="run.run_id"
@@ -1551,6 +1722,21 @@ onBeforeUnmount(() => {
                 @save="savePlan"
                 @feedback="applyFeedback"
               />
+              <LearningBatchDiagnostic
+                v-if="
+                  user &&
+                  run.state === 'succeeded' &&
+                  run.result?.purpose === 'submission_review' &&
+                  run.result.anchor_submission_id
+                "
+                :key="run.session_id + ':' + run.result.anchor_submission_id"
+                :account-id="user.id"
+                :submission-id="run.result.anchor_submission_id"
+                :review-session-id="run.session_id"
+                :review-run-id="run.run_id"
+                :suggested="run.result.model_hint?.review_resources?.includes('batch_diagnostics')"
+                :disabled="conversationBusy"
+              />
             </template>
             <template v-if="sendingQuestion">
               <p class="agent-request message-enter">{{ sendingQuestion }}</p>
@@ -1568,12 +1754,33 @@ onBeforeUnmount(() => {
               :status="states[turn.state]"
             />
           </section>
+          <div v-if="practiceQuestion" ref="practicePanel" class="agent-practice-result">
+            <p class="agent-request">{{ practiceQuestion }}</p>
+            <p v-if="practiceBusy" role="status">正在按已确认的错因找题…</p>
+            <p v-if="practiceNotice" class="small" role="status">{{ practiceNotice }}</p>
+            <el-button v-if="practiceSkill && !practiceEnabled" text @click="saveSkill('practice')">
+              启用专项训练
+            </el-button>
+            <LearningMistakePractice v-if="practiceResult" :result="practiceResult" />
+          </div>
         </div>
         <LearningReviewSubmission
           v-if="toReview && reviewEnabled"
           v-model="submission"
           :problem-version="contextProblem"
           :disabled="conversationBusy"
+        />
+        <LearningPublicDiagnostic
+          v-if="user && toReview && authorizedChatTarget"
+          :key="user.id + ':' + submission.trim()"
+          :account-id="user.id"
+          :submission-id="submission.trim()"
+          :review="run?.result?.purpose === 'submission_review' ? run.result : undefined"
+          :review-run-id="run?.state === 'succeeded' ? run.run_id : undefined"
+          :disabled="conversationBusy"
+          :withdrawn-mistake-id="withdrawnMistakeId"
+          @mistake-saved="onMistakeSaved"
+          @open-mistakes="mistakesOpen = true"
         />
         <LearningSourceExcerpt
           v-if="chatCanUseSource && !toTraining"
@@ -1626,83 +1833,52 @@ onBeforeUnmount(() => {
             </label>
             <label v-if="chatCanUseDetails && !toTraining" class="check small">
               <input v-model="chatIncludeDetails" type="checkbox" :disabled="busy || chatPending" />
-              {{ toReview ? '本轮授权读取所选提交的评测详情' : '本轮附上所选本人提交的评测详情' }}
+              本轮附上所选本人提交的评测类别
             </label>
-            <small
-              v-if="!toTraining && !toReview && !toPeriodic && chatVersionUnavailable && !loading"
-              class="muted"
-              role="status"
-            >
-              此对话原有的答疑技能当前不可用。可以回看历史，或使用当前技能开始新对话。
-            </small>
-            <small
-              v-else-if="
-                !toTraining &&
-                !toReview &&
-                !toPeriodic &&
-                continuingSkillId &&
-                !chatSkill?.binding?.enabled &&
-                !loading
-              "
-              class="muted"
-              role="status"
-            >
-              此对话原有的答疑技能已停用。可以在设置中重新启用。
-            </small>
             <small v-if="chatIncludeDetails || chatSourceExcerpt" class="muted">
               附件仅供本轮使用。
             </small>
-            <small v-if="toReview && reviewEnabled" class="muted">
-              复盘只使用本轮授权的评测。给远端模型的材料是提问和评测统计，所选源码片段须另行批准，且仅由本机模型分析。
+            <small v-if="mistakeTurn" class="muted"> 使用本人已确认的错因与题库知识点。 </small>
+            <small v-else-if="toReview && reviewEnabled" class="muted">
+              复盘会读取所选提交的评测和可用代码证据。远端模型可查阅公开题面、评测统计及获准的代码摘要。源码片段经单独确认后由本机模型分析。
             </small>
             <small v-else-if="toPeriodic && periodicEnabled" class="muted">
               根据本次可用时间和你的练习进度给出复习题单。
             </small>
             <small v-else-if="!toTraining && !toReview && !toPeriodic" class="muted">
-              问题、近期对话、做题概览{{ contextProblem ? '和公开题面' : '' }}会发送给已配置的模型。
+              {{
+                contextProblem ? '问题、近期对话和公开题面' : '问题和近期对话'
+              }}会发送给已配置的模型。
             </small>
           </div>
           <el-button
             v-if="toPeriodic && periodicSkill && !periodicEnabled"
+            text
             :disabled="conversationBusy"
             @click="saveSkill('periodic')"
           >
             启用阶段复习
           </el-button>
           <el-button
-            v-else-if="toReview && reviewSkill && !reviewEnabled"
+            v-if="toReview && reviewSkill && !reviewEnabled"
+            text
             :disabled="conversationBusy"
             @click="saveSkill('review')"
           >
             启用提交复盘
           </el-button>
           <el-button
-            v-else-if="
-              !toTraining &&
-              !toReview &&
-              !toPeriodic &&
-              chatSkill &&
-              !chatSkill.binding?.enabled &&
-              !chatVersionUnavailable
-            "
-            :disabled="busy"
-            @click="enableChat"
-          >
-            {{ chatSkill.binding ? '配置答疑' : '启用答疑' }}
-          </el-button>
-          <el-button
-            v-else
             native-type="submit"
             type="primary"
             :disabled="
               conversationBusy ||
               !composer.trim() ||
-              (toPeriodic
-                ? !periodicEnabled
-                : toReview
-                  ? !reviewReady
-                  : !toTraining &&
-                    (!chatSkill?.binding?.enabled || (!!hintProblem && hintCeiling === null)))
+              (!mistakeTurn &&
+                !!hintProblem &&
+                hintCeiling === null &&
+                !(toReview && reviewReady) &&
+                !(toTraining && practiceEnabled) &&
+                !(toPeriodic && periodicEnabled))
             "
             :loading="busy || switchingComposer"
           >
@@ -1768,7 +1944,7 @@ onBeforeUnmount(() => {
   overscroll-behavior: contain;
 }
 :is(.agent-layout--floating, .agent-layout--conversing)
-  :is(.agent-settings, .agent-history, .chat-source) {
+  :is(.agent-settings, .agent-history, .agent-mistakes, .chat-source) {
   max-height: 13rem;
   overflow: auto;
 }
@@ -1818,8 +1994,18 @@ onBeforeUnmount(() => {
 .timeline > .el-button {
   align-self: center;
 }
+.agent-practice-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 1rem;
+}
+.agent-practice-result > .el-button {
+  align-self: flex-start;
+}
 .agent-settings,
-.agent-history {
+.agent-history,
+.agent-mistakes {
   padding: 0.8rem 1rem;
   background: var(--surface-soft);
   border-bottom: 1px solid var(--line);
@@ -1834,6 +2020,10 @@ onBeforeUnmount(() => {
   min-height: 13rem;
   flex: 1;
   padding: 1rem;
+}
+.conversation--with-practice {
+  min-height: 0;
+  flex: none;
 }
 .conversation-end {
   height: 0;

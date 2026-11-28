@@ -1,6 +1,7 @@
 export function isSubmissionReviewQuestion(question: string, hasTarget: boolean): boolean {
   const text = question.trim()
   if (/^(?:什么是|如何(?:实现|设计)|怎么(?:实现|设计))/.test(text)) return false
+  if (hasTarget && /(?:对拍|缩减反例|边界测量|测.{0,5}边界|诊断|刚才的结果)/.test(text)) return true
   if (/(?:复盘|回顾)/.test(text)) {
     return hasTarget || /(?:提交|评测|判题|代码)/.test(text) || /^(?:帮我|请|先)?复盘/.test(text)
   }

@@ -51,6 +51,32 @@ const problem = ref<components['schemas']['ProblemDetail'] | null>(null)
 const { language, code, state, save } = useCodeDraft(id)
 const session = useSession()
 const dock = ref<InstanceType<typeof ProblemDock>>()
+const requestedSelfTestSample = computed(() => {
+  const value = route.query.selfTestSample
+  if (!problem.value || typeof value !== 'string' || !/^[1-9]\d{0,4}$/.test(value)) return null
+  const index = Number(value) - 1
+  return index < problem.value.samples.length ? index : null
+})
+const requestedSelfTestDiagnostic = computed(() => {
+  const value = route.query.selfTestDiagnostic
+  return typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(value)
+    ? value
+    : undefined
+})
+watch(
+  [dock, requestedSelfTestSample],
+  ([workspace, index]) => {
+    if (workspace && index !== null) workspace.open('selftest', true)
+  },
+  { flush: 'post' },
+)
+function consumeSelfTestSample(index: number) {
+  if (requestedSelfTestSample.value !== index) return
+  const query = { ...route.query }
+  delete query.selfTestSample
+  delete query.selfTestDiagnostic
+  void router.replace({ path: route.path, query, hash: route.hash })
+}
 const selectedSubmission = ref<string | null>(null)
 const detailPane = ref<HTMLDivElement>()
 function selectSubmission(id: string) {
@@ -531,6 +557,9 @@ onBeforeUnmount(() => {
         :problem="problem"
         :language="executionUnavailable ? null : wireLanguage"
         :source="code"
+        :requested-sample="requestedSelfTestSample"
+        :requested-diagnostic="requestedSelfTestDiagnostic"
+        @sample-consumed="consumeSelfTestSample"
         @run="save"
       />
     </template>

@@ -20,6 +20,7 @@ dependencies = [
     "argon2-cffi>=25.1,<26",
     "httpx>=0.28,<1",
     "pygments==2.21.0",
+    "mcp>=1.26,<2",
 ]
 
 [project.scripts]
@@ -28,6 +29,7 @@ kf-accounts = "kf_oj.modules.identity.cli:main"
 kf-problems = "kf_oj.modules.problems.cli:main"
 kf-artifacts = "kf_oj.infra.artifacts.cli:main"
 kf-learning-worker = "kf_oj.workers.learning:main"
+kf-diagnostic-worker = "kf_oj.workers.diagnostic:main"
 kf-outbox-publisher = "kf_oj.workers.outbox:main"
 
 [dependency-groups]

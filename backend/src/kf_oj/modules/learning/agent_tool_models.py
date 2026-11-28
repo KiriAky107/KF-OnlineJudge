@@ -23,3 +23,15 @@ class AgentToolAttemptRow(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ReviewEvaluationBudgetRow(Base):
+    __tablename__ = "learning_review_evaluation_budgets"
+    __table_args__ = (CheckConstraint("reads > 0", name="positive_reads"),)
+
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("accounts.id"), primary_key=True)
+    problem_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("problem_versions.id"), primary_key=True
+    )
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    reads: Mapped[int]
