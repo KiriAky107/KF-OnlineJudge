@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     learning_model_service_calls_per_hour: int = Field(default=120, ge=1, le=10000)
     identity_operator_database_url: SecretStr | None = None
     amqp_url: SecretStr | None = None
+    login_require_trusted_origin: bool = True
     browser_origins: tuple[str, ...] = (
         "http://localhost:5173",
         "http://localhost:8000",

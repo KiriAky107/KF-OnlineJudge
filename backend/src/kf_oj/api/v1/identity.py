@@ -27,7 +27,12 @@ def current_user(principal: Principal) -> CurrentUser:
     )
 
 
-@router.post("/login", response_model=LoginResponse, dependencies=[Depends(trusted_origin)])
+def _check_login_origin(request: Request) -> None:
+    if request.app.state.settings.login_require_trusted_origin:
+        trusted_origin(request)
+
+
+@router.post("/login", response_model=LoginResponse, dependencies=[Depends(_check_login_origin)])
 async def login(
     body: LoginRequest,
     request: Request,

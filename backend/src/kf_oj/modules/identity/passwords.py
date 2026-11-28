@@ -5,12 +5,17 @@ import re
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import InvalidHashError, VerificationError
 
+from kf_oj.contracts.identity import MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH
+
 USERNAME = re.compile(r"[a-z0-9_]{3,24}\Z")
 HASHER = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1, type=Type.ID)
 
 
 def validate_account(username: str, password: str) -> None:
-    if not USERNAME.fullmatch(username) or not 12 <= len(password) <= 128:
+    if (
+        not USERNAME.fullmatch(username)
+        or not MIN_PASSWORD_LENGTH <= len(password) <= MAX_PASSWORD_LENGTH
+    ):
         raise ValueError("username or password outside account policy")
     if len(password.encode("utf-8")) > 512:
         raise ValueError("password outside byte policy")

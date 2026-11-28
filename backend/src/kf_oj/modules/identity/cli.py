@@ -6,6 +6,7 @@ import getpass
 
 from sqlalchemy.exc import IntegrityError
 
+from kf_oj.contracts.identity import MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH
 from kf_oj.core.settings import Settings
 from kf_oj.infra.db.session import build_engine, build_session_factory
 from kf_oj.modules.identity.authority import manage_authority
@@ -64,7 +65,9 @@ def main() -> None:
     args = parser.parse_args()
     password = None
     if args.command == "create":
-        password = getpass.getpass("Password (12–128 characters): ")
+        password = getpass.getpass(
+            f"Password ({MIN_PASSWORD_LENGTH}–{MAX_PASSWORD_LENGTH} characters): "
+        )
         if password != getpass.getpass("Repeat password: "):
             parser.error("passwords differ")
     try:

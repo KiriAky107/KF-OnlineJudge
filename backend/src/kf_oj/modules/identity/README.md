@@ -6,7 +6,7 @@
 
 本地管理命令为 `uv run --locked kf-accounts create <username>`。
 创建口令由隐藏终端提示读取和确认，不接受命令行参数、环境中的默认口令或自助注册。
-用户名为 3–24 个小写 ASCII 字母、数字或下划线；口令 12–128 字符，最多 512 UTF-8 字节。
+用户名为 3–24 个小写 ASCII 字母、数字或下划线。口令 8–128 个字符，最多 512 UTF-8 字节。
 密码摘要由新增的 `argon2-cffi` 依赖提供 Argon2id，固定 19 MiB/2 次/1 并行度。
 参数依据 [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
 和 [argon2-cffi 文档](https://argon2-cffi.readthedocs.io/en/stable/parameters.html)。
