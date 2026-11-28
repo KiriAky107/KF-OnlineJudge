@@ -2280,6 +2280,109 @@
         "title": "DiagnosticObservation",
         "type": "object"
       },
+      "DiagnosticObservationCount": {
+        "additionalProperties": false,
+        "properties": {
+          "eligible_count": {
+            "title": "Eligible Count",
+            "type": "integer"
+          },
+          "finding_count": {
+            "title": "Finding Count",
+            "type": "integer"
+          },
+          "max_sandbox_budget_us": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Sandbox Budget Us"
+          },
+          "mean_claim_to_finish_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Claim To Finish Ms"
+          },
+          "method": {
+            "enum": [
+              "optimization",
+              "ubsan",
+              "differential",
+              "boundary"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "observed_count": {
+            "title": "Observed Count",
+            "type": "integer"
+          },
+          "untracked_count": {
+            "title": "Untracked Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "method",
+          "observed_count",
+          "untracked_count",
+          "eligible_count",
+          "finding_count",
+          "mean_claim_to_finish_ms",
+          "max_sandbox_budget_us"
+        ],
+        "title": "DiagnosticObservationCount",
+        "type": "object"
+      },
+      "DiagnosticObservations": {
+        "additionalProperties": false,
+        "properties": {
+          "cohort": {
+            "enum": [
+              "all",
+              "linked_review",
+              "unlinked"
+            ],
+            "title": "Cohort",
+            "type": "string"
+          },
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticObservationCount"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_at",
+          "end_at",
+          "cohort",
+          "items"
+        ],
+        "title": "DiagnosticObservations",
+        "type": "object"
+      },
       "DifficultyKey": {
         "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
         "type": "string"
@@ -4735,6 +4838,90 @@
         "title": "PersonalMistakePage",
         "type": "object"
       },
+      "PracticeAcceptanceCount": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_count": {
+            "title": "Accepted Count",
+            "type": "integer"
+          },
+          "attempted_count": {
+            "title": "Attempted Count",
+            "type": "integer"
+          },
+          "cohort": {
+            "enum": [
+              "direct",
+              "assistant_saved",
+              "shared"
+            ],
+            "title": "Cohort",
+            "type": "string"
+          },
+          "exercise_count": {
+            "title": "Exercise Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cohort",
+          "exercise_count",
+          "attempted_count",
+          "accepted_count"
+        ],
+        "title": "PracticeAcceptanceCount",
+        "type": "object"
+      },
+      "PracticeObservations": {
+        "additionalProperties": false,
+        "properties": {
+          "drafts": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingDraftCount"
+            },
+            "title": "Drafts",
+            "type": "array"
+          },
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "follow_up_days": {
+            "title": "Follow Up Days",
+            "type": "integer"
+          },
+          "practice": {
+            "items": {
+              "$ref": "#/components/schemas/PracticeAcceptanceCount"
+            },
+            "title": "Practice",
+            "type": "array"
+          },
+          "self_tests": {
+            "items": {
+              "$ref": "#/components/schemas/SelfTestComparisonCount"
+            },
+            "title": "Self Tests",
+            "type": "array"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_at",
+          "end_at",
+          "follow_up_days",
+          "drafts",
+          "practice",
+          "self_tests"
+        ],
+        "title": "PracticeObservations",
+        "type": "object"
+      },
       "PreparationKind": {
         "enum": [
           "compile",
@@ -6430,6 +6617,39 @@
         ],
         "title": "RunState",
         "type": "string"
+      },
+      "SelfTestComparisonCount": {
+        "additionalProperties": false,
+        "properties": {
+          "cohort": {
+            "enum": [
+              "direct_sample",
+              "diagnostic_sample"
+            ],
+            "title": "Cohort",
+            "type": "string"
+          },
+          "compared_count": {
+            "title": "Compared Count",
+            "type": "integer"
+          },
+          "completed_count": {
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "mismatch_count": {
+            "title": "Mismatch Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cohort",
+          "completed_count",
+          "compared_count",
+          "mismatch_count"
+        ],
+        "title": "SelfTestComparisonCount",
+        "type": "object"
       },
       "SelfTestDetail": {
         "additionalProperties": false,
@@ -8870,6 +9090,34 @@
         "title": "TrainingDetail",
         "type": "object"
       },
+      "TrainingDraftCount": {
+        "additionalProperties": false,
+        "properties": {
+          "draft_count": {
+            "title": "Draft Count",
+            "type": "integer"
+          },
+          "purpose": {
+            "enum": [
+              "focused_training",
+              "periodic_review"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "saved_count": {
+            "title": "Saved Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "purpose",
+          "draft_count",
+          "saved_count"
+        ],
+        "title": "TrainingDraftCount",
+        "type": "object"
+      },
       "TrainingExerciseReplacement": {
         "additionalProperties": false,
         "properties": {
@@ -10056,6 +10304,111 @@
         "summary": "Settle",
         "tags": [
           "contest-ratings"
+        ]
+      }
+    },
+    "/api/v1/admin/learning/diagnostics": {
+      "get": {
+        "operationId": "diagnostic_observations_api_v1_admin_learning_diagnostics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cohort",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "linked_review",
+                "unlinked"
+              ],
+              "title": "Cohort",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticObservations"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Diagnostic Observations",
+        "tags": [
+          "admin-learning"
+        ]
+      }
+    },
+    "/api/v1/admin/learning/practice": {
+      "get": {
+        "operationId": "practice_observations_api_v1_admin_learning_practice_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PracticeObservations"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Practice Observations",
+        "tags": [
+          "admin-learning"
         ]
       }
     },

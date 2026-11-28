@@ -38,6 +38,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/learning/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Diagnostic Observations */
+        get: operations["diagnostic_observations_api_v1_admin_learning_diagnostics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/learning/practice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Practice Observations */
+        get: operations["practice_observations_api_v1_admin_learning_practice_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/maintenance-audit": {
         parameters: {
             query?: never;
@@ -2738,6 +2772,46 @@ export interface components {
             o0: components["schemas"]["Verdict"] | null;
             o2: components["schemas"]["Verdict"];
         };
+        /** DiagnosticObservationCount */
+        DiagnosticObservationCount: {
+            /** Eligible Count */
+            eligible_count: number;
+            /** Finding Count */
+            finding_count: number;
+            /** Max Sandbox Budget Us */
+            max_sandbox_budget_us: number | null;
+            /** Mean Claim To Finish Ms */
+            mean_claim_to_finish_ms: number | null;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "optimization" | "ubsan" | "differential" | "boundary";
+            /** Observed Count */
+            observed_count: number;
+            /** Untracked Count */
+            untracked_count: number;
+        };
+        /** DiagnosticObservations */
+        DiagnosticObservations: {
+            /**
+             * Cohort
+             * @enum {string}
+             */
+            cohort: "all" | "linked_review" | "unlinked";
+            /**
+             * End At
+             * Format: date-time
+             */
+            end_at: string;
+            /** Items */
+            items: components["schemas"]["DiagnosticObservationCount"][];
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
+        };
         DifficultyKey: string;
         /** DifficultyLevel */
         DifficultyLevel: {
@@ -3539,6 +3613,41 @@ export interface components {
             /** Next Before */
             next_before: string | null;
         };
+        /** PracticeAcceptanceCount */
+        PracticeAcceptanceCount: {
+            /** Accepted Count */
+            accepted_count: number;
+            /** Attempted Count */
+            attempted_count: number;
+            /**
+             * Cohort
+             * @enum {string}
+             */
+            cohort: "direct" | "assistant_saved" | "shared";
+            /** Exercise Count */
+            exercise_count: number;
+        };
+        /** PracticeObservations */
+        PracticeObservations: {
+            /** Drafts */
+            drafts: components["schemas"]["TrainingDraftCount"][];
+            /**
+             * End At
+             * Format: date-time
+             */
+            end_at: string;
+            /** Follow Up Days */
+            follow_up_days: number;
+            /** Practice */
+            practice: components["schemas"]["PracticeAcceptanceCount"][];
+            /** Self Tests */
+            self_tests: components["schemas"]["SelfTestComparisonCount"][];
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
+        };
         /**
          * PreparationKind
          * @enum {string}
@@ -4240,6 +4349,20 @@ export interface components {
          * @enum {string}
          */
         RunState: "queued" | "running" | "retry_wait" | "cancel_requested" | "cancelled" | "succeeded" | "failed";
+        /** SelfTestComparisonCount */
+        SelfTestComparisonCount: {
+            /**
+             * Cohort
+             * @enum {string}
+             */
+            cohort: "direct_sample" | "diagnostic_sample";
+            /** Compared Count */
+            compared_count: number;
+            /** Completed Count */
+            completed_count: number;
+            /** Mismatch Count */
+            mismatch_count: number;
+        };
         /** SelfTestDetail */
         SelfTestDetail: {
             /** Compile Diagnostics */
@@ -5140,6 +5263,18 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** TrainingDraftCount */
+        TrainingDraftCount: {
+            /** Draft Count */
+            draft_count: number;
+            /**
+             * Purpose
+             * @enum {string}
+             */
+            purpose: "focused_training" | "periodic_review";
+            /** Saved Count */
+            saved_count: number;
+        };
         /** TrainingExerciseReplacement */
         TrainingExerciseReplacement: {
             /** Position */
@@ -5577,6 +5712,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContestSettlement"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    diagnostic_observations_api_v1_admin_learning_diagnostics_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                cohort?: "all" | "linked_review" | "unlinked";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticObservations"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    practice_observations_api_v1_admin_learning_practice_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PracticeObservations"];
                 };
             };
             /** @description Validation Error */

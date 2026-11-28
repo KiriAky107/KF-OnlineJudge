@@ -10,6 +10,7 @@ from kf_oj.api.availability import AvailabilityMiddleware
 from kf_oj.api.body_limits import BodyLimitMiddleware
 from kf_oj.api.dependency_errors import install_handlers
 from kf_oj.api.v1.admin_imports import router as import_router
+from kf_oj.api.v1.admin_learning import router as admin_learning_router
 from kf_oj.api.v1.admin_problems import router as maintenance_router
 from kf_oj.api.v1.agent_learning import router as agent_learning_router
 from kf_oj.api.v1.contest_ratings import router as contest_rating_router
@@ -37,6 +38,7 @@ from kf_oj.modules.identity.service import IdentityService
 from kf_oj.modules.learning.agent_application import AgentLearning
 from kf_oj.modules.learning.diagnostic_queue import DiagnosticQueue
 from kf_oj.modules.learning.hint_policy import HintPolicy
+from kf_oj.modules.learning.observations import LearningObservations
 from kf_oj.modules.learning.public import AGENT_TOOL_SCOPES
 from kf_oj.modules.learning.service import LearningService
 from kf_oj.modules.operations.queries import MaintenanceAuditQueries
@@ -78,6 +80,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     app.state.sessions, app.state.identity
                 )
                 app.state.learning = LearningService(app.state.sessions)
+                app.state.learning_observations = LearningObservations(
+                    app.state.sessions, app.state.identity
+                )
                 source_reader = None
                 artifacts = None
                 if settings.artifact_root is not None:
@@ -168,6 +173,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.skill_drafts = None
             app.state.agent_learning = None
             app.state.learning = None
+            app.state.learning_observations = None
             app.state.teams = None
             app.state.identity = None
             app.state.problems = None
@@ -229,6 +235,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(contest_schedule_router, prefix="/api/v1")
     app.include_router(identity_router, prefix="/api/v1")
     app.include_router(learning_router, prefix="/api/v1")
+    app.include_router(admin_learning_router, prefix="/api/v1")
     app.include_router(team_router, prefix="/api/v1")
     app.include_router(agent_learning_router, prefix="/api/v1")
     app.include_router(skill_draft_router, prefix="/api/v1")
