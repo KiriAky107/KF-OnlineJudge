@@ -10,6 +10,7 @@ from kf_oj.api.availability import AvailabilityMiddleware
 from kf_oj.api.body_limits import BodyLimitMiddleware
 from kf_oj.api.dependency_errors import install_handlers
 from kf_oj.api.v1.admin_imports import router as import_router
+from kf_oj.api.v1.admin_learning import router as admin_learning_router
 from kf_oj.api.v1.admin_problems import router as maintenance_router
 from kf_oj.api.v1.agent_learning import router as agent_learning_router
 from kf_oj.api.v1.contest_ratings import router as contest_rating_router
@@ -22,6 +23,7 @@ from kf_oj.api.v1.self_tests import router as self_test_router
 from kf_oj.api.v1.skill_drafts import router as skill_draft_router
 from kf_oj.api.v1.skill_publications import router as skill_publication_router
 from kf_oj.api.v1.submissions import router as submission_router
+from kf_oj.api.v1.teams import router as team_router
 from kf_oj.api.v1.worker_artifacts import router as worker_router
 from kf_oj.core.logging import configure_logging
 from kf_oj.core.settings import Settings
@@ -34,7 +36,9 @@ from kf_oj.modules.contests.schedule import ContestSchedules
 from kf_oj.modules.contests.service import ContestRatings
 from kf_oj.modules.identity.service import IdentityService
 from kf_oj.modules.learning.agent_application import AgentLearning
+from kf_oj.modules.learning.diagnostic_queue import DiagnosticQueue
 from kf_oj.modules.learning.hint_policy import HintPolicy
+from kf_oj.modules.learning.observations import LearningObservations
 from kf_oj.modules.learning.public import AGENT_TOOL_SCOPES
 from kf_oj.modules.learning.service import LearningService
 from kf_oj.modules.operations.queries import MaintenanceAuditQueries
@@ -48,6 +52,7 @@ from kf_oj.modules.submissions.queries import SubmissionQueries
 from kf_oj.modules.submissions.self_tests import SelfTestService
 from kf_oj.modules.submissions.service import SubmissionService
 from kf_oj.modules.submissions.worker_access import WorkerAccess
+from kf_oj.modules.teams.service import TeamService
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -68,12 +73,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 app.state.identity = IdentityService(
                     app.state.sessions, lifetime_seconds=settings.session_lifetime_seconds
                 )
+                app.state.teams = TeamService(app.state.sessions, app.state.identity)
                 app.state.submission_performance = SubmissionPerformanceQueries(app.state.sessions)
                 app.state.contest_ratings = ContestRatings(app.state.sessions, app.state.identity)
                 app.state.contest_schedules = ContestSchedules(
                     app.state.sessions, app.state.identity
                 )
                 app.state.learning = LearningService(app.state.sessions)
+                app.state.learning_observations = LearningObservations(
+                    app.state.sessions, app.state.identity
+                )
                 source_reader = None
                 artifacts = None
                 if settings.artifact_root is not None:
@@ -136,6 +145,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         settings.learning_member_max_hint_level,
                         settings.learning_admin_max_hint_level,
                     ),
+                    diagnostics=(
+                        DiagnosticQueue(
+                            app.state.sessions,
+                            app.state.identity,
+                            ubsan_enabled=settings.learning_diagnostics_ubsan_enabled,
+                            batch_offers=settings.learning_diagnostic_batch_offers,
+                        )
+                        if artifacts is not None and settings.learning_diagnostics_enabled
+                        else None
+                    ),
                 )
                 app.state.skill_drafts = SkillDrafts(
                     app.state.sessions,
@@ -154,6 +173,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.skill_drafts = None
             app.state.agent_learning = None
             app.state.learning = None
+            app.state.learning_observations = None
+            app.state.teams = None
             app.state.identity = None
             app.state.problems = None
             app.state.worker_access = None
@@ -197,6 +218,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "/api/v1/admin",
                 "/api/v1/learning",
                 "/api/v1/trainings",
+                "/api/v1/teams",
             )
         ):
             response.headers["Cache-Control"] = "no-store"
@@ -213,6 +235,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(contest_schedule_router, prefix="/api/v1")
     app.include_router(identity_router, prefix="/api/v1")
     app.include_router(learning_router, prefix="/api/v1")
+    app.include_router(admin_learning_router, prefix="/api/v1")
+    app.include_router(team_router, prefix="/api/v1")
     app.include_router(agent_learning_router, prefix="/api/v1")
     app.include_router(skill_draft_router, prefix="/api/v1")
     app.include_router(skill_publication_router, prefix="/api/v1")

@@ -192,12 +192,25 @@ pub(crate) fn verify(
     identity: &RuntimeIdentity,
     bytes: &[u8],
     immutable_mount: Option<u64>,
+    require_ubsan: bool,
 ) -> io::Result<()> {
     if bytes.len() as u64 > MAX_CATALOG_BYTES || catalog_digest(bytes) != identity.image_digest {
         return Err(refused());
     }
     let catalog: ImageCatalog = serde_json::from_slice(bytes).map_err(|_| refused())?;
     catalog.validate(identity)?;
+    if require_ubsan
+        && ["usr/lib/libubsan.so", "usr/lib/libubsan.so.1"]
+            .iter()
+            .any(|path| {
+                !catalog
+                    .files
+                    .iter()
+                    .any(|file| file.path == *path && file.bytes != 0)
+            })
+    {
+        return Err(refused());
+    }
     if !compatible_cpu() {
         return Err(refused());
     }

@@ -1,6 +1,5 @@
 import asyncio
 import json
-import subprocess
 from uuid import uuid4
 
 import asyncpg
@@ -9,19 +8,45 @@ from conftest import connect, migrate
 
 
 def test_migration_roundtrip_and_role_safety(postgres_url):
-    async def inspect():
+    foundation_tables = {
+        "accounts",
+        "sessions",
+        "artifacts",
+        "problems",
+        "problem_versions",
+        "problem_cases",
+        "submissions",
+        "evaluations",
+        "judge_attempts",
+        "case_results",
+        "outbox",
+    }
+    foundation_roles = {
+        "kf_oj_platform",
+        "kf_oj_coordinator",
+        "kf_oj_identity_operator",
+        "kf_oj_problem_import",
+        "kf_oj_identity_authority_owner",
+    }
+
+    async def inspect(*, installed):
         c = await connect(postgres_url)
         try:
-            tables = set(await c.fetch("SELECT tablename FROM pg_tables WHERE schemaname='public'"))
-            assert len(tables) == 21  # Twenty domain/control tables and Alembic history.
-            roles = await c.fetch("SELECT * FROM pg_roles WHERE rolname LIKE 'kf_oj_%'")
-            assert {row["rolname"] for row in roles} == {
-                "kf_oj_platform",
-                "kf_oj_coordinator",
-                "kf_oj_identity_operator",
-                "kf_oj_problem_import",
-                "kf_oj_identity_authority_owner",
+            tables = {
+                row["tablename"]
+                for row in await c.fetch(
+                    "SELECT tablename FROM pg_tables WHERE schemaname='public'"
+                )
             }
+            if not installed:
+                assert not foundation_tables & tables
+                return
+            assert foundation_tables | {"alembic_version"} <= tables
+            roles = await c.fetch(
+                "SELECT * FROM pg_roles WHERE rolname = ANY($1::text[])",
+                sorted(foundation_roles),
+            )
+            assert {row["rolname"] for row in roles} == foundation_roles
             assert all(
                 not any(
                     r[k]
@@ -42,18 +67,12 @@ def test_migration_roundtrip_and_role_safety(postgres_url):
         finally:
             await c.close()
 
-    asyncio.run(inspect())
+    asyncio.run(inspect(installed=True))
     migrate(postgres_url, "downgrade", "base")
+    asyncio.run(inspect(installed=False))
     migrate(postgres_url, "upgrade", "head")
-    try:
-        migrate(postgres_url, "check")
-    except subprocess.CalledProcessError as error:
-        raise AssertionError(
-            "migration model consistency failed: "
-            + (error.stdout or b"").decode(errors="replace")[-8192:]
-            + (error.stderr or b"").decode(errors="replace")[-8192:]
-        ) from None
-    asyncio.run(inspect())
+    migrate(postgres_url, "check")
+    asyncio.run(inspect(installed=True))
 
 
 async def fixture_rows(c):

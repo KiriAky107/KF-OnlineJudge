@@ -15,7 +15,8 @@ from sqlalchemy import event, func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from kf_oj.api.app import create_app
-from kf_oj.contracts.identity import LoginRequest
+from kf_oj.contracts.availability import AvailabilityRecord
+from kf_oj.contracts.identity import MIN_PASSWORD_LENGTH, LoginRequest
 from kf_oj.core.settings import Settings
 from kf_oj.modules.identity.models import Account, Session
 from kf_oj.modules.identity.passwords import hash_password, verify_password
@@ -41,8 +42,13 @@ def test_password_policy_and_credentials_redacted():
     assert password not in repr(LoginRequest(username="fixture_user", password=password))
     with pytest.raises(ValueError):
         hash_password("not canonical", password)
+    short_password = password[:7]
     with pytest.raises(ValueError):
-        hash_password("fixture_user", "too short")
+        hash_password("fixture_user", short_password)
+    with pytest.raises(ValueError):
+        LoginRequest(username="fixture_user", password=short_password)
+    valid = LoginRequest(username="fixture_user", password=password[:8]).password.get_secret_value()
+    assert verify_password(hash_password("fixture_user", valid), valid)
 
 
 def test_production_cookie_configuration_requires_explicit_https_origins():
@@ -51,6 +57,43 @@ def test_production_cookie_configuration_requires_explicit_https_origins():
     for invalid in ("https://oj.example/path", "https://user@oj.example", "*", "null"):
         with pytest.raises(ValueError):
             Settings(_env_file=None, browser_origins=(invalid,))
+
+
+def test_trial_can_disable_the_login_origin_check_only(postgres_url):
+    async def run():
+        origin = "http://trial.example"
+        app = create_app(
+            Settings(
+                _env_file=None,
+                environment="test",
+                database_url=postgres_url,
+                browser_origins=(origin,),
+                login_require_trusted_origin=False,
+            )
+        )
+        async with app.router.lifespan_context(app):
+            restrict_platform_role(app.state.sessions.kw["bind"])
+            password = secrets.token_hex(4)
+            await app.state.identity.create_account("trial_login_fixture", password)
+            body = {"username": "trial_login_fixture", "password": password}
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url=origin
+            ) as browser:
+                for headers in ({}, {"Origin": "null"}, {"Origin": "https://trial.example"}):
+                    result = await browser.post("/api/v1/auth/login", json=body, headers=headers)
+                    assert result.status_code == 200
+                    assert (await browser.get("/api/v1/auth/me")).status_code == 200
+                    csrf = {"X-CSRF-Token": browser.cookies["kf_csrf"]}
+                    assert (
+                        await browser.post("/api/v1/auth/logout", headers=csrf)
+                    ).status_code == 403
+                    assert (
+                        await browser.post("/api/v1/auth/logout", headers=csrf | {"Origin": origin})
+                    ).status_code == 204
+                invalid = body | {"password": secrets.token_hex(8)}
+                assert (await browser.post("/api/v1/auth/login", json=invalid)).status_code == 401
+
+    asyncio.run(run())
 
 
 def test_real_login_session_revocation_expiry_and_throttle(postgres_url):
@@ -111,7 +154,15 @@ def test_real_login_session_revocation_expiry_and_throttle(postgres_url):
     asyncio.run(run())
 
 
-def test_real_http_cookie_csrf_and_identity_spoofing_rejection(postgres_url, caplog):
+def test_real_http_cookie_csrf_and_identity_spoofing_rejection(postgres_url, caplog, monkeypatch):
+    admission = AvailabilityRecord(
+        schema_version=1,
+        release_id="sd-" + "0" * 12,
+        configuration_id="cfg-" + "0" * 24,
+        state="open",
+    )
+    monkeypatch.setattr("kf_oj.api.availability.current", lambda *_: admission)
+
     async def run():
         app = create_app(
             Settings(
@@ -239,7 +290,7 @@ def test_account_cli_hidden_password_and_session_disable(postgres_url):
                 except OSError:
                     block = b""
                 output += block
-                if prompts == 0 and b"Password (12" in output:
+                if prompts == 0 and f"Password ({MIN_PASSWORD_LENGTH}".encode() in output:
                     os.write(descriptor, password.encode() + b"\n")
                     prompts = 1
                 if prompts == 1 and b"Repeat password:" in output:

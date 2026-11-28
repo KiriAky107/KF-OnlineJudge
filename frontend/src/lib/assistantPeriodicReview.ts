@@ -22,6 +22,19 @@ function timeNumber(value: string) {
   return total + digit
 }
 
+function totalMinutes(parts: RegExpMatchArray[]) {
+  return parts.reduce((sum, part) => {
+    if (part[1] === undefined) return sum + 30
+    return sum + timeNumber(part[1]) * (part[2] === '小时' ? 60 : 1)
+  }, 0)
+}
+
+export function requestedPracticeMinutes(text: string, durationOnly = false) {
+  const parts = [...text.matchAll(timePart)]
+  if (durationOnly && text.replace(timePart, '').trim()) return
+  return parts.length ? totalMinutes(parts) : undefined
+}
+
 export function periodicReviewTurn(
   input: string,
   previousQuestion?: string,
@@ -40,10 +53,7 @@ export function periodicReviewTurn(
 
   const question = timeReply ? `${previousQuestion}，${text}` : text
   if (!parts.length) return { clarification: '这次想留多少时间复习？可以直接回复「30 分钟」。' }
-  const minutes = parts.reduce((sum, part) => {
-    if (part[1] === undefined) return sum + 30
-    return sum + timeNumber(part[1]) * (part[2] === '小时' ? 60 : 1)
-  }, 0)
+  const minutes = totalMinutes(parts)
   if (!Number.isInteger(minutes) || minutes < 5 || minutes > 180)
     return { clarification: '请给出 5 到 180 分钟的本次复习时间。' }
   if (question.length > 1200) return { clarification: '复习要求请控制在 1200 字以内。' }

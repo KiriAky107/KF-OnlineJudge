@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "kind": "diagnostic.result",
+  "binding": {
+    "request_id": "d562d668-3151-4e21-bc74-de1fdada97b1",
+    "execution_id": "043eb66d-04a0-477a-9c73-224d4f4e8cd7",
+    "worker_id": "a505d3ec-d21f-488d-8a82-0cbc3a80d362"
+  },
+  "state": "cleanup_unconfirmed",
+  "observation": {
+    "o2": "wrong_answer",
+    "o0": "accepted"
+  },
+  "failure_code": null
+}

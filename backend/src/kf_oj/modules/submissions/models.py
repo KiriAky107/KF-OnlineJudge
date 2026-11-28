@@ -105,6 +105,21 @@ class SelfTest(CreatedAt, Base):
     request_digest: Mapped[str] = mapped_column(String(64))
 
 
+class SelfTestPublicComparison(Base):
+    __tablename__ = "self_test_public_comparisons"
+    __table_args__ = (
+        CheckConstraint("ordinal BETWEEN 0 AND 65535", name="ordinal"),
+        CheckConstraint("expected_digest ~ '^[0-9a-f]{64}$'", name="expected_digest"),
+    )
+
+    self_test_id: Mapped[UUID] = mapped_column(
+        ForeignKey("self_tests.id", ondelete="CASCADE"), primary_key=True
+    )
+    ordinal: Mapped[int]
+    expected_digest: Mapped[str] = mapped_column(String(64))
+    diagnostic_request_id: Mapped[UUID | None]
+
+
 class Evaluation(CreatedAt, Base):
     __tablename__ = "evaluations"
     __table_args__ = (

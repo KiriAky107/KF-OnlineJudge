@@ -13,7 +13,9 @@ import { ApiError } from '../api/transport'
 import { boundedPoll } from '../api/polling'
 import { auditActionLabels, importStateLabels } from './presentation'
 import StatementMarkdown from '../components/StatementMarkdown.vue'
+import ProblemAuthoringReview from './ProblemAuthoringReview.vue'
 import StatementAuthor from './StatementAuthor.vue'
+import { decodeAuthoringSample } from '../lib/problemAuthoringReview'
 import { displayRuntimeVersion, displayTime } from '../lib/presentation'
 import { sha256Fingerprint } from '../lib/requestCrypto'
 import {
@@ -102,6 +104,12 @@ let generation = 0,
   poll: ReturnType<typeof boundedPoll<ImportDetail>> | undefined
 const controllers = new Set<AbortController>()
 const candidate = computed(() => task.value?.candidate ?? null)
+const reviewSamples = computed(() =>
+  (candidate.value?.samples ?? []).map(({ input, output }) => ({
+    input: decodeAuthoringSample(input),
+    output: decodeAuthoringSample(output),
+  })),
+)
 const permitted = computed(() => hasMaintenance(session.user.value))
 function fence() {
   generation++
@@ -673,6 +681,7 @@ function sampleText(encoded: string) {
           <pre>{{ sampleText(s.input) }}</pre>
           <pre>{{ sampleText(s.output) }}</pre>
         </div>
+        <ProblemAuthoringReview :statement="candidate.statement" :samples="reviewSamples" />
         <button
           v-if="task.state === 'ready'"
           class="admin-primary"

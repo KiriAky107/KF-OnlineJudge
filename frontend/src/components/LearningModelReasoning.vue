@@ -1,16 +1,20 @@
 <script setup lang="ts">
-import StatementMarkdown from './StatementMarkdown.vue'
+import type { components } from '../api/generated/schema'
 import DisclosureHeading from './DisclosureHeading.vue'
 
-defineProps<{ text: string; thinking?: boolean }>()
+defineProps<{
+  text: string
+  thinking?: boolean
+  kind?: components['schemas']['ModelHint']['reasoning_kind']
+}>()
 </script>
 
 <template>
-  <details class="model-reasoning">
+  <details v-if="kind === 'text' && text.trim()" class="model-reasoning">
     <DisclosureHeading icon="assistant" tone="muted">
-      <span>{{ thinking ? '正在思考' : '已思考' }}</span>
+      <span>已思考<span v-if="thinking"> · 接收中</span></span>
     </DisclosureHeading>
-    <StatementMarkdown :source="text" :links="false" highlight-code />
+    <pre class="reasoning-content">{{ text }}</pre>
   </details>
 </template>
 
@@ -19,11 +23,14 @@ defineProps<{ text: string; thinking?: boolean }>()
   color: var(--secondary-ink);
   font-size: 0.875rem;
 }
-.model-reasoning .statement-markdown {
+.reasoning-content {
   max-block-size: 15rem;
-  margin-block-start: 0.4rem;
+  margin: 0.4rem 0 0;
   padding-inline: 0.75rem 0.15rem;
   border-inline-start: 2px solid var(--line);
   overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font: inherit;
 }
 </style>

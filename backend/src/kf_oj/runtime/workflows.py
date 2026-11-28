@@ -19,6 +19,7 @@ from kf_oj.contracts.agent_learning import (
     ReviewComparison,
     SourceEvidenceArguments,
     SourceEvidenceResult,
+    StoredAgentLearningInput,
     SubmissionHistoryArguments,
     SubmissionHistoryResult,
     SubmissionReviewParameters,
@@ -171,7 +172,10 @@ class LearningWorkflow:
         return result
 
     async def _code(self, body: AgentLearningInput) -> SubmissionCodeEvidence | None:
-        if not body.include_source_evidence or body.review_question is not None:
+        if body.review_question is not None:
+            if not isinstance(body, StoredAgentLearningInput) or body.source_evidence is None:
+                return None
+        elif not body.include_source_evidence:
             return None
         evidence = await self._call(
             SOURCE_EVIDENCE, SourceEvidenceArguments(), SourceEvidenceResult
@@ -205,10 +209,8 @@ class LearningWorkflow:
             code = await self._code(body)
             gaps = [] if comparisons else ["当前范围缺少同一题目版本的可比较评测。"]
             if (
-                body.include_source_evidence
-                and body.review_question is None
-                and (code is None or code.comparison is None)
-            ):
+                code is not None or (body.include_source_evidence and body.review_question is None)
+            ) and (code is None or code.comparison is None):
                 gaps.append("当前范围缺少可比较的同版本、同语言源码。")
             return SubmissionReviewResult(
                 purpose=AgentPurpose.SUBMISSION_REVIEW,

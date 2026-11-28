@@ -139,10 +139,10 @@ impl WireMessage for NamespaceCommand {
             }
             Self::PrepareIdentity { uid, gid } => crate::isolation::identity::valid(*uid, *gid),
             Self::PrepareRlimits { plan } => plan.valid(),
-            Self::PrepareExecution { request } => request
-                .clone()
-                .validate(&crate::spec::SpecPolicy::default())
-                .is_ok(),
+            // The privileged supervisor already checked its runtime policy.
+            Self::PrepareExecution { request } => {
+                request.clone().validate_for_factory_client().is_ok()
+            }
             _ => true,
         }
     }

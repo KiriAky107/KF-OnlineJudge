@@ -422,7 +422,13 @@ def test_model_review_requires_opt_in_and_only_projects_aggregate_owned_evidence
                 assert await worker.run_once()
                 review_id = review_receipt.json()["run_id"]
                 readback = (await owner.get(f"{ROOT}/runs/{review_id}")).json()["result"]
-                assert readback["code"] is None and readback["model_status"] == "generated"
+                assert readback["model_status"] == "generated"
+                assert readback["code"]["source"]["submission_id"] == typed["submission_id"]
+                assert readback["code"]["line_count"] == len(second_source.splitlines())
+                assert readback["code"]["comparison"]["earlier"]["submission_id"] == str(
+                    wrong.submission_id
+                )
+                assert "private marker" not in json.dumps(readback["code"])
                 assert readback["anchor_submission_id"] == typed["submission_id"]
                 assert captured[-1]["question"] == typed["review_question"]
                 assert "text" not in captured[-1] and "code" not in captured[-1]
@@ -455,6 +461,23 @@ def test_model_review_requires_opt_in_and_only_projects_aggregate_owned_evidence
                     (excerpt_id, with_excerpt["review_question"]),
                 ]
                 assert (await foreign.get(f"{ROOT}/runs/{excerpt_id}")).status_code == 404
+
+                skill_path = f"{ROOT}/skills/{typed['skill_version_id']}"
+                limited = await owner.put(
+                    skill_path,
+                    json={
+                        "enabled": True,
+                        "authorized_tools": [{"name": "submission_history", "version": 1}],
+                    },
+                )
+                assert limited.status_code == 200
+                history_only = await owner.post(
+                    chat_route, json=typed | {"request_id": str(uuid4())}
+                )
+                assert history_only.status_code == 202, history_only.text
+                assert await worker.run_once()
+                fallback_review = await owner.get(f"{ROOT}/runs/{history_only.json()['run_id']}")
+                assert fallback_review.json()["result"]["code"] is None
         finally:
             await worker_engine.dispose()
             await operator.close()

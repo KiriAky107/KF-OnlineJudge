@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from datetime import datetime
+from hashlib import sha256
 from types import MappingProxyType
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from kf_oj.contracts.submission_evidence import SubmissionCodeEvidence
-from kf_oj.modules.identity.public import ActiveSessionPort, Principal
+from kf_oj.modules.identity.public import AcceptedSession, ActiveSessionPort, Principal
 from kf_oj.modules.learning.agent_store import LearningQueueBusy as LearningQueueBusy
 from kf_oj.modules.learning.agent_store import PostgresAgentStorage
 from kf_oj.modules.learning.agent_tool_policy import AgentToolGrants as AgentToolGrants
@@ -21,6 +23,7 @@ from kf_oj.runtime.tools import TRAINING_CANDIDATES as TRAINING_CANDIDATES
 
 if TYPE_CHECKING:
     from kf_oj.modules.learning.agent_tools import ScopedAgentTools
+    from kf_oj.modules.problems.public import PublicDiagnosticSample
 
 
 AGENT_TOOL_SCOPES = MappingProxyType(
@@ -35,6 +38,39 @@ AGENT_TOOL_SCOPES = MappingProxyType(
 def agent_storage(sessions: async_sessionmaker[AsyncSession], principal: Principal) -> AgentStorage:
     """Bind the storage port to the authenticated principal at composition time."""
     return PostgresAgentStorage(sessions, principal.account_id)
+
+
+async def linked_public_sample_diagnostic(
+    session: AsyncSession,
+    principal: Principal,
+    request_id: UUID,
+    sample: PublicDiagnosticSample,
+    language: str,
+) -> bool:
+    """Verify the original account, session and public sample without returning the diagnosis."""
+    from sqlalchemy import select
+
+    from .diagnostic_models import DiagnosticRequestRow as Diagnostic
+
+    if principal.session_token_hash is None:
+        return False
+    proof = AcceptedSession.from_principal(principal)
+    matched = await session.scalar(
+        select(Diagnostic.id).where(
+            Diagnostic.id == request_id,
+            Diagnostic.owner_id == principal.account_id,
+            Diagnostic.authorization_version == proof.authorization_version,
+            Diagnostic.session_proof == proof.session_proof,
+            Diagnostic.state == "observed",
+            Diagnostic.mode.in_(("optimization", "ubsan")),
+            Diagnostic.problem_version_id == sample.version_id,
+            Diagnostic.sample_ordinal == sample.ordinal,
+            Diagnostic.language == language,
+            Diagnostic.input_digest == sha256(sample.input_bytes).hexdigest(),
+            Diagnostic.expected_digest == sha256(sample.expected_bytes).hexdigest(),
+        )
+    )
+    return matched is not None
 
 
 class LearningUnavailable(ValueError):

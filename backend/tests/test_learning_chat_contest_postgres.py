@@ -4,7 +4,7 @@ import asyncio
 import json
 import secrets
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 from conftest import connect
@@ -17,6 +17,7 @@ from kf_oj.contracts.learning import LearningParameters
 from kf_oj.contracts.submissions import CreateSubmission
 from kf_oj.infra.responses_model import ResponsesLearningHint
 from kf_oj.modules.contests import public as contests
+from kf_oj.modules.learning.agent_tool_policy import REVIEW_EVALUATION_READS_PER_WINDOW
 from kf_oj.modules.learning.agent_worker import LearningWorker
 from kf_oj.modules.learning.hint_policy import HintPolicy
 
@@ -24,8 +25,9 @@ ROOT = "/api/v1/learning/agent"
 ORIGIN = "http://localhost:5173"
 
 
-def test_free_form_chat_consent_and_contest_access(postgres_url, tmp_path, monkeypatch):
+def test_free_form_chat_consent_and_contest_access(postgres_url, tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("KF_OJ_LEARNING_MEMBER_MAX_HINT_LEVEL", "L1")
+    legacy_marker = "fixture-legacy-evaluation-private-marker"
 
     async def exercise():
         app, engine, module = await setup_app(postgres_url, tmp_path)
@@ -49,6 +51,7 @@ def test_free_form_chat_consent_and_contest_access(postgres_url, tmp_path, monke
         release_selection = asyncio.Event()
         streamed_reasoning = "先核对空区间。" * 1500
         streamed_answer = "用两个边界值。" * 1000
+        long_answer = streamed_answer + "补充最后一个核对步骤。"
 
         class ProviderStream(httpx.AsyncByteStream):
             async def __aiter__(self):
@@ -81,7 +84,7 @@ def test_free_form_chat_consent_and_contest_access(postgres_url, tmp_path, monke
                 {
                     "type": "message",
                     "role": "assistant",
-                    "content": [{"type": "output_text", "text": "用两个边界值手算。"}],
+                    "content": [{"type": "output_text", "text": long_answer}],
                 },
             ],
         }
@@ -91,11 +94,11 @@ def test_free_form_chat_consent_and_contest_access(postgres_url, tmp_path, monke
             envelope = json.loads(request.content)
             assert envelope["store"] is False
             assert envelope["reasoning"] == {"effort": "low"}
+            assert "max_output_tokens" not in envelope
             calls.append(json.loads(envelope["input"]))
             instructions.append(envelope["instructions"])
             question = calls[-1]["question"]
             if (choices := calls[-1].get("hint_choices")) is not None:
-                assert envelope["max_output_tokens"] == 2048
                 assert "stream" not in envelope
                 assert 1 <= len(choices) <= 4
                 if len(calls) == 1 or question == "提示输出期间收紧题单":
@@ -119,7 +122,6 @@ def test_free_form_chat_consent_and_contest_access(postgres_url, tmp_path, monke
                     },
                 )
             if (excerpt := calls[-1].get("source_excerpt")) is not None:
-                assert envelope["max_output_tokens"] == 2048
                 assert "stream" not in envelope
                 assert "line 是原始行号" in envelope["instructions"]
                 if question == "授权收回前已经到模型":
@@ -145,7 +147,6 @@ def test_free_form_chat_consent_and_contest_access(postgres_url, tmp_path, monke
                         ]
                     },
                 )
-            assert "max_output_tokens" not in envelope
             if question in {"取消后的草稿验证", "开赛前已开始的答疑"}:
                 assert envelope["stream"] is True
                 return httpx.Response(
@@ -365,12 +366,24 @@ def test_free_form_chat_consent_and_contest_access(postgres_url, tmp_path, monke
                 assert (
                     await alice.post(endpoint, json=state_question | own_submission | attach)
                 ).status_code == 422
-                state_turn = await alice.post(endpoint, json=state_question | own_submission)
+                state_turn, duplicate = await asyncio.gather(
+                    *(alice.post(endpoint, json=state_question | own_submission) for _ in range(2))
+                )
                 assert state_turn.status_code == 202, state_turn.text
                 state_id = state_turn.json()["run_id"]
+                assert duplicate.status_code == 202 and duplicate.json()["run_id"] == state_id
+                read_count = (
+                    "SELECT reads FROM learning_review_evaluation_budgets "
+                    "WHERE owner_id=$1 AND problem_version_id=$2"
+                )
+                assert await operator.fetchval(read_count, owner.account_id, version) == 1
                 assert await worker.run_once()
                 assert calls[2]["hint_level"] == "L2" and "公开手算" in instructions[2]
-                assert calls[2]["submission"]["verdict"] == "accepted"
+                coarse = {
+                    "language": "c17",
+                    "evaluation": {"schema_version": 1, "category": "accepted"},
+                }
+                assert calls[2]["submission"] == coarse
                 assert "source_excerpt" not in calls[2]
 
                 approved = (await alice.get(f"{ROOT}/runs/{state_id}")).json()
@@ -416,7 +429,8 @@ def test_free_form_chat_consent_and_contest_access(postgres_url, tmp_path, monke
                 assert len(calls) == 4, (await alice.get(f"{ROOT}/runs/{private_id}")).text
                 assert calls[3]["hint_level"] == "L3" and "原始行号" in instructions[3]
                 assert calls[3]["history"] == calls[2]["history"]
-                assert calls[3]["submission"]["verdict"] == "accepted"
+                assert calls[3]["submission"] == coarse
+                assert await operator.fetchval(read_count, owner.account_id, version) == 2
                 assert calls[3]["source_excerpt"]["text"] == "int value = 0;"
                 diagnosis = (await alice.get(f"{ROOT}/runs/{private_id}")).json()
                 diagnosis = diagnosis["result"]["model_hint"]
@@ -763,6 +777,25 @@ def test_free_form_chat_consent_and_contest_access(postgres_url, tmp_path, monke
                 )
                 assert rejected.status_code == 422
 
+                open_chat = await alice.post(
+                    endpoint, json=question("请解释区间边界", problem_version_id=None)
+                )
+                assert open_chat.status_code == 202, open_chat.text
+                open_id = open_chat.json()["run_id"]
+                assert await worker.run_once()
+                finished = (await alice.get(f"{ROOT}/runs/{open_id}")).json()
+                assert finished["result"]["model_hint"]["text"] == long_answer
+                assert finished["result"]["model_hint"]["reasoning_kind"] == "text"
+                follow_up = await alice.post(
+                    endpoint,
+                    json=question("展开最后一步", problem_version_id=None, previous_run_id=open_id),
+                )
+                assert follow_up.status_code == 202, follow_up.text
+                assert await worker.run_once()
+                assert calls[-1]["history"] == [
+                    {"question": "请解释区间边界", "answer": long_answer}
+                ]
+
                 old_request = {
                     "request_id": str(uuid4()),
                     "skill_version_id": skill_id,
@@ -820,9 +853,100 @@ def test_free_form_chat_consent_and_contest_access(postgres_url, tmp_path, monke
                 result = (await alice.get(active_path)).json()
                 assert result["state"] == "failed" and result["result"] is None
                 assert result["failure_code"] == "authorization_unavailable"
+
+                lookup = question(
+                    "用评测类别核对",
+                    previous_run_id=direction_id,
+                    hint_level="L2",
+                    include_submission_details=True,
+                )
+                wrong_owner = await alice.post(
+                    endpoint, json=lookup | {"submission_id": str(foreign.submission_id)}
+                )
+                assert wrong_owner.status_code == 404
+                assert await operator.fetchval(read_count, owner.account_id, version) == 2
+
+                await operator.execute(
+                    "UPDATE learning_review_evaluation_budgets SET reads=$1 "
+                    "WHERE owner_id=$2 AND problem_version_id=$3",
+                    REVIEW_EVALUATION_READS_PER_WINDOW,
+                    owner.account_id,
+                    version,
+                )
+                limited = await alice.post(endpoint, json=lookup | own_submission)
+                assert limited.status_code == 202
+                assert await worker.run_once()
+                assert "submission" not in calls[-1]
+                assert (await alice.get(f"{ROOT}/runs/{limited.json()['run_id']}")).json()[
+                    "result"
+                ]["model_status"] == "generated"
+
+                legacy_details = {
+                    "verdict": "accepted",
+                    "language": "c17",
+                    "compilation_status": legacy_marker,
+                    "cpu_time_us": 98123,
+                    "memory_peak_bytes": 74123,
+                    "accepted_cases": 27,
+                    "executed_cases": 39,
+                }
+
+                async def legacy_chat() -> UUID:
+                    response = await alice.post(
+                        endpoint,
+                        json=lookup | own_submission | {"request_id": str(uuid4())},
+                    )
+                    assert response.status_code == 202
+                    run_id = UUID(response.json()["run_id"])
+                    await operator.execute(
+                        "UPDATE learning_agent_workflow_data "
+                        "SET input=jsonb_set(input, '{chat_context,submission}', $2::jsonb) "
+                        "WHERE run_id=$1",
+                        run_id,
+                        json.dumps(legacy_details),
+                    )
+                    return run_id
+
+                queued_before_upgrade = await legacy_chat()
+                assert await worker.run_once()
+                assert "submission" not in calls[-1]
+                loaded = (await alice.get(f"{ROOT}/runs/{queued_before_upgrade}")).json()
+                assert loaded["result"]["model_status"] == "generated"
+
+                started_before_upgrade = await legacy_chat()
+                step = uuid4()
+                await operator.execute(
+                    "INSERT INTO learning_agent_steps "
+                    "(id,run_id,sequence,kind,invocation_version,"
+                    "arguments_digest,state,result_digest) "
+                    "VALUES ($1,$2,1,'model','responses-guided-choice-v1',$3,'succeeded',$3)",
+                    step,
+                    started_before_upgrade,
+                    "0" * 64,
+                )
+                await operator.execute(
+                    "INSERT INTO learning_agent_checkpoints (run_id,ordinal,step_id,output) "
+                    'VALUES ($1,1,$2,\'{"text":"legacy model output","model":"fixture",'
+                    '"response_id":"legacy","latency_ms":0}\'::jsonb)',
+                    started_before_upgrade,
+                    step,
+                )
+                dispatches = len(calls)
+                assert await worker.run_once()
+                assert len(calls) == dispatches
+                loaded = (await alice.get(f"{ROOT}/runs/{started_before_upgrade}")).json()
+                assert loaded["result"]["model_status"] == "uncertain"
+                assert loaded["result"]["model_hint"] is None
+                owned_detail = await alice.get(f"/api/v1/submissions/{own.submission_id}")
+                assert (
+                    owned_detail.status_code == 200 and owned_detail.json()["verdict"] == "accepted"
+                )
+                assert legacy_marker not in json.dumps(calls)
         finally:
             await operator.close()
             await worker_engine.dispose()
             await engine.dispose()
 
     asyncio.run(exercise())
+    captured = capsys.readouterr()
+    assert legacy_marker not in captured.out + captured.err

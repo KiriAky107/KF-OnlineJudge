@@ -26,6 +26,17 @@ from kf_oj.core.settings import Settings
 ROOT = Path(__file__).resolve().parents[2]
 
 
+async def wait_for_coordinator(client: httpx.AsyncClient) -> None:
+    for _ in range(100):
+        try:
+            if (await client.get("/health/ready")).status_code == 200:
+                return
+        except httpx.TransportError:
+            pass
+        await asyncio.sleep(0.05)
+    raise AssertionError("actual Coordinator not ready")
+
+
 @asynccontextmanager
 async def fixture(
     postgres_url,
@@ -114,15 +125,7 @@ async def fixture(
             )
             version = await app.state.problems.import_directory(tmp_path / "import")
             async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=10) as client:
-                for _ in range(100):
-                    try:
-                        if (await client.get("/health/ready")).status_code == 200:
-                            break
-                    except httpx.TransportError:
-                        pass
-                    await asyncio.sleep(0.05)
-                else:
-                    raise AssertionError("actual Coordinator not ready")
+                await wait_for_coordinator(client)
                 props = subprocess.check_output(
                     [
                         "systemctl",
@@ -319,6 +322,7 @@ def test_actual_auth_claim_competition_stage_fence_and_report(postgres_url, tmp_
                 check=True,
                 capture_output=True,
             )
+            await wait_for_coordinator(client)
             progress = await client.post(
                 "/internal/progress", json=g["binding"], headers=worker_headers(w, g)
             )

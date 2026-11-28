@@ -10,12 +10,15 @@ use crate::{
     pipeline_v2::{artifact_error, failure, snapshot_reference, with_publication},
     runtime_specs::diagnostic_preparation_spec,
 };
-use kf_contracts::{judging as v1, judging_v2 as v2};
+use kf_contracts::{
+    diagnostic::{DiagnosticMode, UbsanCategory, UbsanFinding, UbsanObservation},
+    judging as v1, judging_v2 as v2,
+};
 use kf_engine::{
     Observation,
     diagnostic::{
         OptimizationError, OptimizationLevel, OptimizationObservation, OptimizationPreparationPort,
-        OptimizationRequest, observe_optimization, validate_request,
+        OptimizationRequest, observe_optimization, observe_ubsan, validate_public_sample,
     },
     submission::{ControlPort, StageFailure},
     submission_v2::{Compiled, RunPort},
@@ -28,7 +31,8 @@ use kf_sandbox::{
 use std::{
     io::{self, Read},
     path::PathBuf,
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, Ordering},
+    time::{Duration, Instant},
 };
 
 /// Byte-verified, immutable inputs from a trusted public-sample resolver.
@@ -49,7 +53,16 @@ impl PublicSampleInput {
         source: Vec<u8>,
         input: Vec<u8>,
     ) -> Result<Self, OptimizationError> {
-        validate_request(request).map_err(OptimizationError::InvalidRequest)?;
+        Self::from_resolved_mode(request, source, input, DiagnosticMode::Optimization)
+    }
+
+    pub fn from_resolved_mode(
+        request: &OptimizationRequest<'_>,
+        source: Vec<u8>,
+        input: Vec<u8>,
+        mode: DiagnosticMode,
+    ) -> Result<Self, OptimizationError> {
+        validate_public_sample(request, mode).map_err(OptimizationError::InvalidRequest)?;
         for (reference, bytes) in [
             (request.source, source.as_slice()),
             (&request.public_sample.input, input.as_slice()),
@@ -137,20 +150,88 @@ impl PublicSampleInput {
 
 /// Local execution evidence remains available even when a later stage fails.
 /// Contains no source, expected output, compiler text or runtime output.
-pub struct DiagnosticRun {
-    pub result: Result<OptimizationObservation, OptimizationError>,
+pub struct DiagnosticRun<T = OptimizationObservation> {
+    pub result: Result<T, OptimizationError>,
     pub stages: Vec<StageEvidence>,
 }
 
-/// Executes one resolved sample with a separate lifetime and cancellation flag.
+/// Executes one resolved sample within the caller's remaining claim deadline.
 /// Does not recover shared staging, read arbitrary artifacts, or write an
 /// evaluation. The caller owns exclusive queue/slot admission and crash recovery.
 pub fn observe_public_sample(
     input: PublicSampleInput,
     socket: PathBuf,
     staging: PathBuf,
+    claim_deadline: Instant,
     cancellation: &AtomicBool,
 ) -> io::Result<DiagnosticRun> {
+    with_sample_attempt(
+        input,
+        socket,
+        staging,
+        claim_deadline,
+        cancellation,
+        DiagnosticMode::Optimization,
+        |port, request| observe_optimization(port, request),
+    )
+}
+
+pub fn observe_ubsan_sample(
+    input: PublicSampleInput,
+    socket: PathBuf,
+    staging: PathBuf,
+    claim_deadline: Instant,
+    cancellation: &AtomicBool,
+) -> io::Result<DiagnosticRun<UbsanObservation>> {
+    with_sample_attempt(
+        input,
+        socket,
+        staging,
+        claim_deadline,
+        cancellation,
+        DiagnosticMode::Ubsan,
+        |port, request| {
+            let verdict = observe_ubsan(port, request)?;
+            Ok(UbsanObservation {
+                verdict,
+                finding: port.ubsan_finding.take(),
+            })
+        },
+    )
+}
+
+fn with_sample_attempt<T>(
+    input: PublicSampleInput,
+    socket: PathBuf,
+    staging: PathBuf,
+    claim_deadline: Instant,
+    cancellation: &AtomicBool,
+    mode: DiagnosticMode,
+    observe: impl FnOnce(
+        &mut PublicSampleAttempt<'_>,
+        &OptimizationRequest<'_>,
+    ) -> Result<T, OptimizationError>,
+) -> io::Result<DiagnosticRun<T>> {
+    if cancellation.load(Ordering::Acquire) {
+        return Ok(DiagnosticRun {
+            result: Err(OptimizationError::Cancelled),
+            stages: vec![],
+        });
+    }
+    let configuration = &input.configuration;
+    let required = Duration::from_micros(
+        mode.passes()
+            * (configuration.compile_limits.wall_time_us + configuration.run_limits.wall_time_us),
+    );
+    if claim_deadline.saturating_duration_since(Instant::now()) < required {
+        return Ok(DiagnosticRun {
+            result: Err(OptimizationError::Stage(failure(
+                v1::FailureCode::JobDeadline,
+                true,
+            ))),
+            stages: vec![],
+        });
+    }
     let mut port = PublicSampleAttempt {
         input: &input,
         io: Attempt::new(
@@ -159,10 +240,13 @@ pub fn observe_public_sample(
             staging,
             input.configuration.job_wall_time_us,
             cancellation,
-        )?,
+        )?
+        .cap_deadline(claim_deadline),
         program: None,
+        mode,
+        ubsan_finding: None,
     };
-    let result = observe_optimization(&mut port, &input.request());
+    let result = observe(&mut port, &input.request());
     Ok(DiagnosticRun {
         result,
         stages: port.io.stages,
@@ -187,6 +271,8 @@ struct PublicSampleAttempt<'a> {
     input: &'a PublicSampleInput,
     io: Attempt<'a, NoArtifacts>,
     program: Option<SealedProgram>,
+    mode: DiagnosticMode,
+    ubsan_finding: Option<UbsanFinding>,
 }
 
 impl OptimizationPreparationPort for PublicSampleAttempt<'_> {
@@ -280,6 +366,51 @@ impl OptimizationPreparationPort for PublicSampleAttempt<'_> {
     }
 }
 
+const MAX_UBSAN_REPORT_BYTES: u64 = 16 * 1024;
+
+fn ubsan_finding(stderr: &[u8], input: &PublicSampleInput) -> Option<UbsanFinding> {
+    let text = std::str::from_utf8(stderr).ok()?;
+    if !text.ends_with('\n') || text.contains('\0') {
+        return None;
+    }
+    let prefix = match input.configuration.language {
+        v2::Language::C17 => "/work/main.c:",
+        v2::Language::Cpp20 => "/work/main.cpp:",
+        _ => return None,
+    };
+    let mut candidates = text.lines().filter_map(|line| {
+        let (location, message) = line.strip_prefix(prefix)?.split_once(": runtime error: ")?;
+        let (line, column) = location.split_once(':')?;
+        let line = line.parse::<u64>().ok()?;
+        let column = column.parse::<u64>().ok()?;
+        let category = if message.starts_with("signed integer overflow: ") {
+            UbsanCategory::SignedIntegerOverflow
+        } else if message == "division by zero" {
+            UbsanCategory::DivisionByZero
+        } else if message.starts_with("index ") && message.contains(" out of bounds for type ") {
+            UbsanCategory::IndexOutOfBounds
+        } else if message.starts_with("shift exponent ") || message.starts_with("left shift of ") {
+            UbsanCategory::InvalidShift
+        } else {
+            return None;
+        };
+        let finding = UbsanFinding {
+            category,
+            line,
+            column,
+        };
+        finding.validate().ok()?;
+        (line
+            <= input
+                .source_bytes
+                .split_inclusive(|byte| *byte == b'\n')
+                .count() as u64)
+            .then_some(finding)
+    });
+    let first = candidates.next()?;
+    candidates.next().is_none().then_some(first)
+}
+
 impl RunPort for PublicSampleAttempt<'_> {
     fn run(
         &mut self,
@@ -326,6 +457,23 @@ impl RunPort for PublicSampleAttempt<'_> {
                 .report
                 .classify(&validated)
                 .map_err(|_| failure(v1::FailureCode::SandboxUnavailable, false))?;
+            if self.mode == DiagnosticMode::Ubsan
+                && outcome == (ExecutionOutcome::Exited { code: 1 })
+                && !result.report.stderr.truncated
+                && result.report.stderr.retained_bytes <= MAX_UBSAN_REPORT_BYTES
+            {
+                let mut stderr = Vec::new();
+                result
+                    .stderr
+                    .reader()
+                    .map_err(artifact_error)?
+                    .take(MAX_UBSAN_REPORT_BYTES + 1)
+                    .read_to_end(&mut stderr)
+                    .map_err(artifact_error)?;
+                if stderr.len() as u64 <= MAX_UBSAN_REPORT_BYTES {
+                    self.ubsan_finding = ubsan_finding(&stderr, self.input);
+                }
+            }
             let mut stdout = Vec::new();
             result
                 .stdout
@@ -413,6 +561,28 @@ mod tests {
             stdin.to_vec(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn ubsan_uses_only_bounded_reports_pointing_to_the_bound_source() {
+        let source = input();
+        let finding = ubsan_finding(
+            b"/work/main.c:1:1: runtime error: division by zero\n",
+            &source,
+        );
+        assert_eq!(
+            finding.map(|value| value.category),
+            Some(UbsanCategory::DivisionByZero)
+        );
+        for raw in [
+            b"/work/main.c:99:1: runtime error: division by zero\n".as_slice(),
+            b"/other.c:1:1: runtime error: division by zero\n",
+            b"/work/main.c:1:1: runtime error: arbitrary message\n",
+            b"/work/main.c:1:1: runtime error: division by zero",
+            b"/work/main.c:1:1: runtime error: division by zero\n/work/main.c:1:1: runtime error: division by zero\n",
+        ] {
+            assert!(ubsan_finding(raw, &source).is_none());
+        }
     }
 
     #[test]
@@ -504,6 +674,8 @@ mod tests {
             )
             .unwrap(),
             program: None,
+            mode: DiagnosticMode::Optimization,
+            ubsan_finding: None,
         };
         let mut sample = input.sample.clone();
         sample.case_id = uuid::Uuid::new_v4().to_string().try_into().unwrap();
@@ -551,13 +723,40 @@ mod tests {
         fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
         let socket = parent.join("missing.sock");
         let cancelled = AtomicBool::new(true);
-        let run =
-            observe_public_sample(input(), socket.clone(), parent.clone(), &cancelled).unwrap();
+        let live_deadline = Instant::now()
+            + Duration::from_micros(input().configuration.job_wall_time_us)
+            + Duration::from_secs(1);
+        let run = observe_public_sample(
+            input(),
+            socket.clone(),
+            parent.clone(),
+            live_deadline,
+            &cancelled,
+        )
+        .unwrap();
         assert!(matches!(run.result, Err(OptimizationError::Cancelled)));
         assert!(run.stages.is_empty());
         assert_eq!(fs::read_dir(&parent).unwrap().count(), 0);
         let live = AtomicBool::new(false);
-        let run = observe_public_sample(input(), socket, parent.clone(), &live).unwrap();
+        let expired = observe_public_sample(
+            input(),
+            socket.clone(),
+            parent.clone(),
+            Instant::now(),
+            &live,
+        )
+        .unwrap();
+        assert!(matches!(
+            expired.result,
+            Err(OptimizationError::Stage(StageFailure {
+                code: v1::FailureCode::JobDeadline,
+                cleanup_complete: true,
+            }))
+        ));
+        assert!(expired.stages.is_empty());
+        assert_eq!(fs::read_dir(&parent).unwrap().count(), 0);
+        let run =
+            observe_public_sample(input(), socket, parent.clone(), live_deadline, &live).unwrap();
         assert!(matches!(
             run.result,
             Err(OptimizationError::Stage(StageFailure {

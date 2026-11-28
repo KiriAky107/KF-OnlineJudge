@@ -14,21 +14,44 @@ from kf_oj.contracts.agent_api import (
     AgentRunTrace,
     AgentRunView,
     ConfigureSkill,
+    ConfirmPersonalMistake,
+    ConfirmPublicSampleDiagnostic,
     ConversationPage,
     CreateLearningSession,
     LearningSessionView,
+    MistakePractice,
+    MistakePracticeRequest,
+    PersonalMistake,
+    PersonalMistakePage,
+    PublicDiagnosticAvailability,
+    PublicDiagnosticView,
     SkillBindingView,
     SkillCatalogView,
     SkillToolView,
     SkillVersionView,
     StartAgentRun,
+    UpdatePersonalMistake,
 )
 from kf_oj.contracts.agent_learning import AgentExecution, AgentLearningInput, UpdateRunFeedback
+from kf_oj.contracts.diagnostic_batch import (
+    BatchDiagnosticOptions,
+    BatchDiagnosticView,
+    ConfirmBatchDiagnostic,
+)
+from kf_oj.contracts.judging import Identifier
 from kf_oj.contracts.learning import TrainingDetail
 from kf_oj.contracts.learning_model import LearningHintCeiling
 from kf_oj.modules.contests.public import AgentUnavailableDuringContest
 from kf_oj.modules.identity.public import AuthenticationFailed, Principal
 from kf_oj.modules.learning.agent_application import AgentLearning
+from kf_oj.modules.learning.diagnostic_inputs import DiagnosticInputsUnavailable
+from kf_oj.modules.learning.diagnostic_queue import (
+    BatchDiagnosticRequest,
+    DiagnosticBusy,
+    DiagnosticQueue,
+    DiagnosticRequest,
+    DiagnosticRequestConflict,
+)
 from kf_oj.modules.learning.hint_policy import HintCeilingDenied
 from kf_oj.modules.learning.public import LearningQueueBusy, LearningUnavailable, NoCandidates
 from kf_oj.modules.skills.public import (
@@ -80,11 +103,18 @@ async def _action[Result](operation: Awaitable[Result]) -> Result:
         raise HTTPException(401, "authentication required") from None
     except HintCeilingDenied:
         raise HTTPException(403, "hint level unavailable") from None
-    except (SkillBindingUnavailable, SkillVersionUnavailable, AgentRecordUnavailable):
+    except AgentUnavailableDuringContest:
+        raise HTTPException(403, "learning agent paused during contest") from None
+    except (
+        SkillBindingUnavailable,
+        SkillVersionUnavailable,
+        AgentRecordUnavailable,
+        DiagnosticInputsUnavailable,
+    ):
         raise HTTPException(404, "learning resource unavailable") from None
-    except (LearningUnavailable, AgentRecordConflict):
+    except (LearningUnavailable, AgentRecordConflict, DiagnosticRequestConflict):
         raise HTTPException(409, "learning request conflicts with current state") from None
-    except LearningQueueBusy:
+    except (LearningQueueBusy, DiagnosticBusy):
         raise HTTPException(429, "learning queue busy") from None
     except NoCandidates:
         raise HTTPException(422, "no available matching problems") from None
@@ -199,6 +229,174 @@ async def hint_ceiling(
     agent: Agent, principal: Reader, problem_version_id: UUID, training_id: UUID | None = None
 ) -> LearningHintCeiling:
     return await _action(agent.hint_ceiling(principal, problem_version_id, training_id))
+
+
+def _diagnostics(agent: Agent) -> DiagnosticQueue:
+    if agent.diagnostics is None:
+        raise HTTPException(503, "public-sample diagnostics unavailable")
+    return agent.diagnostics
+
+
+Diagnostics = Annotated[DiagnosticQueue, Depends(_diagnostics)]
+
+
+def _diagnostic_view(value: DiagnosticRequest) -> PublicDiagnosticView:
+    return PublicDiagnosticView(
+        request_id=value.request_id,
+        state=value.state,
+        queue_deadline=value.queue_deadline,
+        observation=value.observation,
+        mode=value.mode,
+        sample_ordinal=value.sample_ordinal,
+        ubsan=value.ubsan,
+    )
+
+
+def _batch_view(value: BatchDiagnosticRequest) -> BatchDiagnosticView:
+    return BatchDiagnosticView(
+        request_id=value.request_id,
+        state=value.state,
+        queue_deadline=value.queue_deadline,
+        summary=value.summary,
+    )
+
+
+@router.get("/diagnostic-batches/options", response_model=BatchDiagnosticOptions)
+async def diagnostic_batch_options(
+    submission_id: Identifier,
+    problem_version_id: Identifier,
+    principal: Reader,
+    queue: Diagnostics,
+) -> BatchDiagnosticOptions:
+    return BatchDiagnosticOptions(
+        options=await _action(queue.offered_batches(principal, submission_id, problem_version_id))
+    )
+
+
+@router.put("/diagnostic-batches/{request_id}", response_model=BatchDiagnosticView, status_code=202)
+async def confirm_diagnostic_batch(
+    request_id: Identifier,
+    body: ConfirmBatchDiagnostic,
+    principal: Writer,
+    queue: Diagnostics,
+) -> BatchDiagnosticView:
+    return _batch_view(
+        await _action(queue.enqueue_batch(principal, request_id=request_id, request=body))
+    )
+
+
+@router.get("/diagnostic-batches/{request_id}", response_model=BatchDiagnosticView)
+async def diagnostic_batch(
+    request_id: Identifier,
+    principal: Reader,
+    queue: Diagnostics,
+) -> BatchDiagnosticView:
+    return _batch_view(await _action(queue.read_batch(principal, request_id)))
+
+
+@router.post("/diagnostic-batches/{request_id}/cancel", status_code=204)
+async def cancel_diagnostic_batch(
+    request_id: Identifier, principal: Writer, queue: Diagnostics
+) -> None:
+    await _action(queue.cancel_batch(principal, request_id))
+
+
+@router.get("/diagnostics/availability", response_model=PublicDiagnosticAvailability)
+async def public_sample_diagnostic_availability(
+    agent: Agent, principal: Reader
+) -> PublicDiagnosticAvailability:
+    queue = agent.diagnostics
+    return PublicDiagnosticAvailability(
+        available=queue is not None,
+        ubsan=queue is not None and queue.ubsan_enabled,
+        registered_batches=queue is not None and queue.has_registered_batches,
+    )
+
+
+@router.put("/diagnostics/{request_id}", response_model=PublicDiagnosticView, status_code=202)
+async def confirm_public_sample_diagnostic(
+    request_id: Identifier,
+    body: ConfirmPublicSampleDiagnostic,
+    principal: Writer,
+    queue: Diagnostics,
+) -> PublicDiagnosticView:
+    return _diagnostic_view(
+        await _action(
+            queue.enqueue(
+                principal,
+                request_id=request_id,
+                submission_id=body.submission_id,
+                problem_version_id=body.problem_version_id,
+                sample_ordinal=body.sample_ordinal,
+                source_execution_confirmed=body.source_execution_confirmed,
+                mode=body.mode,
+                review_run_id=body.review_run_id,
+            )
+        )
+    )
+
+
+@router.get("/diagnostics/{request_id}", response_model=PublicDiagnosticView)
+async def public_sample_diagnostic(
+    request_id: Identifier, principal: Reader, queue: Diagnostics
+) -> PublicDiagnosticView:
+    return _diagnostic_view(await _action(queue.read(principal, request_id)))
+
+
+@router.post("/diagnostics/{request_id}/cancel", status_code=204)
+async def cancel_public_sample_diagnostic(
+    request_id: Identifier, principal: Writer, queue: Diagnostics
+) -> None:
+    await _action(queue.cancel(principal, request_id))
+
+
+@router.put("/diagnostics/{request_id}/mistake", response_model=PersonalMistake)
+async def confirm_personal_mistake(
+    request_id: Identifier,
+    body: ConfirmPersonalMistake,
+    agent: Agent,
+    principal: Writer,
+    queue: Diagnostics,
+) -> PersonalMistake:
+    return await _action(agent.mistakes.confirm(principal, queue, request_id, body.note))
+
+
+@router.get("/mistakes", response_model=PersonalMistakePage)
+async def list_personal_mistakes(
+    agent: Agent,
+    principal: Reader,
+    before: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=30)] = 12,
+) -> PersonalMistakePage:
+    return await _action(agent.mistakes.list(principal, before, limit))
+
+
+@router.get("/mistakes/{request_id}", response_model=PersonalMistake)
+async def personal_mistake(
+    request_id: Identifier, agent: Agent, principal: Reader
+) -> PersonalMistake:
+    return await _action(agent.mistakes.read(principal, request_id))
+
+
+@router.post("/mistakes/practice", response_model=MistakePractice)
+async def practice_from_personal_mistake(
+    body: MistakePracticeRequest, agent: Agent, principal: Writer
+) -> MistakePractice:
+    return await _action(agent.practice_mistake(principal, body))
+
+
+@router.patch("/mistakes/{request_id}", response_model=PersonalMistake)
+async def edit_personal_mistake(
+    request_id: Identifier, body: UpdatePersonalMistake, agent: Agent, principal: Writer
+) -> PersonalMistake:
+    return await _action(agent.mistakes.edit(principal, request_id, body.note))
+
+
+@router.delete("/mistakes/{request_id}", status_code=204)
+async def withdraw_personal_mistake(
+    request_id: Identifier, agent: Agent, principal: Writer
+) -> None:
+    await _action(agent.mistakes.withdraw(principal, request_id))
 
 
 @router.post("/sessions/{session_id}/runs", response_model=AgentRunView, status_code=202)

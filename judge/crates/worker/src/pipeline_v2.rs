@@ -400,27 +400,46 @@ pub fn judge_local(
     staging: &Path,
     admission: &NodeAdmission,
 ) -> io::Result<Judged> {
-    let job: Job = v1::decode_wire(&kf_sandbox::execution::read_bounded_file(
+    let job = read_local_job(job)?;
+    let authorized = admit_local_job(&job, admission)?;
+    StagePublication::recover(staging)?;
+    let cancellation = AtomicBool::new(false);
+    execute_local_job(job, authorized, socket, artifacts, staging, &cancellation)
+}
+
+fn read_local_job(job: &Path) -> io::Result<Job> {
+    v1::decode_wire(&kf_sandbox::execution::read_bounded_file(
         job,
         v1::MAX_WIRE_BYTES as u64,
     )?)
-    .map_err(io::Error::other)?;
-    let authorized = AuthorizedJob::admit(
+    .map_err(io::Error::other)
+}
+
+fn admit_local_job(job: &Job, admission: &NodeAdmission) -> io::Result<AuthorizedJob> {
+    AuthorizedJob::admit(
         job.manifest.clone(),
         job.binding.clone(),
         job.manifest_digest.clone(),
         job.attempt_number,
         admission,
     )
-    .map_err(io::Error::other)?;
-    StagePublication::recover(staging)?;
-    let cancellation = AtomicBool::new(false);
+    .map_err(io::Error::other)
+}
+
+fn execute_local_job(
+    job: Job,
+    authorized: AuthorizedJob,
+    socket: &Path,
+    artifacts: &Path,
+    staging: &Path,
+    cancellation: &AtomicBool,
+) -> io::Result<Judged> {
     let mut attempt = RuntimeAttempt::new(
         authorized,
         LocalArtifacts::open(artifacts)?,
         socket.into(),
         staging.into(),
-        &cancellation,
+        cancellation,
     )?;
     let result = engine::judge_submission(
         &mut attempt,
@@ -433,6 +452,198 @@ pub fn judge_local(
         result,
         stages: attempt.into_stages(),
     })
+}
+
+#[cfg(target_os = "linux")]
+fn admit_diagnostic_replay(
+    socket: &Path,
+    job: &Path,
+    staging: &Path,
+    admission: &Path,
+    worker_id: &v1::Identifier,
+    factory_config_sha256: &str,
+) -> io::Result<(Job, AuthorizedJob)> {
+    use kf_contracts::diagnostic::{
+        MAX_DIAGNOSTIC_BATCH_CASES, MAX_DIAGNOSTIC_WALL_US, MAX_PREPARATION_WALL_US,
+        MAX_SAMPLE_BYTES, MAX_SAMPLE_WALL_US,
+    };
+
+    let refused = || io::Error::other("diagnostic replay refused");
+    let admission = crate::diagnostic_stdio::load_policy(admission)?;
+    let job = read_local_job(job)?;
+    let manifest = &job.manifest;
+    let compile_wall = manifest.compile_limits.wall_time_us;
+    let run_wall = manifest.run_limits.wall_time_us;
+    if job.binding.worker_id != *worker_id
+        || job.attempt_number != 1
+        || manifest.self_test
+        || !matches!(manifest.language, v2::Language::C17 | v2::Language::Cpp20)
+        || !(2..=MAX_DIAGNOSTIC_BATCH_CASES).contains(&manifest.cases.len())
+        || compile_wall > MAX_PREPARATION_WALL_US
+        || run_wall > MAX_SAMPLE_WALL_US
+        || manifest.job_wall_time_us > MAX_DIAGNOSTIC_WALL_US
+        || manifest.job_wall_time_us < compile_wall + manifest.cases.len() as u64 * run_wall
+        || manifest.cases.iter().any(|case| {
+            case.input.bytes.max(case.expected.bytes) > MAX_SAMPLE_BYTES
+                || case.expected.bytes > manifest.run_limits.stdout_bytes
+        })
+    {
+        return Err(refused());
+    }
+    let authorized = admit_local_job(&job, &admission)?;
+    let factory = kf_sandbox::factory::FactoryClient::new(socket.to_path_buf());
+    if !factory
+        .health()
+        .is_ok_and(|health| health.configuration_sha256 == factory_config_sha256)
+        || std::fs::read_dir(staging)?.next().is_some()
+    {
+        return Err(refused());
+    }
+    Ok((job, authorized))
+}
+
+#[cfg(target_os = "linux")]
+fn replay_cancellation() -> io::Result<std::sync::Arc<AtomicBool>> {
+    use std::sync::{Arc, atomic::Ordering};
+
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let signal = Arc::clone(&cancellation);
+    std::thread::Builder::new()
+        .name("diagnostic-replay-control".into())
+        .spawn(move || {
+            let _ = io::stdin().lock().read(&mut [0u8; 1]);
+            signal.store(true, Ordering::Release);
+        })?;
+    Ok(cancellation)
+}
+
+#[cfg(target_os = "linux")]
+pub fn replay_diagnostic_local(
+    socket: &Path,
+    job: &Path,
+    artifacts: &Path,
+    staging: &Path,
+    admission: &Path,
+    worker_id: &v1::Identifier,
+    factory_config_sha256: &str,
+) -> io::Result<v2::JudgementReport> {
+    let (job, authorized) = admit_diagnostic_replay(
+        socket,
+        job,
+        staging,
+        admission,
+        worker_id,
+        factory_config_sha256,
+    )?;
+    let cancellation = replay_cancellation()?;
+    let judged = execute_local_job(job, authorized, socket, artifacts, staging, &cancellation)?;
+    let mut report = judged.result.report;
+    report.compilation.diagnostics = String::new().try_into().expect("empty diagnostics");
+    report.compilation.diagnostics_truncated = false;
+    Ok(report)
+}
+
+#[cfg(target_os = "linux")]
+pub fn measure_diagnostic_local(
+    socket: &Path,
+    job: &Path,
+    artifacts: &Path,
+    staging: &Path,
+    admission: &Path,
+    worker_id: &v1::Identifier,
+    factory_config_sha256: &str,
+) -> io::Result<kf_contracts::diagnostic::DiagnosticBoundaryReport> {
+    use engine::{PreparationPort, RunPort};
+    use kf_contracts::{
+        SchemaVersion,
+        diagnostic::{
+            BoundaryMeasurement, BoundaryOutcome, BoundaryReportKind, DiagnosticBoundaryReport,
+        },
+    };
+    use kf_engine::ExecutionKind;
+    use old::ControlPort;
+
+    let (job, authorized) = admit_diagnostic_replay(
+        socket,
+        job,
+        staging,
+        admission,
+        worker_id,
+        factory_config_sha256,
+    )?;
+    let refused = || io::Error::other("boundary measurement refused");
+    let m = &job.manifest;
+    // These input-only cases reuse the v2 admission envelope. The empty
+    // reference marks the unused expected-output field, which is never read.
+    let empty_digest = format!("{:x}", Sha256::digest([]));
+    if m.cases
+        .iter()
+        .any(|case| case.expected.bytes != 0 || case.expected.digest.as_str() != empty_digest)
+    {
+        return Err(refused());
+    }
+    let cancellation = replay_cancellation()?;
+    let mut attempt = RuntimeAttempt::new(
+        authorized,
+        LocalArtifacts::open(artifacts)?,
+        socket.into(),
+        staging.into(),
+        &cancellation,
+    )?;
+    let attempt_id = job.binding.attempt_id.as_uuid();
+    let verify_active = |port: &RuntimeAttempt<'_, LocalArtifacts>| {
+        if port.cancelled() || port.elapsed_us() >= m.job_wall_time_us {
+            return Err(refused());
+        }
+        Ok(())
+    };
+    verify_active(&attempt)?;
+    let compiled = attempt
+        .prepare(m, &job.binding, &format!("c-{attempt_id}"))
+        .map_err(|_| refused())?;
+    if !compiled.cleanup_complete || compiled.failure.is_some() {
+        return Err(refused());
+    }
+    let program = compiled.report.program.ok_or_else(refused)?;
+    let mut cases = Vec::with_capacity(m.cases.len());
+    for (index, case) in m.cases.iter().enumerate() {
+        verify_active(&attempt)?;
+        let observed = attempt
+            .run(
+                &program,
+                case,
+                &m.run_limits,
+                &format!("r-{attempt_id}-{index}"),
+            )
+            .map_err(|_| refused())?;
+        let outcome = match observed.kind {
+            ExecutionKind::Exited { code: 0 } => BoundaryOutcome::Completed,
+            ExecutionKind::Exited { .. } | ExecutionKind::Signaled => BoundaryOutcome::RuntimeError,
+            ExecutionKind::TimeLimit => BoundaryOutcome::TimeLimit,
+            ExecutionKind::MemoryLimit => BoundaryOutcome::MemoryLimit,
+            ExecutionKind::OutputLimit => BoundaryOutcome::OutputLimit,
+            ExecutionKind::OtherLimit => BoundaryOutcome::OtherLimit,
+            ExecutionKind::Cancelled | ExecutionKind::InfrastructureFailure => {
+                return Err(refused());
+            }
+        };
+        cases.push(BoundaryMeasurement {
+            case_id: case.case_id,
+            outcome,
+            cpu_time_us: observed.cpu_time_us.ok_or_else(refused)?,
+            memory_peak_bytes: observed.memory_peak_bytes.ok_or_else(refused)?,
+        });
+    }
+    verify_active(&attempt)?;
+    let report = DiagnosticBoundaryReport {
+        schema_version: SchemaVersion,
+        kind: BoundaryReportKind::Value,
+        binding: job.binding,
+        manifest_digest: job.manifest_digest,
+        cases,
+    };
+    report.validate().map_err(io::Error::other)?;
+    Ok(report)
 }
 
 #[cfg(test)]

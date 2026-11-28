@@ -103,21 +103,22 @@ async def versions(session, version_ids):
     return {row.version_id: project(row) for row in rows}
 
 
-async def selected(session, version_ids):
+async def selected(session, version_ids, *, current_only: bool = True):
     if len(version_ids) > 10:
         raise ValueError("at most ten selected versions")
     if not version_ids:
         return {}
     # Pin availability and serialize with metadata updates to the chosen versions.
+    selection = query().where(
+        ProblemVersion.id.in_(version_ids),
+        Problem.enabled.is_(True),
+        ProblemVersion.published_at.is_not(None),
+    )
+    if current_only:
+        selection = selection.where(Problem.active_version_id == ProblemVersion.id)
     rows = await session.execute(
-        query()
-        .where(
-            ProblemVersion.id.in_(version_ids),
-            Problem.active_version_id == ProblemVersion.id,
-            Problem.enabled.is_(True),
-            ProblemVersion.published_at.is_not(None),
+        selection.order_by(Problem.id, ProblemVersion.id).with_for_update(
+            read=True, of=(Problem, ProblemVersion)
         )
-        .order_by(Problem.id)
-        .with_for_update(read=True, of=(Problem, ProblemVersion))
     )
     return {row.version_id: project(row) for row in rows}

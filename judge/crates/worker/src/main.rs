@@ -14,9 +14,45 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
+    #[cfg(target_os = "linux")]
+    ReplayDiagnosticBatch {
+        #[arg(long)]
+        socket: PathBuf,
+        #[arg(long)]
+        job: PathBuf,
+        #[arg(long)]
+        artifacts: PathBuf,
+        #[arg(long)]
+        staging: PathBuf,
+        #[arg(long)]
+        admission: PathBuf,
+        #[arg(long)]
+        worker_id: String,
+        #[arg(long)]
+        factory_config_sha256: String,
+        #[arg(long)]
+        measure_resources: bool,
+    },
+    #[cfg(target_os = "linux")]
+    DiagnosePublicSample {
+        #[arg(long)]
+        socket: PathBuf,
+        #[arg(long)]
+        staging: PathBuf,
+        #[arg(long)]
+        admission: PathBuf,
+        #[arg(long)]
+        worker_id: String,
+        #[arg(long)]
+        factory_config_sha256: String,
+    },
     CheckStopped {
         #[arg(long)]
         socket: PathBuf,
+        #[arg(long)]
+        factory_config_sha256: Option<String>,
+        #[arg(long, requires = "factory_config_sha256")]
+        diagnostic_staging: Option<PathBuf>,
     },
     Serve {
         #[arg(long)]
@@ -64,8 +100,101 @@ async fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     match cli.command {
-        Some(Command::CheckStopped { socket }) => {
-            match kf_sandbox::factory::FactoryClient::new(socket).stopped() {
+        #[cfg(target_os = "linux")]
+        Some(Command::ReplayDiagnosticBatch {
+            socket,
+            job,
+            artifacts,
+            staging,
+            admission,
+            worker_id,
+            factory_config_sha256,
+            measure_resources,
+        }) => {
+            let result = worker_id
+                .try_into()
+                .map_err(std::io::Error::other)
+                .and_then(|worker| {
+                    if measure_resources {
+                        kf_worker::pipeline_v2::measure_diagnostic_local(
+                            &socket,
+                            &job,
+                            &artifacts,
+                            &staging,
+                            &admission,
+                            &worker,
+                            &factory_config_sha256,
+                        )
+                        .map(|report| serde_json::json!(report))
+                    } else {
+                        kf_worker::pipeline_v2::replay_diagnostic_local(
+                            &socket,
+                            &job,
+                            &artifacts,
+                            &staging,
+                            &admission,
+                            &worker,
+                            &factory_config_sha256,
+                        )
+                        .map(|report| serde_json::json!(report))
+                    }
+                });
+            match result {
+                Ok(report) => {
+                    println!("{report}");
+                    ExitCode::SUCCESS
+                }
+                Err(_) => {
+                    eprintln!("diagnostic replay refused");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        #[cfg(target_os = "linux")]
+        Some(Command::DiagnosePublicSample {
+            socket,
+            staging,
+            admission,
+            worker_id,
+            factory_config_sha256,
+        }) => {
+            let result = worker_id
+                .try_into()
+                .map_err(std::io::Error::other)
+                .and_then(|worker| {
+                    kf_worker::diagnostic_stdio::run_stdio(
+                        socket,
+                        staging,
+                        &admission,
+                        &worker,
+                        &factory_config_sha256,
+                    )
+                });
+            if result.is_ok() {
+                ExitCode::SUCCESS
+            } else {
+                eprintln!("diagnostic worker refused");
+                ExitCode::from(2)
+            }
+        }
+        Some(Command::CheckStopped {
+            socket,
+            factory_config_sha256,
+            diagnostic_staging,
+        }) => {
+            let factory = kf_sandbox::factory::FactoryClient::new(socket);
+            let proof = match factory_config_sha256 {
+                Some(digest) => factory.stopped_for_configuration(&digest),
+                None => factory.stopped(),
+            };
+            let proof = proof.and_then(|clean| {
+                if let Some(staging) = diagnostic_staging.filter(|_| clean) {
+                    kf_sandbox::artifacts::StagePublication::recover(&staging)?;
+                    return Ok(std::fs::read_dir(staging)?.next().transpose()?.is_none());
+                }
+                Ok(clean)
+            });
+            match proof {
                 Ok(clean) => {
                     println!("{}", serde_json::json!({"cleanup_complete":clean}));
                     ExitCode::SUCCESS

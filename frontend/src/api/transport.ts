@@ -28,6 +28,26 @@ export function rejectSession401({
   throw new ApiError(401)
 }
 
+function requestDeadline(signal: AbortSignal, deadlineMs: number): AbortSignal {
+  if (signal.aborted) return signal
+  if (typeof AbortSignal.any === 'function' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.any([signal, AbortSignal.timeout(deadlineMs)])
+  }
+
+  // Older mobile WebViews only provide AbortController.
+  const controller = new AbortController()
+  const cancel = () => {
+    clearTimeout(timer)
+    controller.abort(signal.reason)
+  }
+  const timer = setTimeout(() => {
+    signal.removeEventListener('abort', cancel)
+    controller.abort(new DOMException('Request timed out', 'TimeoutError'))
+  }, deadlineMs)
+  signal.addEventListener('abort', cancel, { once: true })
+  return controller.signal
+}
+
 export function boundedFetch(
   fetcher: typeof fetch,
   unauthorized: () => void,
@@ -42,7 +62,7 @@ export function boundedFetch(
         new Request(request, {
           credentials: 'same-origin',
           cache: 'no-store',
-          signal: AbortSignal.any([request.signal, AbortSignal.timeout(deadlineMs)]),
+          signal: requestDeadline(request.signal, deadlineMs),
         }),
       )
       if (response.status === 401 && version === authorizationVersion()) unauthorized()

@@ -21,7 +21,7 @@ const rules: FormRules<typeof model> = {
     },
   ],
   password: [
-    { required: true, min: 12, max: 128, message: '请输入 12 至 128 位密码', trigger: 'blur' },
+    { required: true, min: 8, max: 128, message: '请输入 8 至 128 位密码', trigger: 'blur' },
   ],
 }
 async function submit() {

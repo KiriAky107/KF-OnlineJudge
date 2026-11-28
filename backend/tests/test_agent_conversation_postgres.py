@@ -2,22 +2,37 @@
 
 import asyncio
 import secrets
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
+import pytest
+from conftest import connect
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_submission_create import setup_app
 
+from kf_oj.contracts.learning_model import ModelHint
 from kf_oj.modules.learning.agent_worker import LearningWorker
 
 ROOT = "/api/v1/learning/agent"
 ORIGIN = "http://localhost:5173"
 
 
+@pytest.mark.parametrize("reasoning_kind", ["text", "summary"])
 def test_mixed_learning_conversation_is_ordered_owned_and_serial(
-    postgres_url, tmp_path, monkeypatch
+    postgres_url, tmp_path, monkeypatch, reasoning_kind
 ):
+    class Model:
+        async def hint(self, _):
+            return ModelHint(
+                text="先手算最小输入。",
+                reasoning="需要核对输入边界。",
+                reasoning_kind=reasoning_kind,
+                model="fixture",
+                response_id="conversation-fixture",
+                latency_ms=1,
+            )
+
     async def exercise():
         app, engine, module = await setup_app(postgres_url, tmp_path)
         monkeypatch.setattr(module, "build_engine", lambda _: engine)
@@ -106,7 +121,9 @@ def test_mixed_learning_conversation_is_ordered_owned_and_serial(
                 chat_run = started.json()["run_id"]
                 assert (await begin(root, chat_request)).json()["run_id"] == chat_run
                 assert (await begin(child, training_request)).status_code == 409
-                worker = LearningWorker(async_sessionmaker(worker_engine, expire_on_commit=False))
+
+                sessions = async_sessionmaker(worker_engine, expire_on_commit=False)
+                worker = LearningWorker(sessions)
                 assert await worker.run_once()
                 draft = await begin(child, training_request)
                 assert draft.status_code == 202, draft.text
@@ -125,6 +142,7 @@ def test_mixed_learning_conversation_is_ordered_owned_and_serial(
                 assert latest["next_before"] == draft_run
                 previous = (await history(owner, root, limit=1, before=draft_run)).json()
                 assert previous["next_before"] is None and previous["runs"][0]["run_id"] == chat_run
+                assert "reasoning_kind" not in latest["runs"][0]
                 assert (await history(owner, root, before=str(uuid4()))).status_code == 404
 
                 unrelated = (await session(owner, "guided_help")).json()["session_id"]
@@ -149,6 +167,27 @@ def test_mixed_learning_conversation_is_ordered_owned_and_serial(
                 )
                 assert scoped.status_code == 200 and scoped.json()["items"] == [mixed]
                 assert (await other.get(f"{ROOT}/conversations")).json()["items"] == []
+                assert await LearningWorker(sessions, model=Model()).run_once()
+                if reasoning_kind == "summary":
+                    # Old runs may still have the provider summary stored in JSON.
+                    operator = await connect(postgres_url)
+                    try:
+                        await operator.execute(
+                            "UPDATE learning_agent_workflow_data SET result=jsonb_set("
+                            "result, '{model_hint}', (result->'model_hint') || "
+                            "$2::jsonb) WHERE run_id=$1",
+                            UUID(new.json()["run_id"]),
+                            '{"reasoning":"旧摘要","reasoning_kind":"summary"}',
+                        )
+                    finally:
+                        await operator.close()
+                free_chat = (await history(owner, unrelated)).json()["runs"][0]
+                assert free_chat["run_id"] == new.json()["run_id"]
+                if reasoning_kind == "text":
+                    assert free_chat["reasoning"] == "需要核对输入边界。"
+                    assert free_chat["reasoning_kind"] == "text"
+                else:
+                    assert "reasoning" not in free_chat and "reasoning_kind" not in free_chat
         finally:
             await worker_engine.dispose()
             await engine.dispose()

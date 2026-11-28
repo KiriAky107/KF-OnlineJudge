@@ -38,6 +38,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/learning/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Diagnostic Observations */
+        get: operations["diagnostic_observations_api_v1_admin_learning_diagnostics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/learning/practice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Practice Observations */
+        get: operations["practice_observations_api_v1_admin_learning_practice_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/maintenance-audit": {
         parameters: {
             query?: never;
@@ -639,6 +673,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/learning/agent/diagnostic-batches/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Diagnostic Batch Options */
+        get: operations["diagnostic_batch_options_api_v1_learning_agent_diagnostic_batches_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/diagnostic-batches/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Diagnostic Batch */
+        get: operations["diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__get"];
+        /** Confirm Diagnostic Batch */
+        put: operations["confirm_diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/diagnostic-batches/{request_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Diagnostic Batch */
+        post: operations["cancel_diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/diagnostics/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public Sample Diagnostic Availability */
+        get: operations["public_sample_diagnostic_availability_api_v1_learning_agent_diagnostics_availability_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/diagnostics/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public Sample Diagnostic */
+        get: operations["public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__get"];
+        /** Confirm Public Sample Diagnostic */
+        put: operations["confirm_public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/diagnostics/{request_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Public Sample Diagnostic */
+        post: operations["cancel_public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/diagnostics/{request_id}/mistake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Confirm Personal Mistake */
+        put: operations["confirm_personal_mistake_api_v1_learning_agent_diagnostics__request_id__mistake_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/learning/agent/hint-ceiling": {
         parameters: {
             query?: never;
@@ -654,6 +809,59 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/mistakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Personal Mistakes */
+        get: operations["list_personal_mistakes_api_v1_learning_agent_mistakes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/mistakes/practice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Practice From Personal Mistake */
+        post: operations["practice_from_personal_mistake_api_v1_learning_agent_mistakes_practice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/learning/agent/mistakes/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Personal Mistake */
+        get: operations["personal_mistake_api_v1_learning_agent_mistakes__request_id__get"];
+        put?: never;
+        post?: never;
+        /** Withdraw Personal Mistake */
+        delete: operations["withdraw_personal_mistake_api_v1_learning_agent_mistakes__request_id__delete"];
+        options?: never;
+        head?: never;
+        /** Edit Personal Mistake */
+        patch: operations["edit_personal_mistake_api_v1_learning_agent_mistakes__request_id__patch"];
         trace?: never;
     };
     "/api/v1/learning/agent/runs": {
@@ -1105,6 +1313,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/official-trainings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Official Trainings */
+        get: operations["official_trainings_api_v1_official_trainings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/official-trainings/{training_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Official Training */
+        get: operations["official_training_api_v1_official_trainings__training_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/official-trainings/{training_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Official Training */
+        post: operations["start_official_training_api_v1_official_trainings__training_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/problems": {
         parameters: {
             query?: never;
@@ -1344,6 +1603,179 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Team Page */
+        get: operations["team_page_api_v1_teams_get"];
+        put?: never;
+        /** Create Team */
+        post: operations["create_team_api_v1_teams_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/captained": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My Captained Teams */
+        get: operations["my_captained_teams_api_v1_teams_captained_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Team Profile */
+        get: operations["team_profile_api_v1_teams__team_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Team Members */
+        get: operations["team_members_api_v1_teams__team_id__members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/members/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Manage Team Member */
+        put: operations["manage_team_member_api_v1_teams__team_id__members__account_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/membership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My Team Membership */
+        get: operations["my_team_membership_api_v1_teams__team_id__membership_get"];
+        /** Request Team Membership */
+        put: operations["request_team_membership_api_v1_teams__team_id__membership_put"];
+        post?: never;
+        /** Leave Team */
+        delete: operations["leave_team_api_v1_teams__team_id__membership_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/trainings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Team Trainings */
+        get: operations["team_trainings_api_v1_teams__team_id__trainings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/trainings/{training_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Team Training Detail */
+        get: operations["team_training_detail_api_v1_teams__team_id__trainings__training_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/trainings/{training_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Team Training Review */
+        get: operations["team_training_review_api_v1_teams__team_id__trainings__training_id__review_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/trainings/{training_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Team Training */
+        post: operations["start_team_training_api_v1_teams__team_id__trainings__training_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trainings": {
         parameters: {
             query?: never;
@@ -1447,6 +1879,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trainings/{training_id}/publish-official": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Official Training */
+        post: operations["publish_official_training_api_v1_trainings__training_id__publish_official_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trainings/{training_id}/publish-team/{team_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Team Training */
+        post: operations["publish_team_training_api_v1_trainings__training_id__publish_team__team_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1496,6 +1962,8 @@ export interface components {
             question: string | null;
             /** Reasoning */
             reasoning?: string | null;
+            /** Reasoning Kind */
+            reasoning_kind?: "text" | null;
             /**
              * Run Id
              * Format: uuid
@@ -1656,6 +2124,70 @@ export interface components {
             bytes: number;
             /** Digest */
             digest: string;
+        };
+        /** BatchDiagnosticOption */
+        BatchDiagnosticOption: {
+            /** Manifest Sha256 */
+            manifest_sha256: string;
+            /**
+             * Purpose
+             * @enum {string}
+             */
+            purpose: "differential" | "boundary";
+            /** Title */
+            title: string;
+        };
+        /** BatchDiagnosticOptions */
+        BatchDiagnosticOptions: {
+            /** Options */
+            options: components["schemas"]["BatchDiagnosticOption"][];
+        };
+        /** BatchDiagnosticSummary */
+        BatchDiagnosticSummary: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "reference_pending" | "input_not_verified" | "reduction_verified" | "reduction_unverified" | "accepted" | "completed" | "compilation_error" | "wrong_answer" | "runtime_error" | "resource_limit";
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * Purpose
+             * @enum {string}
+             */
+            purpose: "differential" | "boundary";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
+        /** BatchDiagnosticView */
+        BatchDiagnosticView: {
+            /**
+             * Queue Deadline
+             * Format: date-time
+             */
+            queue_deadline: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "running" | "cancel_pending" | "cancelled" | "expired" | "unavailable" | "observed" | "failed";
+            summary?: components["schemas"]["BatchDiagnosticSummary"] | null;
         };
         /** CancellationAccepted */
         CancellationAccepted: {
@@ -1911,6 +2443,74 @@ export interface components {
                 [key: string]: components["schemas"]["JsonValue"];
             };
         };
+        /** ConfirmBatchDiagnostic */
+        ConfirmBatchDiagnostic: {
+            /** Manifest Sha256 */
+            manifest_sha256: string;
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /** Review Run Id */
+            review_run_id?: string | null;
+            /**
+             * Source Execution Confirmed
+             * @constant
+             */
+            source_execution_confirmed: true;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
+        /** ConfirmPersonalMistake */
+        ConfirmPersonalMistake: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+            /** Note */
+            note: string;
+        };
+        /** ConfirmPublicSampleDiagnostic */
+        ConfirmPublicSampleDiagnostic: {
+            /**
+             * Mode
+             * @default optimization
+             * @enum {string}
+             */
+            mode: "optimization" | "ubsan";
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /** Review Run Id */
+            review_run_id?: string | null;
+            /** Sample Ordinal */
+            sample_ordinal: number;
+            /**
+             * Source Execution Confirmed
+             * @constant
+             */
+            source_execution_confirmed: true;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
+        /** ConfirmTrainingPublication */
+        ConfirmTrainingPublication: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+        };
         /** ContestAgentAccess */
         ContestAgentAccess: {
             /** Blocked Until */
@@ -2022,6 +2622,8 @@ export interface components {
         };
         /** CreateSelfTest */
         CreateSelfTest: {
+            /** Diagnostic Request Id */
+            diagnostic_request_id?: string | null;
             /**
              * Idempotency Key
              * Format: uuid
@@ -2033,6 +2635,8 @@ export interface components {
              * Format: uuid
              */
             problem_version_id: string;
+            /** Public Sample Ordinal */
+            public_sample_ordinal?: number | null;
             /** Source */
             source: string;
             /**
@@ -2072,6 +2676,18 @@ export interface components {
             problem_version_id: string;
             /** Source */
             source: string;
+        };
+        /** CreateTeam */
+        CreateTeam: {
+            /** Description */
+            description: string;
+            /**
+             * Idempotency Key
+             * Format: uuid
+             */
+            idempotency_key: string;
+            /** Name */
+            name: string;
         };
         /** CreateTraining */
         CreateTraining: {
@@ -2130,6 +2746,72 @@ export interface components {
             /** Username */
             username: string;
         };
+        /** DiagnosticMistakeEvidence */
+        DiagnosticMistakeEvidence: {
+            finding: components["schemas"]["UbsanFinding"];
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Sample Ordinal */
+            sample_ordinal: number;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+        };
+        /** DiagnosticObservation */
+        DiagnosticObservation: {
+            o0: components["schemas"]["Verdict"] | null;
+            o2: components["schemas"]["Verdict"];
+        };
+        /** DiagnosticObservationCount */
+        DiagnosticObservationCount: {
+            /** Eligible Count */
+            eligible_count: number;
+            /** Finding Count */
+            finding_count: number;
+            /** Max Sandbox Budget Us */
+            max_sandbox_budget_us: number | null;
+            /** Mean Claim To Finish Ms */
+            mean_claim_to_finish_ms: number | null;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "optimization" | "ubsan" | "differential" | "boundary";
+            /** Observed Count */
+            observed_count: number;
+            /** Untracked Count */
+            untracked_count: number;
+        };
+        /** DiagnosticObservations */
+        DiagnosticObservations: {
+            /**
+             * Cohort
+             * @enum {string}
+             */
+            cohort: "all" | "linked_review" | "unlinked";
+            /**
+             * End At
+             * Format: date-time
+             */
+            end_at: string;
+            /** Items */
+            items: components["schemas"]["DiagnosticObservationCount"][];
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
+        };
         DifficultyKey: string;
         /** DifficultyLevel */
         DifficultyLevel: {
@@ -2180,7 +2862,7 @@ export interface components {
             items: components["schemas"]["ProposedExercise"][];
             model_hint?: components["schemas"]["ModelHint"] | null;
             /** Model Status */
-            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "context_limit" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2225,7 +2907,7 @@ export interface components {
             /** Model Hint Basis */
             model_hint_basis?: "topic_and_verdict" | null;
             /** Model Status */
-            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "context_limit" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2329,6 +3011,8 @@ export interface components {
              * @default false
              */
             include_submission_details: boolean;
+            /** Practice Tool Only */
+            practice_tool_only?: boolean;
             /** Previous Run Id */
             previous_run_id?: string | null;
             /** Problem Version Id */
@@ -2709,6 +3393,54 @@ export interface components {
              */
             schema_version: 1;
         };
+        /** MistakePractice */
+        MistakePractice: {
+            /** Available Minutes */
+            available_minutes?: number | null;
+            evidence: components["schemas"]["DiagnosticMistakeEvidence"];
+            /** Focus */
+            focus: string;
+            /** Gaps */
+            gaps: string[];
+            /** Items */
+            items: components["schemas"]["MistakePracticeItem"][];
+            /** Review Minutes */
+            review_minutes?: number | null;
+            /** Source Available */
+            source_available: boolean;
+            /** Source Title */
+            source_title: string | null;
+            /** Verification Minutes */
+            verification_minutes?: number | null;
+        };
+        /** MistakePracticeItem */
+        MistakePracticeItem: {
+            /** Estimated Minutes */
+            estimated_minutes?: number | null;
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /** Shared Tags */
+            shared_tags: string[];
+            /** Title */
+            title: string;
+        };
+        /** MistakePracticeRequest */
+        MistakePracticeRequest: {
+            /** Available Minutes */
+            available_minutes?: number | null;
+            /** Request Id */
+            request_id?: string | null;
+            /**
+             * Skill Version Id
+             * Format: uuid
+             */
+            skill_version_id: string;
+            /** Submission Id */
+            submission_id?: string | null;
+        };
         /** ModelHint */
         ModelHint: {
             /** Latency Ms */
@@ -2717,12 +3449,16 @@ export interface components {
             model: string;
             /** Reasoning */
             reasoning?: string | null;
+            /** Reasoning Kind */
+            reasoning_kind?: "text" | null;
             /** Response Id */
             response_id: string;
             /** Review Comparison Case */
             review_comparison_case?: ("less" | "equal" | "greater") | null;
             /** Review Focus */
             review_focus?: ("wrong_answer" | "compilation_error" | "later_accepted") | null;
+            /** Review Resources */
+            review_resources?: ("problem" | "evaluations" | "code" | "batch_diagnostics" | "recent_practice")[] | null;
             /** Source Line */
             source_line?: number | null;
             /** Text */
@@ -2805,7 +3541,7 @@ export interface components {
             items: components["schemas"]["ProposedExercise"][];
             model_hint?: components["schemas"]["ModelHint"] | null;
             /** Model Status */
-            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "context_limit" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2836,6 +3572,81 @@ export interface components {
             purpose: "periodic_review";
             /** Sessions Per Week */
             sessions_per_week: number;
+        };
+        /** PersonalMistake */
+        PersonalMistake: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            finding: components["schemas"]["UbsanFinding"];
+            /** Note */
+            note: string;
+            /**
+             * Problem Version Id
+             * Format: uuid
+             */
+            problem_version_id: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Sample Ordinal */
+            sample_ordinal: number;
+            /**
+             * Submission Id
+             * Format: uuid
+             */
+            submission_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** PersonalMistakePage */
+        PersonalMistakePage: {
+            /** Items */
+            items: components["schemas"]["PersonalMistake"][];
+            /** Next Before */
+            next_before: string | null;
+        };
+        /** PracticeAcceptanceCount */
+        PracticeAcceptanceCount: {
+            /** Accepted Count */
+            accepted_count: number;
+            /** Attempted Count */
+            attempted_count: number;
+            /**
+             * Cohort
+             * @enum {string}
+             */
+            cohort: "direct" | "assistant_saved" | "shared";
+            /** Exercise Count */
+            exercise_count: number;
+        };
+        /** PracticeObservations */
+        PracticeObservations: {
+            /** Drafts */
+            drafts: components["schemas"]["TrainingDraftCount"][];
+            /**
+             * End At
+             * Format: date-time
+             */
+            end_at: string;
+            /** Follow Up Days */
+            follow_up_days: number;
+            /** Practice */
+            practice: components["schemas"]["PracticeAcceptanceCount"][];
+            /** Self Tests */
+            self_tests: components["schemas"]["SelfTestComparisonCount"][];
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
         };
         /**
          * PreparationKind
@@ -3213,6 +4024,48 @@ export interface components {
             position: number;
             verdict: components["schemas"]["Verdict"];
         };
+        /** PublicDiagnosticAvailability */
+        PublicDiagnosticAvailability: {
+            /** Available */
+            available: boolean;
+            /**
+             * Registered Batches
+             * @default false
+             */
+            registered_batches: boolean;
+            /**
+             * Ubsan
+             * @default false
+             */
+            ubsan: boolean;
+        };
+        /** PublicDiagnosticView */
+        PublicDiagnosticView: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "optimization" | "ubsan";
+            observation?: components["schemas"]["DiagnosticObservation"] | null;
+            /**
+             * Queue Deadline
+             * Format: date-time
+             */
+            queue_deadline: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Sample Ordinal */
+            sample_ordinal: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "running" | "cancel_pending" | "cancelled" | "expired" | "unavailable" | "observed" | "failed";
+            ubsan?: components["schemas"]["UbsanObservation"] | null;
+        };
         /** PublicJudgement */
         PublicJudgement: {
             /** Cases */
@@ -3496,6 +4349,20 @@ export interface components {
          * @enum {string}
          */
         RunState: "queued" | "running" | "retry_wait" | "cancel_requested" | "cancelled" | "succeeded" | "failed";
+        /** SelfTestComparisonCount */
+        SelfTestComparisonCount: {
+            /**
+             * Cohort
+             * @enum {string}
+             */
+            cohort: "direct_sample" | "diagnostic_sample";
+            /** Compared Count */
+            compared_count: number;
+            /** Completed Count */
+            completed_count: number;
+            /** Mismatch Count */
+            mismatch_count: number;
+        };
         /** SelfTestDetail */
         SelfTestDetail: {
             /** Compile Diagnostics */
@@ -3938,11 +4805,8 @@ export interface components {
             request_id: string;
             /** Review Question */
             review_question?: string | null;
-            /**
-             * Skill Version Id
-             * Format: uuid
-             */
-            skill_version_id: string;
+            /** Skill Version Id */
+            skill_version_id?: string | null;
             /** Submission Id */
             submission_id?: string | null;
             training_set?: components["schemas"]["TrainingSetDraft"] | null;
@@ -4147,7 +5011,7 @@ export interface components {
             /** Model Review Basis */
             model_review_basis?: ("evaluations" | "evaluations_and_code_counts" | "evaluations_and_control_flow" | "evaluations_and_comparison_cases" | "source_excerpt") | null;
             /** Model Status */
-            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
+            model_status?: ("generated" | "unavailable" | "uncertain" | "budget_exhausted" | "context_limit" | "output_limit" | "insufficient_evidence" | "source_model_unavailable") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4257,6 +5121,87 @@ export interface components {
             /** Tag */
             tag: string;
         };
+        /** TeamMemberView */
+        TeamMemberView: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "captain" | "member" | "pending";
+            /** Username */
+            username: string;
+        };
+        /** TeamMembersPage */
+        TeamMembersPage: {
+            /** Items */
+            items: components["schemas"]["TeamMemberView"][];
+            /** Next Offset */
+            next_offset: number | null;
+        };
+        /** TeamMembershipView */
+        TeamMembershipView: {
+            /** Role */
+            role: ("captain" | "member" | "pending") | null;
+        };
+        /** TeamPage */
+        TeamPage: {
+            /** Items */
+            items: components["schemas"]["TeamView"][];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /** TeamTrainingReview */
+        TeamTrainingReview: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["TeamTrainingReviewItem"][];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "insufficient_data" | "ready";
+        };
+        /** TeamTrainingReviewItem */
+        TeamTrainingReviewItem: {
+            /** Position */
+            position: number;
+            /** Title */
+            title: string;
+            /**
+             * Topic
+             * @enum {string}
+             */
+            topic: "correctness" | "resource_use" | "runtime" | "compilation" | "mixed";
+        };
+        /** TeamView */
+        TeamView: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Description */
+            description: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Member Count */
+            member_count: number;
+            /** Name */
+            name: string;
+        };
         /** TestCase */
         TestCase: {
             /**
@@ -4304,15 +5249,31 @@ export interface components {
              * @enum {string}
              */
             max_hint_level: "L0" | "L1" | "L2" | "L3";
+            /** Official Publication Id */
+            official_publication_id?: string | null;
             parameters: components["schemas"]["LearningParameters"];
             /** Previous Plan Id */
             previous_plan_id?: string | null;
+            /** Publication Max Hint Level */
+            publication_max_hint_level?: ("L0" | "L1" | "L2" | "L3") | null;
             /** Rule Version */
             rule_version: string;
             /** Schedule */
             schedule?: (components["schemas"]["FocusedTrainingSchedule"] | components["schemas"]["PeriodicReviewSchedule"]) | null;
             /** Title */
             title: string;
+        };
+        /** TrainingDraftCount */
+        TrainingDraftCount: {
+            /** Draft Count */
+            draft_count: number;
+            /**
+             * Purpose
+             * @enum {string}
+             */
+            purpose: "focused_training" | "periodic_review";
+            /** Saved Count */
+            saved_count: number;
         };
         /** TrainingExerciseReplacement */
         TrainingExerciseReplacement: {
@@ -4456,6 +5417,69 @@ export interface components {
             /** Tag */
             tag: string;
         };
+        /** TrainingPublicationDetail */
+        TrainingPublicationDetail: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Count */
+            item_count: number;
+            /** Items */
+            items: components["schemas"]["TrainingPublicationItem"][];
+            /**
+             * Max Hint Level
+             * @default L3
+             * @enum {string}
+             */
+            max_hint_level: "L0" | "L1" | "L2" | "L3";
+            /** Title */
+            title: string;
+        };
+        /** TrainingPublicationItem */
+        TrainingPublicationItem: {
+            /** Difficulty */
+            difficulty?: ("easy" | "medium" | "hard") | null;
+            /** Position */
+            position: number;
+            /** Problem Version Id */
+            problem_version_id?: string | null;
+            /** Title */
+            title?: string | null;
+        };
+        /** TrainingPublicationPage */
+        TrainingPublicationPage: {
+            /** Items */
+            items: components["schemas"]["TrainingPublicationSummary"][];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /** TrainingPublicationSummary */
+        TrainingPublicationSummary: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Count */
+            item_count: number;
+            /** Title */
+            title: string;
+        };
         /** TrainingSearch */
         TrainingSearch: {
             maximum_score?: components["schemas"]["DifficultyScore"] | null;
@@ -4545,6 +5569,28 @@ export interface components {
              */
             status: "review_due" | "practice" | "review_later" | "recent_attempt" | "recent_plan";
         };
+        /** UbsanFinding */
+        UbsanFinding: {
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "signed_integer_overflow" | "division_by_zero" | "index_out_of_bounds" | "invalid_shift";
+            /** Column */
+            column: number;
+            /** Line */
+            line: number;
+        };
+        /** UbsanObservation */
+        UbsanObservation: {
+            finding: components["schemas"]["UbsanFinding"] | null;
+            verdict: components["schemas"]["Verdict"];
+        };
+        /** UpdatePersonalMistake */
+        UpdatePersonalMistake: {
+            /** Note */
+            note: string;
+        };
         /** UpdateRunFeedback */
         UpdateRunFeedback: {
             /** Rating */
@@ -4557,6 +5603,14 @@ export interface components {
             document: components["schemas"]["SkillDraftDocument"];
             /** Revision */
             revision: number;
+        };
+        /** UpdateTeamMember */
+        UpdateTeamMember: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "remove";
         };
         /** UpdateTrainingFeedback */
         UpdateTrainingFeedback: {
@@ -4658,6 +5712,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContestSettlement"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    diagnostic_observations_api_v1_admin_learning_diagnostics_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                cohort?: "all" | "linked_review" | "unlinked";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticObservations"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    practice_observations_api_v1_admin_learning_practice_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PracticeObservations"];
                 };
             };
             /** @description Validation Error */
@@ -5829,6 +6946,283 @@ export interface operations {
             };
         };
     };
+    diagnostic_batch_options_api_v1_learning_agent_diagnostic_batches_options_get: {
+        parameters: {
+            query: {
+                submission_id: string;
+                problem_version_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchDiagnosticOptions"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchDiagnosticView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmBatchDiagnostic"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchDiagnosticView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    public_sample_diagnostic_availability_api_v1_learning_agent_diagnostics_availability_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDiagnosticAvailability"];
+                };
+            };
+        };
+    };
+    public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDiagnosticView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmPublicSampleDiagnostic"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDiagnosticView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_personal_mistake_api_v1_learning_agent_diagnostics__request_id__mistake_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmPersonalMistake"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalMistake"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     hint_ceiling_api_v1_learning_agent_hint_ceiling_get: {
         parameters: {
             query: {
@@ -5848,6 +7242,166 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LearningHintCeiling"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_personal_mistakes_api_v1_learning_agent_mistakes_get: {
+        parameters: {
+            query?: {
+                before?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalMistakePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    practice_from_personal_mistake_api_v1_learning_agent_mistakes_practice_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MistakePracticeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MistakePractice"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    personal_mistake_api_v1_learning_agent_mistakes__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalMistake"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdraw_personal_mistake_api_v1_learning_agent_mistakes__request_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_personal_mistake_api_v1_learning_agent_mistakes__request_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePersonalMistake"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalMistake"];
                 };
             };
             /** @description Validation Error */
@@ -6917,6 +8471,88 @@ export interface operations {
             };
         };
     };
+    official_trainings_api_v1_official_trainings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingPublicationPage"];
+                };
+            };
+        };
+    };
+    official_training_api_v1_official_trainings__training_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                training_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingPublicationDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_official_training_api_v1_official_trainings__training_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                training_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_problems_api_v1_problems_get: {
         parameters: {
             query?: {
@@ -7376,6 +9012,420 @@ export interface operations {
             };
         };
     };
+    team_page_api_v1_teams_get: {
+        parameters: {
+            query?: {
+                search?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_team_api_v1_teams_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTeam"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_captained_teams_api_v1_teams_captained_get: {
+        parameters: {
+            query?: {
+                search?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    team_profile_api_v1_teams__team_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    team_members_api_v1_teams__team_id__members_get: {
+        parameters: {
+            query?: {
+                role?: "member" | "pending";
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                team_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMembersPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    manage_team_member_api_v1_teams__team_id__members__account_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: string;
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTeamMember"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMembershipView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_team_membership_api_v1_teams__team_id__membership_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMembershipView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_team_membership_api_v1_teams__team_id__membership_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMembershipView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    leave_team_api_v1_teams__team_id__membership_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    team_trainings_api_v1_teams__team_id__trainings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingPublicationPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    team_training_detail_api_v1_teams__team_id__trainings__training_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: string;
+                training_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingPublicationDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    team_training_review_api_v1_teams__team_id__trainings__training_id__review_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: string;
+                training_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamTrainingReview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_team_training_api_v1_teams__team_id__trainings__training_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: string;
+                training_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     trainings_api_v1_trainings_get: {
         parameters: {
             query?: never;
@@ -7589,6 +9639,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrainingDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_official_training_api_v1_trainings__training_id__publish_official_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                training_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmTrainingPublication"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingPublicationDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_team_training_api_v1_trainings__training_id__publish_team__team_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                training_id: string;
+                team_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmTrainingPublication"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingPublicationDetail"];
                 };
             };
             /** @description Validation Error */

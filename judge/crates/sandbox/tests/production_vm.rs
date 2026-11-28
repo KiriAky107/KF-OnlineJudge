@@ -183,6 +183,91 @@ fn ordinary_default_binary_executes_native_and_compiler_profiles() {
     }
 }
 #[test]
+#[ignore = "independent VM with a pinned GNU image containing libubsan"]
+fn sandbox_ubsan_reports_signed_overflow_on_only_the_triggering_input() {
+    use kf_contracts::judging_v2::RuntimeIdentity;
+    use kf_sandbox::{
+        image::{ImageCatalog, catalog_digest},
+        profiles::gnu_compile_command,
+    };
+    let mut f = Fixture::new();
+    let catalog = fs::read(PathBuf::from(&f.root.config.image_root).join("manifest.json")).unwrap();
+    let image: ImageCatalog = serde_json::from_slice(&catalog).unwrap();
+    let identity = RuntimeIdentity {
+        toolchain_id: image.toolchain_id,
+        image_kind: image.image_kind,
+        image_revision: image.image_revision,
+        image_digest: catalog_digest(&catalog),
+        runtime_version: image.runtime_version,
+    };
+    f.root.config.runtime_identity = Some(identity.clone());
+    f.root.config.allow_ubsan_compilation = true;
+    fs::write(&f.config, serde_json::to_vec(&f.root.config).unwrap()).unwrap();
+
+    const SOURCE: &[u8] = b"#ifdef __cplusplus\nextern \"C\"\n#endif\nlong read(int, void *, unsigned long);\nint main(void) {\n    char sample = '0';\n    if (read(0, &sample, 1) != 1) return 2;\n    volatile int limit = 2147483647;\n    volatile int result = limit + (sample == '1');\n    return result == 0;\n}\n";
+    fs::write(f.dir.join("inputs/source"), SOURCE).unwrap();
+    for (tag, profile) in [
+        ("c", ExecutionProfile::CompileCUbsan),
+        ("cpp", ExecutionProfile::CompileCppUbsan),
+    ] {
+        let mut spec: ExecutionSpec =
+            serde_json::from_str(include_str!("fixtures/spec.valid.json")).unwrap();
+        let (argv, source) = gnu_compile_command(profile).unwrap();
+        spec.run_id = format!("ubsan-compile-{tag}");
+        spec.profile = profile;
+        spec.argv = argv.into_iter().map(String::from).collect();
+        spec.env.clear();
+        spec.inputs = vec![InputArtifact {
+            artifact_id: "source".into(),
+            path: source.into(),
+        }];
+        spec.stdin_artifact = None;
+        spec.outputs = vec!["main".into()];
+        spec.runtime_identity = Some(identity.clone());
+        spec.limits = ResourceLimits::for_profile(profile);
+        spec.limits.wall_time_us = 20_000_000;
+        let compiled = f.execute(&spec);
+        assert_eq!(
+            compiled["outcome"],
+            serde_json::json!({"kind":"exited","code":0}),
+            "{}",
+            fs::read_to_string(f.dir.join(format!("outputs/{}/stderr", spec.run_id))).unwrap()
+        );
+        let elf = f.dir.join(format!("outputs/{}/artifact-0", spec.run_id));
+        for (case, byte) in [("control", b'0'), ("trigger", b'1')] {
+            let mut run = f.request(&format!("ubsan-run-{tag}-{case}"), elf.to_str().unwrap());
+            run.argv.truncate(1);
+            run.runtime_identity = Some(identity.clone());
+            fs::write(f.dir.join("inputs/input-001"), [byte]).unwrap();
+            let outcome = f.execute(&run)["outcome"].clone();
+            let stderr =
+                fs::read_to_string(f.dir.join(format!("outputs/{}/stderr", run.run_id))).unwrap();
+            if case == "trigger" {
+                assert_eq!(outcome["kind"], "exited", "{stderr}");
+                assert!(
+                    outcome["code"].as_i64().is_some_and(|value| value != 0),
+                    "{stderr}"
+                );
+                let line = stderr.trim();
+                assert!(
+                    line.starts_with(&format!("/work/main.{tag}:9:")),
+                    "{stderr}"
+                );
+                assert!(
+                    line.contains("runtime error: signed integer overflow"),
+                    "{stderr}"
+                );
+                println!("KF_UBSAN_TRIGGER {tag} input=1 {line}");
+            } else {
+                assert_eq!(outcome, serde_json::json!({"kind":"exited","code":0}));
+                assert!(stderr.is_empty());
+                println!("KF_UBSAN_CONTROL {tag} input=0 no runtime report");
+            }
+        }
+    }
+}
+
+#[test]
 #[ignore = "independent capped VM: real unsupported helper identity/config/image/scope and invalid request refusal"]
 fn ordinary_entry_refuses_untrusted_and_unsupported_runtime() {
     let f = Fixture::new();

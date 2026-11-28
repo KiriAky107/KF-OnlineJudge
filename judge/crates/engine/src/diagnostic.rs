@@ -4,6 +4,7 @@
 use crate::ExecutionKind;
 use crate::submission::{ControlPort, StageFailure, classify};
 use crate::submission_v2::{Compiled, RunPort};
+use kf_contracts::diagnostic::DiagnosticMode;
 use kf_contracts::judging::{MAX_PACKAGE_BYTES, MAX_SOURCE_BYTES};
 use kf_contracts::judging_v2::{
     ArtifactReference, CompilationStatus, FailureCode, Identifier, Language, LanguageConfiguration,
@@ -15,6 +16,7 @@ use serde::Serialize;
 pub enum OptimizationLevel {
     O0,
     O2,
+    Ubsan,
 }
 
 pub struct OptimizationRequest<'a> {
@@ -73,8 +75,24 @@ pub fn observe_optimization<P: OptimizationPreparationPort + RunPort + ControlPo
     })
 }
 
+pub fn observe_ubsan<P: OptimizationPreparationPort + RunPort + ControlPort>(
+    port: &mut P,
+    request: &OptimizationRequest<'_>,
+) -> Result<Verdict, OptimizationError> {
+    validate_public_sample(request, DiagnosticMode::Ubsan)
+        .map_err(OptimizationError::InvalidRequest)?;
+    probe(port, request, OptimizationLevel::Ubsan)
+}
+
 /// Validate before a trusted adapter reads or stages diagnostic artifacts.
 pub fn validate_request(request: &OptimizationRequest<'_>) -> Result<(), &'static str> {
+    validate_public_sample(request, DiagnosticMode::Optimization)
+}
+
+pub fn validate_public_sample(
+    request: &OptimizationRequest<'_>,
+    mode: DiagnosticMode,
+) -> Result<(), &'static str> {
     let configuration = request.configuration;
     if !matches!(configuration.language, Language::C17 | Language::Cpp20) {
         return Err("optimization comparison supports only C17 and C++20");
@@ -94,10 +112,10 @@ pub fn validate_request(request: &OptimizationRequest<'_>) -> Result<(), &'stati
     {
         return Err("invalid source or public sample budget");
     }
-    let pair_wall_time =
-        2 * (configuration.compile_limits.wall_time_us + configuration.run_limits.wall_time_us);
-    if configuration.job_wall_time_us < pair_wall_time {
-        return Err("diagnostic deadline cannot cover both profiles");
+    let wall_time = mode.passes()
+        * (configuration.compile_limits.wall_time_us + configuration.run_limits.wall_time_us);
+    if configuration.job_wall_time_us < wall_time {
+        return Err("diagnostic deadline cannot cover the requested profiles");
     }
     Ok(())
 }
@@ -140,6 +158,7 @@ fn probe<P: OptimizationPreparationPort + RunPort + ControlPort>(
     let name = match level {
         OptimizationLevel::O0 => "do0",
         OptimizationLevel::O2 => "do2",
+        OptimizationLevel::Ubsan => "dub",
     };
     let attempt = request.binding.attempt_id.as_uuid();
     let prepared = port

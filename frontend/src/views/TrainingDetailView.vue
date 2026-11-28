@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import DisclosureHeading from '../components/DisclosureHeading.vue'
-import { vLoading } from 'element-plus'
+import { ElDialog, vLoading } from 'element-plus'
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
@@ -10,7 +10,7 @@ import { trainingRankingLabels } from '../api/trainingRanking'
 import type { components } from '../api/generated/schema'
 import { useSession } from '../composables/useSession'
 import { displayTime } from '../lib/presentation'
-import { hintLevels, type HintLevel } from '../lib/hintLevels'
+import { hintIndex, hintLevels, type HintLevel } from '../lib/hintLevels'
 import PanelCard from '../components/PanelCard.vue'
 import UiIcon from '../components/UiIcon.vue'
 import DifficultyTag from '../components/DifficultyTag.vue'
@@ -20,8 +20,21 @@ type FollowUpPace = Omit<components['schemas']['CreateTrainingFollowUp'], 'idemp
 const route = useRoute()
 const router = useRouter()
 const { user, refresh } = useSession()
+const canPublishOfficial = computed(() => user.value?.capabilities?.problem_maintenance === true)
 const training = ref<components['schemas']['TrainingDetail'] | null>(null)
+const confirmingPublication = ref(false)
+const publicationError = ref('')
+const confirmingTeamPublication = ref(false)
+const canPublishTeam = ref(false)
+const captainTeams = ref<components['schemas']['TeamView'][]>([])
+const teamChoice = ref<components['schemas']['TeamView']>()
+const teamPublication = ref<{ teamId: string; id: string }>()
+const loadingTeams = ref(false)
+let teamSearch = new AbortController()
 const hintCeiling = ref<HintLevel>('L3')
+const availableHintLevels = computed(() =>
+  hintLevels.slice(0, hintIndex(training.value?.publication_max_hint_level ?? 'L3') + 1),
+)
 watch(
   () => training.value?.max_hint_level,
   (level) => {
@@ -118,6 +131,117 @@ function clear() {
   notice.value = ''
   loading.value = false
   saving.value = null
+  confirmingPublication.value = false
+  confirmingTeamPublication.value = false
+  teamChoice.value = undefined
+  teamPublication.value = undefined
+  publicationError.value = ''
+}
+
+function openPublication() {
+  publicationError.value = ''
+  confirmingPublication.value = true
+}
+
+async function loadCaptainTeams(search = '') {
+  teamSearch.abort()
+  teamSearch = new AbortController()
+  const { signal } = teamSearch
+  loadingTeams.value = true
+  try {
+    const result = unwrap(
+      await api.GET('/api/v1/teams/captained', {
+        params: { query: { search: Array.from(search.trim()).slice(0, 30).join('') } },
+        signal,
+      }),
+    )
+    if (!signal.aborted) {
+      captainTeams.value = result.items
+      if (!search) canPublishTeam.value = result.items.length > 0
+    }
+  } catch (cause) {
+    if (!signal.aborted && confirmingTeamPublication.value) {
+      publicationError.value = errorText(cause)
+    }
+  } finally {
+    if (!signal.aborted) loadingTeams.value = false
+  }
+}
+
+function openTeamPublication() {
+  publicationError.value = ''
+  teamChoice.value = undefined
+  confirmingTeamPublication.value = true
+  void loadCaptainTeams()
+}
+
+async function publishToTeam() {
+  if (!training.value || !teamChoice.value || saving.value) return
+  const original = training.value.id
+  const teamId = teamChoice.value.id
+  mutation = new AbortController()
+  const { signal } = mutation
+  saving.value = 'publish-team'
+  publicationError.value = ''
+  try {
+    const publication = unwrap(
+      await api.POST('/api/v1/trainings/{training_id}/publish-team/{team_id}', {
+        params: { path: { training_id: original, team_id: teamId } },
+        headers: csrfHeaders(),
+        body: { confirmed: true },
+        signal,
+      }),
+    )
+    if (!signal.aborted && training.value?.id === original) {
+      teamPublication.value = { teamId, id: publication.id }
+      confirmingTeamPublication.value = false
+      notice.value = '已发布团队训练。'
+    }
+  } catch (cause) {
+    if (!signal.aborted) publicationError.value = errorText(cause)
+  } finally {
+    if (!signal.aborted) saving.value = null
+  }
+}
+
+watch(
+  () => user.value?.id,
+  (account) => {
+    teamSearch.abort()
+    captainTeams.value = []
+    canPublishTeam.value = false
+    if (account) void loadCaptainTeams()
+  },
+  { immediate: true, flush: 'sync' },
+)
+onBeforeUnmount(() => teamSearch.abort())
+
+async function publishOfficial() {
+  if (!training.value || !canPublishOfficial.value || saving.value) return
+  const original = training.value.id
+  mutation = new AbortController()
+  const { signal } = mutation
+  saving.value = 'publish-official'
+  publicationError.value = ''
+  try {
+    const publication = unwrap(
+      await api.POST('/api/v1/trainings/{training_id}/publish-official', {
+        params: { path: { training_id: original } },
+        headers: csrfHeaders(),
+        body: { confirmed: true },
+        signal,
+      }),
+    )
+    if (!signal.aborted && training.value?.id === original) {
+      training.value.official_publication_id = publication.id
+      confirmingPublication.value = false
+      notice.value = '已发布官方训练。'
+    }
+  } catch (cause) {
+    if (!signal.aborted) publicationError.value = errorText(cause)
+  } finally {
+    if (!signal.aborted) saving.value = null
+  }
 }
 async function load(keepView = false) {
   if (keepView) {
@@ -299,9 +423,42 @@ onBeforeUnmount(clear)
             <span class="tag">私有训练</span>
             <h1>{{ training.title }}</h1>
           </div>
-          <el-button :disabled="loading || !!saving" @click="load(true)"
-            ><UiIcon name="refresh" /> 刷新进度</el-button
-          >
+          <div class="training-hero-actions">
+            <RouterLink
+              v-if="training.official_publication_id"
+              class="el-button"
+              :to="{
+                name: 'official-training-detail',
+                params: { id: training.official_publication_id },
+              }"
+            >
+              查看官方训练
+            </RouterLink>
+            <el-button
+              v-else-if="canPublishOfficial && training.items.length"
+              :disabled="loading || !!saving || training.items.some((item) => !item.available)"
+              @click="openPublication"
+            >
+              发布为官方训练
+            </el-button>
+            <el-button
+              v-if="canPublishTeam && training.items.length"
+              :disabled="loading || !!saving || training.items.some((item) => !item.available)"
+              @click="openTeamPublication"
+            >
+              发布给团队
+            </el-button>
+            <RouterLink
+              v-if="teamPublication"
+              class="el-button"
+              :to="{ name: 'team-training-detail', params: teamPublication }"
+            >
+              查看团队训练
+            </RouterLink>
+            <el-button :disabled="loading || !!saving" @click="load(true)"
+              ><UiIcon name="refresh" /> 刷新进度</el-button
+            >
+          </div>
         </div>
         <div class="training-progress">
           <progress
@@ -312,6 +469,83 @@ onBeforeUnmount(clear)
           <span>{{ training.completed_count }} / {{ training.item_count }} 道已完成</span>
         </div>
       </header>
+      <ElDialog
+        v-if="canPublishOfficial"
+        v-model="confirmingPublication"
+        title="发布官方训练"
+        width="min(92vw, 520px)"
+      >
+        <p>
+          <strong>{{ training.title }}</strong>
+        </p>
+        <p>发布后全站可浏览下列题目。各账号的练习进度、笔记和自评分别保存。</p>
+        <p>题单提示上限为 {{ training.max_hint_level ?? 'L3' }}。</p>
+        <ol class="publication-exercises">
+          <li v-for="item in training.items" :key="item.id">{{ item.title }}</li>
+        </ol>
+        <p v-if="publicationError" role="alert">{{ publicationError }}</p>
+        <template #footer>
+          <el-button :disabled="!!saving" @click="confirmingPublication = false">取消</el-button>
+          <el-button
+            type="primary"
+            :loading="saving === 'publish-official'"
+            @click="publishOfficial"
+          >
+            确认公开发布
+          </el-button>
+        </template>
+      </ElDialog>
+      <ElDialog
+        v-if="canPublishTeam"
+        v-model="confirmingTeamPublication"
+        title="发布团队训练"
+        width="min(92vw, 520px)"
+      >
+        <p>
+          <strong>{{ training.title }}</strong>
+        </p>
+        <el-select
+          v-model="teamChoice"
+          value-key="id"
+          filterable
+          remote
+          :remote-method="loadCaptainTeams"
+          :loading="loadingTeams"
+          :disabled="!!saving"
+          placeholder="选择你担任队长的团队"
+          aria-label="发布团队"
+        >
+          <el-option
+            v-for="option in captainTeams"
+            :key="option.id"
+            :label="option.name"
+            :value="option"
+          />
+        </el-select>
+        <template v-if="teamChoice">
+          <p>发布后，只有「{{ teamChoice.name }}」的正式成员可以查看这份题单。</p>
+          <p class="muted">{{ teamChoice.description }}</p>
+        </template>
+        <p>各成员的练习进度、笔记和难度自评分别保存。</p>
+        <p>题单提示上限为 {{ training.max_hint_level ?? 'L3' }}。</p>
+        <ol class="publication-exercises">
+          <li v-for="item in training.items" :key="item.id">{{ item.title }}</li>
+        </ol>
+        <p v-if="publicationError" role="alert">{{ publicationError }}</p>
+        <template #footer>
+          <el-button :disabled="!!saving" @click="confirmingTeamPublication = false"
+            >取消</el-button
+          >
+          <el-button
+            type="primary"
+            :disabled="!teamChoice"
+            :loading="saving === 'publish-team'"
+            @click="publishToTeam"
+          >
+            确认发布给该团队
+          </el-button>
+        </template>
+      </ElDialog>
       <nav class="panel training-nav" aria-label="训练集详情">
         <RouterLink
           :to="{ path: route.path }"
@@ -497,7 +731,7 @@ onBeforeUnmount(clear)
             <label>
               训练提示上限
               <select v-model="hintCeiling" :disabled="!!saving">
-                <option v-for="{ value, label } in hintLevels" :key="value" :value="value">
+                <option v-for="{ value, label } in availableHintLevels" :key="value" :value="value">
                   {{ value }} · {{ label }}
                 </option>
               </select>
@@ -509,6 +743,9 @@ onBeforeUnmount(clear)
               >保存上限</el-button
             >
           </form>
+          <p v-if="training.publication_max_hint_level" class="small muted">
+            共享题单提示上限为 {{ training.publication_max_hint_level }}。
+          </p>
           <div class="overview-actions">
             <RouterLink class="el-button el-button--primary" :to="problemList">打开题单</RouterLink>
             <el-button
@@ -582,6 +819,19 @@ onBeforeUnmount(clear)
 </style>
 
 <style scoped>
+.training-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.publication-exercises {
+  max-height: 17rem;
+  overflow: auto;
+  padding-inline-start: 1.35rem;
+}
+.publication-exercises li {
+  padding-block: 0.25rem;
+}
 .training-detail {
   display: grid;
   gap: 0.9rem;

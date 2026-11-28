@@ -5,8 +5,8 @@ import secrets
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import event, text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_submission_create import setup_app
 
 from kf_oj.contracts.agent_learning import AgentLearningInput
@@ -22,13 +22,22 @@ def test_real_claim_recovery_and_cancellation_fence(postgres_url, tmp_path, monk
         app, engine, mod = await setup_app(postgres_url, tmp_path)
         monkeypatch.setattr(mod, "build_engine", lambda _: engine)
         admin = create_async_engine(postgres_url)
+        worker_engine = create_async_engine(postgres_url)
+
+        @event.listens_for(worker_engine.sync_engine, "connect")
+        def restrict_worker_role(connection, _):
+            cursor = connection.cursor()
+            cursor.execute("SET ROLE kf_oj_learning_worker")
+            cursor.close()
+
+        worker_sessions = async_sessionmaker(worker_engine, expire_on_commit=False)
         try:
             async with app.router.lifespan_context(app):
                 identity = app.state.identity
                 sessions = app.state.sessions
                 learning = AgentLearning(sessions, identity)
-                queue = AgentQueue(sessions)
-                parallel = AgentQueue(sessions)
+                queue = AgentQueue(worker_sessions)
+                parallel = AgentQueue(worker_sessions)
 
                 async def actor(name):
                     password = secrets.token_urlsafe(24)
@@ -38,6 +47,7 @@ def test_real_claim_recovery_and_cancellation_fence(postgres_url, tmp_path, monk
                 owner = await actor("queue_owner")
                 foreign = await actor("queue_other")
                 storage = agent_storage(sessions, owner)
+                worker_storage = agent_storage(worker_sessions, owner)
                 purpose = AgentPurpose.SUBMISSION_REVIEW
                 skill = learning.catalog.list_versions(purpose)[0]
                 await learning.skills.configure(
@@ -69,7 +79,7 @@ def test_real_claim_recovery_and_cancellation_fence(postgres_url, tmp_path, monk
                 deferred_id = await enqueue()
                 active = await queue.claim()
                 assert active is not None and active.run.run_id == deferred_id
-                async with sessions.begin() as db:
+                async with worker_sessions.begin() as db:
                     deferred = await queue.defer(db, active.run)
                 assert deferred is not None and deferred.state == RunState.RETRY_WAIT
                 assert await queue.claim() is None
@@ -111,13 +121,13 @@ def test_real_claim_recovery_and_cancellation_fence(postgres_url, tmp_path, monk
                     state="running",
                 )
                 with pytest.raises(AgentRecordConflict, match="lease expired"):
-                    await storage.record_step(step, lease.run.revision)
+                    await worker_storage.record_step(step, lease.run.revision)
                 replacement = await parallel.claim()
                 assert replacement is not None and replacement.attempt == 2
                 assert replacement.run.revision > lease.run.revision
                 with pytest.raises(AgentRecordConflict):
                     await learning.execute_claimed(owner, run_id, lease.run.revision)
-                await storage.record_step(step, replacement.run.revision)
+                await worker_storage.record_step(step, replacement.run.revision)
 
                 assert (await learning.cancel(owner, run_id)).run.state == RunState.CANCEL_REQUESTED
                 assert not await parallel.renew(replacement)
@@ -129,6 +139,7 @@ def test_real_claim_recovery_and_cancellation_fence(postgres_url, tmp_path, monk
                 assert (await learning.cancel(owner, run_id)) == outcome
                 assert await queue.claim() is None
         finally:
+            await worker_engine.dispose()
             await admin.dispose()
 
     asyncio.run(exercise())

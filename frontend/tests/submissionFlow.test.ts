@@ -264,6 +264,42 @@ test('transport expires identity on401, preserves cancellation and never fills f
   await assert.rejects(offline('http://localhost/api'), /网络中断/)
 })
 
+test('older browser transports preserve login, caller cancellation and timeouts', async (t) => {
+  for (const name of ['any', 'timeout'] as const) {
+    const original = Object.getOwnPropertyDescriptor(AbortSignal, name)!
+    Object.defineProperty(AbortSignal, name, { ...original, value: undefined })
+    t.after(() => Object.defineProperty(AbortSignal, name, original))
+  }
+  const endpoint = 'http://localhost/api/v1/auth/login'
+  const login = boundedFetch(
+    async (input) => {
+      assert.equal((input as Request).method, 'POST')
+      return new Response('{}')
+    },
+    () => {},
+    undefined,
+    30,
+  )
+  assert.equal((await login(endpoint, { method: 'POST' })).status, 200)
+
+  const pending = boundedFetch(
+    (input) =>
+      new Promise<Response>((_, reject) => {
+        const { signal } = input as Request
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      }),
+    () => {},
+    undefined,
+    30,
+  )
+  const caller = new AbortController()
+  const cancelled = pending(endpoint, { signal: caller.signal })
+  const reason = new Error('caller cancelled')
+  caller.abort(reason)
+  await assert.rejects(cancelled, (error) => error === reason)
+  await assert.rejects(pending(endpoint), /网络中断或请求超时/)
+})
+
 test('an old401 cannot expire a newly authenticated session', async () => {
   let version = 0,
     expired = 0

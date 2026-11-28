@@ -1,0 +1,210 @@
+{
+  "$defs": {
+    "DiagnosticBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_id": {
+          "format": "uuid",
+          "title": "Execution Id",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "execution_id",
+        "worker_id"
+      ],
+      "title": "DiagnosticBinding",
+      "type": "object"
+    },
+    "DiagnosticObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "o0": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "o2": {
+          "$ref": "#/$defs/Verdict"
+        }
+      },
+      "required": [
+        "o2",
+        "o0"
+      ],
+      "title": "DiagnosticObservation",
+      "type": "object"
+    },
+    "FailureCode": {
+      "enum": [
+        "artifact_unavailable",
+        "sandbox_unavailable",
+        "cleanup_failed",
+        "lease_lost",
+        "control_plane_unavailable",
+        "worker_shutdown",
+        "job_deadline"
+      ],
+      "title": "FailureCode",
+      "type": "string"
+    },
+    "UbsanFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "signed_integer_overflow",
+            "division_by_zero",
+            "index_out_of_bounds",
+            "invalid_shift"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "column": {
+          "maximum": 262144,
+          "minimum": 1,
+          "title": "Column",
+          "type": "integer"
+        },
+        "line": {
+          "maximum": 262144,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "category",
+        "line",
+        "column"
+      ],
+      "title": "UbsanFinding",
+      "type": "object"
+    },
+    "UbsanObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "finding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UbsanFinding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        }
+      },
+      "required": [
+        "verdict",
+        "finding"
+      ],
+      "title": "UbsanObservation",
+      "type": "object"
+    },
+    "Verdict": {
+      "enum": [
+        "accepted",
+        "wrong_answer",
+        "compilation_error",
+        "runtime_error",
+        "time_limit_exceeded",
+        "memory_limit_exceeded",
+        "output_limit_exceeded",
+        "cancelled",
+        "system_error"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "$id": "urn:kf-oj:diagnostic-result:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "binding": {
+      "$ref": "#/$defs/DiagnosticBinding"
+    },
+    "failure_code": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FailureCode"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "kind": {
+      "const": "diagnostic.result",
+      "title": "Kind",
+      "type": "string"
+    },
+    "observation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DiagnosticObservation"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "observed",
+        "failed",
+        "cancelled",
+        "cleanup_unconfirmed"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "ubsan": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UbsanObservation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "binding",
+    "state",
+    "observation",
+    "failure_code"
+  ],
+  "title": "DiagnosticResult",
+  "type": "object"
+}

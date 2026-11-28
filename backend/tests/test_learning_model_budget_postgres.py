@@ -167,7 +167,7 @@ def test_worker_replicas_share_one_paid_attempt_budget_without_external_requests
                     statuses[run["result"]["model_status"]] = url
                 assert set(statuses) == {"budget_exhausted", "generated"}
                 assert len(requests) == 1 and "二分查找" in requests[0]["input"]
-                assert requests[0]["max_output_tokens"] == 128
+                assert "max_output_tokens" not in requests[0]
                 assert requests[0]["store"] is False
                 assert not any(key in requests[0] for key in ("tools", "user", "metadata"))
                 generated = (await first.get(statuses["generated"])).json()["result"]

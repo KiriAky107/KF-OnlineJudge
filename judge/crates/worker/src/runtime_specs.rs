@@ -173,7 +173,7 @@ pub fn diagnostic_preparation_spec(
     run_id: String,
     source: &[u8],
 ) -> Result<ExecutionSpec, &'static str> {
-    use OptimizationLevel::{O0, O2};
+    use OptimizationLevel::{O0, O2, Ubsan};
 
     let config = request.configuration;
     let profile = match (config.language, level) {
@@ -181,6 +181,8 @@ pub fn diagnostic_preparation_spec(
         (v2::Language::Cpp20, O0) => P::CompileCppDiagnostic,
         (v2::Language::C17, O2) => P::CompileC,
         (v2::Language::Cpp20, O2) => P::CompileCpp,
+        (v2::Language::C17, Ubsan) => P::CompileCUbsan,
+        (v2::Language::Cpp20, Ubsan) => P::CompileCppUbsan,
         _ => return Err("diagnostic compilation requires C17 or C++20"),
     };
     config.validate()?;

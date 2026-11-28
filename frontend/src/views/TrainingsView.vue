@@ -21,6 +21,9 @@ const { user, refresh } = useSession()
 const router = useRouter()
 const overview = ref<components['schemas']['LearningOverview'] | null>(null)
 const page = ref<components['schemas']['TrainingPage'] | null>(null)
+const official = ref<components['schemas']['TrainingPublicationPage'] | null>(null)
+const officialError = ref('')
+const officialRequest = new AbortController()
 const search = ref('')
 const progressFilter = ref<'all' | 'active' | 'completed'>('all')
 const progressFilters = { all: '全部', active: '待完成', completed: '已完成' } as const
@@ -161,6 +164,15 @@ watch(
   { immediate: true },
 )
 onMounted(async () => {
+  void api
+    .GET('/api/v1/official-trainings', { signal: officialRequest.signal })
+    .then(unwrap)
+    .then((result) => {
+      if (!officialRequest.signal.aborted) official.value = result
+    })
+    .catch((cause) => {
+      if (!officialRequest.signal.aborted) officialError.value = errorText(cause)
+    })
   if (!user.value) {
     try {
       await refresh()
@@ -169,7 +181,10 @@ onMounted(async () => {
     }
   }
 })
-onBeforeUnmount(clear)
+onBeforeUnmount(() => {
+  officialRequest.abort()
+  clear()
+})
 </script>
 <template>
   <PageHeading title="训练集">
@@ -185,6 +200,42 @@ onBeforeUnmount(clear)
     >
   </PageHeading>
   <p v-if="error" role="alert">{{ error }}</p>
+  <section
+    v-if="official || officialError"
+    class="panel training-catalog official-catalog"
+    aria-label="官方训练"
+  >
+    <header><h2>官方训练</h2></header>
+    <p v-if="officialError" role="alert">{{ officialError }}</p>
+    <div v-else-if="official?.items.length" class="training-table">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">训练名称</th>
+            <th scope="col">题数</th>
+            <th scope="col">发布时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="plan in official.items" :key="plan.id">
+            <th scope="row">
+              <RouterLink :to="{ name: 'official-training-detail', params: { id: plan.id } }">
+                {{ plan.title }}
+              </RouterLink>
+            </th>
+            <td>{{ plan.item_count }}</td>
+            <td>
+              <time :datetime="plan.created_at">{{ displayTime(plan.created_at) }}</time>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p v-else class="muted">暂无官方训练。</p>
+    <p v-if="official?.truncated" class="small muted catalog-limit" role="status">
+      显示最近 50 个官方训练。
+    </p>
+  </section>
   <p v-if="!user">
     <RouterLink to="/login?next=/trainings">登录</RouterLink>后查看本人的学习记录与训练计划。
   </p>
@@ -400,6 +451,9 @@ onBeforeUnmount(clear)
 </template>
 
 <style scoped>
+.official-catalog {
+  margin-block-end: 1.15rem;
+}
 .training-filters {
   display: grid;
   gap: 0.75rem;

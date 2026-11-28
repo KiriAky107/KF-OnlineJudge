@@ -15,15 +15,40 @@ from kf_oj.runtime.storage import AgentRecordConflict
 
 @dataclass(frozen=True, slots=True)
 class AgentModelLimits:
-    account_per_hour: int = 12
-    service_per_hour: int = 120
+    account_per_hour: int | None = None
+    service_per_hour: int | None = None
 
     def __post_init__(self) -> None:
-        if min(self.account_per_hour, self.service_per_hour) < 1:
+        if any(
+            limit is not None and limit < 1
+            for limit in (self.account_per_hour, self.service_per_hour)
+        ):
             raise ValueError("model request budgets must be positive")
 
 
 DEFAULT_MODEL_LIMITS = AgentModelLimits()
+
+
+async def _within_hourly_limits(
+    db: AsyncSession, owner_id: UUID, now: datetime, limits: AgentModelLimits
+) -> bool:
+    if limits.service_per_hour is None and limits.account_per_hour is None:
+        return True
+    owned = AgentModelAttemptRow.owner_id == owner_id
+    requests = func.sum(AgentModelAttemptRow.provider_requests)
+    used, owner_used = (
+        await db.execute(
+            select(
+                func.coalesce(requests, 0),
+                func.coalesce(requests.filter(owned), 0),
+            )
+            .select_from(AgentModelAttemptRow)
+            .where(AgentModelAttemptRow.started_at > now - timedelta(hours=1))
+        )
+    ).one()
+    return (limits.service_per_hour is None or used < limits.service_per_hour) and (
+        limits.account_per_hour is None or owner_used < limits.account_per_hour
+    )
 
 
 async def reserve_model_attempt(
@@ -43,30 +68,47 @@ async def reserve_model_attempt(
     if expires > run.created_at + timedelta(minutes=5):
         raise ModelBudgetExceeded("learning run reached its model deadline")
 
-    owned = AgentModelAttemptRow.owner_id == owner_id
-    in_flight = AgentModelAttemptRow.finished_at.is_(None) & (AgentModelAttemptRow.expires_at > now)
-    used, owner_used, active, owner_active = (
+    active, owner_active = (
         await db.execute(
             select(
                 func.count(),
-                func.count().filter(owned),
-                func.count().filter(in_flight),
-                func.count().filter(in_flight, owned),
+                func.count().filter(AgentModelAttemptRow.owner_id == owner_id),
             )
             .select_from(AgentModelAttemptRow)
-            .where(AgentModelAttemptRow.started_at > now - timedelta(hours=1))
+            .where(
+                AgentModelAttemptRow.finished_at.is_(None), AgentModelAttemptRow.expires_at > now
+            )
         )
     ).one()
     if (
-        used >= limits.service_per_hour
-        or owner_used >= limits.account_per_hour
-        or active >= 4
+        active >= 4
         or owner_active >= 1
+        or not await _within_hourly_limits(db, owner_id, now, limits)
     ):
         raise ModelBudgetExceeded("learning model shared request budget exhausted")
     db.add(
         AgentModelAttemptRow(run_id=run.id, owner_id=owner_id, started_at=now, expires_at=expires)
     )
+
+
+async def reserve_model_continuation(
+    db: AsyncSession, run_id: UUID, owner_id: UUID, limits: AgentModelLimits
+) -> bool:
+    await db.execute(text("SELECT pg_advisory_xact_lock(1262907471, 1)"))
+    now: datetime = await db.scalar(select(func.clock_timestamp()))
+    attempt = await db.get(AgentModelAttemptRow, run_id)
+    if (
+        attempt is None
+        or attempt.owner_id != owner_id
+        or attempt.provider_requests != 1
+        or attempt.finished_at is not None
+        or attempt.expires_at <= now
+    ):
+        return False
+    if not await _within_hourly_limits(db, owner_id, now, limits):
+        return False
+    attempt.provider_requests = 2
+    return True
 
 
 async def finish_model_attempt(

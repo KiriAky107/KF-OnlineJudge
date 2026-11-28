@@ -13,8 +13,14 @@ from kf_oj.contracts.self_tests import CreateSelfTest, SelfTestDetail
 from kf_oj.infra.artifacts.repository import ArtifactRepository
 from kf_oj.infra.messaging.models import Outbox
 from kf_oj.modules.identity.public import Principal
-from kf_oj.modules.problems.public import ProblemPort, ProblemUnavailable
-from kf_oj.modules.submissions.models import Evaluation, SelfTest, Submission
+from kf_oj.modules.learning.public import linked_public_sample_diagnostic
+from kf_oj.modules.problems.public import ProblemPort, ProblemUnavailable, public_diagnostic_sample
+from kf_oj.modules.submissions.models import (
+    Evaluation,
+    SelfTest,
+    SelfTestPublicComparison,
+    Submission,
+)
 from kf_oj.modules.submissions.public import (
     IdempotencyConflict,
     SubmissionBusy,
@@ -73,22 +79,48 @@ class SelfTestService:
                 raise SubmissionUnavailable("self-test unavailable")
             return self._response(*row)
 
+    @staticmethod
+    async def _sample_metadata(session, principal, request: CreateSelfTest, stdin: bytes) -> dict:
+        ordinal = request.public_sample_ordinal
+        if ordinal is None:
+            return {}
+        try:
+            sample = await public_diagnostic_sample(session, request.problem_version_id, ordinal)
+        except ProblemUnavailable:
+            return {}
+        if sample.input_bytes != stdin:
+            return {}
+        reference = request.diagnostic_request_id
+        if reference is not None and not await linked_public_sample_diagnostic(
+            session, principal, reference, sample, request.language.value
+        ):
+            reference = None
+        return {
+            "ordinal": ordinal,
+            "expected_digest": hashlib.sha256(sample.expected_bytes).hexdigest(),
+            "diagnostic_request_id": reference,
+        }
+
     async def create(self, principal: Principal, request: CreateSelfTest) -> SelfTestDetail:
         # Validate even trusted non-HTTP callers. No path or argv is accepted.
         request = CreateSelfTest.model_validate(
             request.model_dump(exclude={"language"}) | {"language": request.language}
         )
         source = request.source.encode("utf-8")
+        input_bytes = request.stdin.encode("utf-8")
+        source_digest = hashlib.sha256(source).hexdigest()
+        input_digest = hashlib.sha256(input_bytes).hexdigest()
+        request_fields = [
+            str(request.problem_version_id),
+            request.language.value,
+            source_digest,
+            input_digest,
+        ]
+        if request.public_sample_ordinal is not None:
+            request_fields.append(str(request.public_sample_ordinal))
+            request_fields.append(str(request.diagnostic_request_id or ""))
         request_digest = hashlib.sha256(
-            json.dumps(
-                [
-                    str(request.problem_version_id),
-                    request.language.value,
-                    hashlib.sha256(source).hexdigest(),
-                    hashlib.sha256(request.stdin.encode("utf-8")).hexdigest(),
-                ],
-                separators=(",", ":"),
-            ).encode()
+            json.dumps(request_fields, separators=(",", ":")).encode()
         ).hexdigest()
         if self.admission is None:
             raise SubmissionUnavailable("judge admission unavailable")
@@ -134,18 +166,20 @@ class SelfTestService:
                 raise SubmissionUnavailable("problem version unavailable") from None
             if request.language not in version.languages:
                 raise SubmissionUnavailable("language unavailable")
+            sample_metadata = await self._sample_metadata(session, principal, request, input_bytes)
             # Bytes fsync before metadata/ref transaction. Rollback may leave collectable bytes,
             # but cannot leave an evaluation that refers to non-durable bytes.
             payloads = {
-                hashlib.sha256(data).hexdigest(): data
-                for data in (source, request.stdin.encode("utf-8"), b"")
+                source_digest: source,
+                input_digest: input_bytes,
+                hashlib.sha256(b"").hexdigest(): b"",
             }
             refs = {
                 digest: await self.artifacts.put(session, payloads[digest])
                 for digest in sorted(payloads)
             }
-            reference = refs[hashlib.sha256(source).hexdigest()]
-            stdin = refs[hashlib.sha256(request.stdin.encode("utf-8")).hexdigest()]
+            reference = refs[source_digest]
+            stdin = refs[input_digest]
             submission_id, evaluation_id = uuid4(), uuid4()
             manifest = self_test_manifest(
                 version, evaluation_id, submission_id, request.language, reference, stdin
@@ -165,6 +199,8 @@ class SelfTestService:
             )
             session.add(submission)
             await session.flush()
+            if sample_metadata:
+                session.add(SelfTestPublicComparison(self_test_id=submission_id, **sample_metadata))
             await session.execute(
                 Evaluation.__table__.insert().values(
                     id=evaluation_id,

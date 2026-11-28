@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, Field, StrictBool
+from pydantic import AwareDatetime, Field, StrictBool, field_validator
 
 from kf_oj.contracts.judging import WireModel
 from kf_oj.contracts.learning_model import ProgressiveHintLevel
@@ -279,13 +279,68 @@ class TrainingDetail(TrainingSummary):
     goal_coverage: TrainingGoalCoverage | None = None
     schedule: TrainingSchedule | None = Field(default=None, exclude_if=lambda value: value is None)
     previous_plan_id: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
+    official_publication_id: UUID | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     max_hint_level: ProgressiveHintLevel = "L3"
+    publication_max_hint_level: ProgressiveHintLevel | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class TrainingPage(WireModel):
     limit: int = 50
     truncated: bool = False
     items: tuple[TrainingSummary, ...]
+
+
+class ConfirmTrainingPublication(WireModel):
+    confirmed: Literal[True]
+
+    @field_validator("confirmed", mode="before")
+    @classmethod
+    def explicit_confirmation(cls, value: object) -> Literal[True]:
+        if value is not True:
+            raise ValueError("official publication requires explicit confirmation")
+        return True
+
+
+class TrainingPublicationSummary(WireModel):
+    id: UUID
+    title: str
+    created_at: AwareDatetime
+    item_count: int
+
+
+class TrainingPublicationItem(WireModel):
+    position: int
+    problem_version_id: UUID | None = None
+    title: str | None = None
+    difficulty: Difficulty | None = None
+
+
+class TrainingPublicationDetail(TrainingPublicationSummary):
+    max_hint_level: ProgressiveHintLevel = "L3"
+    items: tuple[TrainingPublicationItem, ...]
+
+
+class TrainingPublicationPage(WireModel):
+    items: tuple[TrainingPublicationSummary, ...]
+    truncated: bool = False
+
+
+TeachingTopic = Literal["correctness", "resource_use", "runtime", "compilation", "mixed"]
+
+
+class TeamTrainingReviewItem(WireModel):
+    position: int
+    title: str
+    topic: TeachingTopic
+
+
+class TeamTrainingReview(WireModel):
+    state: Literal["insufficient_data", "ready"]
+    items: tuple[TeamTrainingReviewItem, ...] = ()
 
 
 class UpdateTrainingNote(WireModel):

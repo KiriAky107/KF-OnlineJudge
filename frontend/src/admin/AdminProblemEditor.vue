@@ -6,6 +6,7 @@ import type { components } from '../api/generated/schema'
 import { ApiError, unwrap } from '../api/transport'
 import { api as platform } from '../api/client'
 import { useSession } from '../composables/useSession'
+import ProblemAuthoringReview from './ProblemAuthoringReview.vue'
 import { sha256Fingerprint } from '../lib/requestCrypto'
 import StatementAuthor from './StatementAuthor.vue'
 import { loadIntent, mutationIntent, saveIntent, type MutationIntent } from './intents'
@@ -29,6 +30,12 @@ const tags = ref('')
 const prerequisites = ref('')
 type SampleField = { text: string; binary?: string }
 const samples = ref<{ key: number; input: SampleField; output: SampleField }[]>([])
+const reviewSamples = computed(() =>
+  samples.value.map(({ input, output }) => ({
+    input: input.binary === undefined ? input.text : null,
+    output: output.binary === undefined ? output.text : null,
+  })),
+)
 let sampleKey = 0
 let intent = loadIntent<MutationIntent>('revision')
 
@@ -261,6 +268,7 @@ onUnmounted(() => controller.abort())
           </button>
         </section>
       </fieldset>
+      <ProblemAuthoringReview :statement="statement" :samples="reviewSamples" />
       <section class="admin-real-panel">
         <h2>判题配置</h2>
         <p>{{ editor.case_count }} 个隐藏测试点。发布后继续使用当前测试数据和语言限额。</p>

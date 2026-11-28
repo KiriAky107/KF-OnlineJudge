@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "kind": "diagnostic.run",
+  "binding": {
+    "request_id": "d562d668-3151-4e21-bc74-de1fdada97b1",
+    "execution_id": "043eb66d-04a0-477a-9c73-224d4f4e8cd7",
+    "worker_id": "a505d3ec-d21f-488d-8a82-0cbc3a80d362"
+  },
+  "problem_version_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000003",
+  "configuration": {
+    "language": "c17",
+    "toolchain": {
+      "toolchain_id": "gnu-cxx-v1",
+      "image_kind": "linux_gnu_cxx_x86_64_v1",
+      "image_revision": 1,
+      "image_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "runtime_version": "gnu-cxx-v1"
+    },
+    "compile_limits": {
+      "cpu_time_us": 10000000,
+      "wall_time_us": 20000000,
+      "memory_bytes": 536870912,
+      "stack_bytes": 16777216,
+      "processes": 32,
+      "open_files": 128,
+      "stdout_bytes": 1048576,
+      "stderr_bytes": 1048576,
+      "file_bytes": 67108864,
+      "workdir_bytes": 268435456
+    },
+    "run_limits": {
+      "cpu_time_us": 1000000,
+      "wall_time_us": 3000000,
+      "memory_bytes": 67108864,
+      "stack_bytes": 8388608,
+      "processes": 8,
+      "open_files": 64,
+      "stdout_bytes": 1048576,
+      "stderr_bytes": 1048576,
+      "file_bytes": 16777216,
+      "workdir_bytes": 67108864
+    },
+    "job_wall_time_us": 55000000
+  },
+  "claim_expires_at_unix_ms": 1795993200000,
+  "source": {
+    "digest": "2ad75d95660563887d8d3f1d0ae1dcf18c2379cbd83a5c72f5ab276351ee6949",
+    "bytes": 29
+  },
+  "sample": {
+    "case_id": "043eb66d-04a0-477a-9c73-224d4f4e8cd7",
+    "input": {
+      "digest": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2
+    },
+    "expected": {
+      "digest": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+      "bytes": 2
+    }
+  }
+}

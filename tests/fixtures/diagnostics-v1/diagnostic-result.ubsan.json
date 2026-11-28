@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "kind": "diagnostic.result",
+  "binding": {
+    "request_id": "d562d668-3151-4e21-bc74-de1fdada97b1",
+    "execution_id": "043eb66d-04a0-477a-9c73-224d4f4e8cd7",
+    "worker_id": "a505d3ec-d21f-488d-8a82-0cbc3a80d362"
+  },
+  "state": "observed",
+  "observation": null,
+  "failure_code": null,
+  "ubsan": {
+    "verdict": "runtime_error",
+    "finding": {
+      "category": "signed_integer_overflow",
+      "line": 9,
+      "column": 33
+    }
+  }
+}

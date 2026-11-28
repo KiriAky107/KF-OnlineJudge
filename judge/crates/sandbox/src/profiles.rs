@@ -4,33 +4,27 @@ use crate::spec::{ExecutionProfile as P, ExecutionSpec, ResourceLimits};
 use kf_contracts::{judging::RunLimits, judging_v2 as v2};
 
 /// Return the prepared command and the input path relative to /work.
-pub fn gnu_compile_command(profile: P) -> Option<([&'static str; 7], &'static str)> {
+pub fn gnu_compile_command(profile: P) -> Option<(Vec<&'static str>, &'static str)> {
     let (compiler, standard, source, path) = match profile {
-        P::CompileC | P::CompileCDiagnostic => {
+        P::CompileC | P::CompileCDiagnostic | P::CompileCUbsan => {
             ("/usr/bin/gcc", "-std=c17", "/work/main.c", "main.c")
         }
-        P::CompileCpp | P::CompileCppDiagnostic => {
+        P::CompileCpp | P::CompileCppDiagnostic | P::CompileCppUbsan => {
             ("/usr/bin/g++", "-std=c++20", "/work/main.cpp", "main.cpp")
         }
         _ => return None,
     };
-    let optimization = if profile.diagnostic_compiler() {
+    let optimization = if profile.diagnostic_compiler() || profile.ubsan_compiler() {
         "-O0"
     } else {
         "-O2"
     };
-    Some((
-        [
-            compiler,
-            standard,
-            optimization,
-            "-pipe",
-            source,
-            "-o",
-            "/work/main",
-        ],
-        path,
-    ))
+    let mut argv = vec![compiler, standard, optimization, "-pipe"];
+    if profile.ubsan_compiler() {
+        argv.extend(["-fsanitize=undefined", "-fno-sanitize-recover=undefined"]);
+    }
+    argv.extend([source, "-o", "/work/main"]);
+    Some((argv, path))
 }
 
 pub(crate) fn matches_diagnostic_compile(spec: &ExecutionSpec) -> bool {

@@ -12,11 +12,15 @@ from kf_oj.contracts.submissions import CreateSubmission, EvaluationState
 
 class CreateSelfTest(CreateSubmission):
     stdin: Annotated[str, Field(max_length=65536, repr=False)] = ""
+    public_sample_ordinal: Annotated[int, Field(strict=True, ge=0, le=65535)] | None = None
+    diagnostic_request_id: Identifier | None = None
 
     @model_validator(mode="after")
     def input_bytes(self):
         if len(self.stdin.encode("utf-8")) > 65536:
             raise ValueError("stdin exceeds byte policy")
+        if self.diagnostic_request_id is not None and self.public_sample_ordinal is None:
+            raise ValueError("diagnostic reference requires an advertised public sample")
         return self
 
 

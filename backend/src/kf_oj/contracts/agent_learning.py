@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import AwareDatetime, Field, StrictBool, TypeAdapter, model_validator
+from pydantic import AwareDatetime, Field, StrictBool, TypeAdapter, field_validator, model_validator
 
 from kf_oj.contracts.agent_runtime import AgentPurpose, AgentRun
 from kf_oj.contracts.difficulty import DifficultyScore
@@ -241,6 +241,15 @@ class StoredAgentLearningInput(AgentLearningInput):
         default=None, exclude_if=lambda value: value is None
     )
     review_anchor: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @field_validator("chat_context", mode="before")
+    @classmethod
+    def drop_legacy_chat_evaluation(cls, context: object) -> object:
+        if isinstance(context, dict) and isinstance(submission := context.get("submission"), dict):
+            if "verdict" in submission and "evaluation" not in submission:
+                # Old runs did not reserve a read under the versioned evidence budget.
+                return {**context, "submission": None}
+        return context
 
 
 class SourceEvidenceArguments(WireModel):

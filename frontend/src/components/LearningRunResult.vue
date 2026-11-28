@@ -48,15 +48,18 @@ const focusLabels = {
 </script>
 
 <template>
-  <article v-if="run.chat" class="chat-reply" aria-label="学习助手回复">
+  <article v-if="run.chat || run.review_question" class="chat-reply" aria-label="学习助手回复">
     <div class="chat-reply-content">
       <LearningModelReasoning
         v-if="run.result?.model_hint?.reasoning || run.partial_reasoning"
         :text="run.result?.model_hint?.reasoning ?? run.partial_reasoning ?? ''"
-        :thinking="run.state === 'running' && !run.partial_answer"
+        :kind="run.partial_reasoning ? 'text' : run.result?.model_hint?.reasoning_kind"
+        :thinking="run.state === 'running'"
       />
       <LearningRunTrace :key="run.run_id" :run-id="run.run_id" :chat-run="run" />
-      <template v-if="run.result?.purpose === 'guided_help'">
+      <template
+        v-if="run.result?.purpose === 'guided_help' || run.result?.purpose === 'submission_review'"
+      >
         <StatementMarkdown
           v-if="run.result.model_hint"
           class="chat-answer-text"
@@ -69,10 +72,14 @@ const focusLabels = {
             run.result.model_status === 'budget_exhausted'
               ? '模型调用额度已满，请稍后再试。'
               : run.result.model_status === 'output_limit'
-                ? '模型服务在生成完整答复前达到了输出上限。'
+                ? '模型服务达到自身的输出上限，未返回完整答复。'
                 : run.result.model_status === 'source_model_unavailable'
                   ? '源码分析需要可用的本机模型。'
-                  : '模型暂未返回答复，请稍后重试。'
+                  : run.result.model_status === 'context_limit'
+                    ? '当前问题和必要证据超出模型上下文预算。'
+                    : run.result.model_status === 'insufficient_evidence'
+                      ? '当前没有足够的记录生成模型回复。'
+                      : '模型暂未返回答复，请稍后重试。'
           }}
         </p>
       </template>
@@ -120,12 +127,18 @@ const focusLabels = {
       </details>
     </div>
   </article>
-  <PanelCard v-else title="运行结果" icon="trainings">
-    <template #actions
+  <PanelCard
+    v-if="!run.chat && (!run.review_question || run.result?.purpose === 'submission_review')"
+    :title="run.review_question ? '复盘依据' : '运行结果'"
+    icon="trainings"
+  >
+    <template v-if="!run.review_question" #actions
       ><el-button :disabled="busy" @click="$emit('refresh')">刷新</el-button></template
     >
     <div class="stack">
-      <p role="status">{{ labels[run.state] }} · {{ displayTime(run.created_at) }}</p>
+      <p v-if="!run.review_question" role="status">
+        {{ labels[run.state] }} · {{ displayTime(run.created_at) }}
+      </p>
       <p v-if="run.failure_code" role="alert">
         {{ failures[run.failure_code] ?? '运行未能取得有效结果。' }}
       </p>
@@ -173,7 +186,8 @@ const focusLabels = {
           <p
             v-if="
               run.result.model_status === 'generated' &&
-              run.result.model_review_basis === 'evaluations'
+              run.result.model_review_basis === 'evaluations' &&
+              !run.result.model_hint?.review_resources
             "
             class="small muted"
           >
@@ -207,6 +221,7 @@ const focusLabels = {
             模型建议参考了评测统计及已授权的比较条件计数。
           </p>
           <LearningModelHint
+            v-if="!run.review_question"
             :hint="run.result.model_hint"
             :status="run.result.model_status"
             :context="run.result.model_review_basis === 'source_excerpt' ? 'source' : 'review'"
@@ -362,7 +377,7 @@ const focusLabels = {
           @saved="$emit('feedback', $event)"
         />
       </template>
-      <LearningRunTrace :key="run.run_id" :run-id="run.run_id" />
+      <LearningRunTrace v-if="!run.review_question" :key="run.run_id" :run-id="run.run_id" />
     </div>
   </PanelCard>
 </template>

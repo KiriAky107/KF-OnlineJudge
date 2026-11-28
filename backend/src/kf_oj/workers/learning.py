@@ -50,6 +50,9 @@ async def serve(settings: Settings, *, check: bool, once: bool) -> None:
                 settings.learning_model_api_key,
                 reasoning_effort=settings.learning_model_reasoning_effort,
                 chat_reasoning_effort=settings.learning_chat_reasoning_effort,
+                review_mcp=settings.learning_review_mcp_enabled,
+                context_bytes=settings.learning_model_context_bytes,
+                record_usage=settings.learning_model_record_usage,
             )
         worker = LearningWorker(
             build_session_factory(engine),
@@ -57,6 +60,11 @@ async def serve(settings: Settings, *, check: bool, once: bool) -> None:
             model_limits=AgentModelLimits(
                 account_per_hour=settings.learning_model_account_calls_per_hour,
                 service_per_hour=settings.learning_model_service_calls_per_hour,
+            ),
+            review_batch_offers=(
+                settings.learning_diagnostic_batch_offers
+                if settings.learning_diagnostics_enabled
+                else ()
             ),
             hint_policy=HintPolicy(
                 settings.learning_chat_max_hint_level,

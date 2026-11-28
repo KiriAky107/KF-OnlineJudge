@@ -136,31 +136,85 @@ async def learning_versions(session, version_ids: set[UUID]) -> dict[UUID, Learn
     return await versions(session, version_ids)
 
 
-async def learning_selected(session, version_ids: set[UUID]) -> dict[UUID, LearningCandidate]:
+async def learning_selected(
+    session, version_ids: set[UUID], *, current_only: bool = True
+) -> dict[UUID, LearningCandidate]:
     from .learning_metadata import selected
 
-    return await selected(session, version_ids)
+    return await selected(session, version_ids, current_only=current_only)
 
 
-async def learning_difficulties(session, version_ids: set[UUID]):
+@dataclass(frozen=True, slots=True)
+class LearningDifficulty:
+    label: str
+    score: int
+
+
+async def learning_difficulties(session, version_ids: set[UUID]) -> dict[UUID, LearningDifficulty]:
     from sqlalchemy import func, select
 
-    from .difficulty import difficulty_levels
-    from .learning_models import ProblemLearningMetadata
+    from .learning_models import ProblemDifficultyLevel, ProblemLearningMetadata
 
     if not version_ids:
         return {}
     rows = await session.execute(
         select(
             ProblemLearningMetadata.problem_version_id,
-            func.coalesce(
+            ProblemDifficultyLevel.label,
+            ProblemDifficultyLevel.score,
+        )
+        .join(
+            ProblemDifficultyLevel,
+            ProblemDifficultyLevel.key
+            == func.coalesce(
                 ProblemLearningMetadata.difficulty_key, ProblemLearningMetadata.difficulty
             ),
-        ).where(ProblemLearningMetadata.problem_version_id.in_(version_ids))
+        )
+        .where(ProblemLearningMetadata.problem_version_id.in_(version_ids))
     )
-    keys = {version_id: key for version_id, key in rows}
-    levels = await difficulty_levels(session, {key for key in keys.values() if key is not None})
-    return {version_id: levels[key] for version_id, key in keys.items() if key in levels}
+    return {version_id: LearningDifficulty(label, score) for version_id, label, score in rows}
+
+
+@dataclass(frozen=True)
+class PublicDiagnosticSample:
+    version_id: UUID
+    ordinal: int
+    input_bytes: bytes
+    expected_bytes: bytes
+
+
+async def diagnostic_version_available(session, version_id: UUID) -> bool:
+    """Check that a currently enabled, published version can still run a diagnostic."""
+    from .repository import published_version
+
+    return await published_version(session, version_id, admission=True) is not None
+
+
+async def public_diagnostic_sample(
+    session, version_id: UUID, ordinal: int
+) -> PublicDiagnosticSample:
+    """Resolve an advertised sample by zero-based ordinal while holding the admission lock."""
+    from base64 import b64decode
+    from binascii import Error
+
+    from kf_oj.contracts.problems import PublicSample
+
+    from .repository import public_version
+
+    if ordinal < 0:
+        raise ProblemUnavailable("public sample unavailable")
+    row = await public_version(session, version_id, admission=True)
+    if row is None or ordinal >= len(row[0].public_samples):
+        raise ProblemUnavailable("public sample unavailable")
+    try:
+        sample = PublicSample.model_validate(row[0].public_samples[ordinal])
+        content = b64decode(sample.input, validate=True)
+        expected = b64decode(sample.output, validate=True)
+    except (Error, ValueError):
+        raise ProblemUnavailable("public sample unavailable") from None
+    if max(len(content), len(expected)) > 64 * 1024:
+        raise ProblemUnavailable("public sample unavailable")
+    return PublicDiagnosticSample(version_id, ordinal, content, expected)
 
 
 async def learning_statement(session, version_id: UUID) -> tuple[str, str, int] | None:
@@ -171,3 +225,10 @@ async def learning_statement(session, version_id: UUID) -> tuple[str, str, int] 
         return None
     version, _ = row
     return version.title, version.statement, len(version.public_samples)
+
+
+async def learning_review_problem(session, version_id: UUID) -> dict | None:
+    """Project bounded public context for the restricted learning Worker."""
+    from sqlalchemy import func, select
+
+    return await session.scalar(select(func.kf_learning_review_problem(version_id)))

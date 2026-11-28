@@ -78,3 +78,25 @@ class AdministrationPort(ActiveSessionPort, Protocol):
 
 class ContestAdministrationPort(AdministrationPort, Protocol):
     async def contest_account_ids(self, session, usernames: tuple[str, ...]) -> dict[str, UUID]: ...
+
+
+def enabled_account_ids():
+    from sqlalchemy import select
+
+    from .models import Account
+
+    return select(Account.id).where(Account.enabled)
+
+
+async def enabled_account_names(session, accounts: set[UUID]) -> dict[UUID, str]:
+    """Return canonical display names without exposing credential or role information."""
+    from sqlalchemy import select
+
+    from .models import Account
+
+    if not accounts:
+        return {}
+    rows = await session.execute(
+        select(Account.id, Account.username).where(Account.id.in_(accounts), Account.enabled)
+    )
+    return {account: name for account, name in rows}

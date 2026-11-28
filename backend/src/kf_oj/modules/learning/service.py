@@ -3,7 +3,7 @@
 import hashlib
 from collections import Counter
 from datetime import UTC, datetime, timedelta
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
@@ -29,10 +29,15 @@ from kf_oj.contracts.learning import (
     RecommendedProblem,
     StoredTrainingParameters,
     TagStatistic,
+    TeamTrainingReview,
     TrainingDetail,
     TrainingFeedback,
     TrainingItem,
     TrainingPage,
+    TrainingPublicationDetail,
+    TrainingPublicationItem,
+    TrainingPublicationPage,
+    TrainingPublicationSummary,
     TrainingRankingProfile,
     TrainingSummary,
     TrainingTiming,
@@ -42,14 +47,23 @@ from kf_oj.contracts.learning import (
     practice_reason,
 )
 from kf_oj.contracts.learning_model import LearningHintCeiling
+from kf_oj.modules.identity.public import ActiveSessionPort, AdministrationPort, Principal
 from kf_oj.modules.problems import public as problems
 from kf_oj.modules.submissions import public as records
+from kf_oj.modules.teams.public import require_team_role
 
 from .agent_models import AgentPlanLinkRow
 from .coverage import choose_for_coverage, goal_coverage, matches_goals
 from .feedback import matching_feedback, recent_feedback
 from .feedback import reason as feedback_reason
-from .models import LearningPlan, LearningPlanItem, ProblemNote, TrainingFeedbackRow
+from .models import (
+    LearningPlan,
+    LearningPlanItem,
+    ProblemNote,
+    TrainingFeedbackRow,
+    TrainingPublication,
+    TrainingPublicationItemRow,
+)
 from .practice import first_hint_dates, recent_plan_dates, training_timing
 from .prerequisites import accepted_prerequisite_evidence
 from .public import (
@@ -58,6 +72,7 @@ from .public import (
     NoCandidates,
     TrainingSourceUnavailable,
 )
+from .training_review import team_training_review
 
 RULE_VERSION = "learning-rules-v1"
 AGENT_PLAN_RULE_VERSION = "agent-rules-v1"
@@ -101,6 +116,15 @@ def evidence(record):
         verdict=record.verdict,
         state=record.state,
     )
+
+
+async def _lock_training_request(session, owner_id: UUID, request_id: UUID) -> None:
+    key = int.from_bytes(
+        hashlib.sha256(f"{owner_id}:{request_id}".encode()).digest()[:8],
+        "big",
+        signed=True,
+    )
+    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
 
 
 def ordinary(record):
@@ -171,6 +195,7 @@ def rank_candidates(
     *,
     timings=None,
     prerequisite_evidence=None,
+    similar_tags: tuple[str, ...] = (),
 ):
     practice = timings or {}
     prerequisites = prerequisite_evidence or {}
@@ -235,6 +260,7 @@ def rank_candidates(
             else 0
         )
         return (
+            -len(similar_goals.intersection(candidate.tags)),
             weighted,
             *signals,
             {"easy": 0, "medium": 1, "hard": 2}.get(candidate.difficulty, 3),
@@ -242,6 +268,7 @@ def rank_candidates(
             str(candidate.version_id),
         )
 
+    similar_goals = set(similar_tags)
     eligible.sort(key=order)
     unique = {}
     for c in eligible:
@@ -349,15 +376,16 @@ class LearningService:
         *,
         allowed_difficulties: tuple[Difficulty, ...] = (),
         exclude_problem_ids: tuple[UUID, ...] = (),
+        similar_tags: tuple[str, ...] = (),
         as_of: datetime | None = None,
     ):
         now = as_of or datetime.now(UTC)
         candidates = await problems.learning_candidates(
             session,
-            tags=parameters.tags,
+            tags=similar_tags or parameters.tags,
             difficulty=parameters.difficulty,
             allowed_difficulties=allowed_difficulties,
-            match_any_tag=parameters.cover_each_goal,
+            match_any_tag=bool(similar_tags) or parameters.cover_each_goal,
             limit=500,
         )
         truncated = len(candidates) > 500
@@ -405,6 +433,7 @@ class LearningService:
             feedback,
             timings=timings,
             prerequisite_evidence=prerequisites,
+            similar_tags=similar_tags,
         )
         return result.model_copy(
             update={
@@ -434,6 +463,24 @@ class LearningService:
                 as_of=as_of,
             )
 
+    async def recommend_similar(
+        self, session, principal, source, count: int, skill: FocusedTrainingParameters
+    ):
+        levels: tuple[Difficulty, ...] = ("easy", "medium", "hard")
+        return await self._recommend(
+            session,
+            principal,
+            LearningParameters(
+                count=count,
+                ranking_profile=skill.ranking_profile,
+            ),
+            allowed_difficulties=levels[
+                levels.index(skill.minimum_difficulty) : levels.index(skill.maximum_difficulty) + 1
+            ],
+            exclude_problem_ids=(source.problem_id,),
+            similar_tags=source.tags,
+        )
+
     async def create(
         self,
         principal,
@@ -447,14 +494,7 @@ class LearningService:
         digest = hashlib.sha256(payload.encode()).hexdigest()
         async with self.sessions.begin() as session:
             # Serialize only this owner's idempotency key, including concurrent double clicks.
-            key = int.from_bytes(
-                hashlib.sha256(f"{principal.account_id}:{body.idempotency_key}".encode()).digest()[
-                    :8
-                ],
-                "big",
-                signed=True,
-            )
-            await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+            await _lock_training_request(session, principal.account_id, body.idempotency_key)
             source = None
             if source_plan_id is not None:
                 source = await self._owned_plan(session, principal, source_plan_id)
@@ -778,10 +818,33 @@ class LearningService:
             row.item_id: TrainingFeedback(rating=row.rating, rated_at=row.rated_at)
             for row in evaluations
         }
-        return self._project(plan, rows, current, progress, feedback)
+        published = await session.scalar(
+            select(TrainingPublication.id).where(
+                TrainingPublication.source_plan_id == plan.id,
+                TrainingPublication.team_id.is_(None),
+            )
+        )
+        publication_maximum = None
+        if plan.publication_id is not None:
+            publication_maximum = await session.scalar(
+                select(TrainingPublication.max_hint_level).where(
+                    TrainingPublication.id == plan.publication_id
+                )
+            )
+        return self._project(
+            plan, rows, current, progress, feedback, published, publication_maximum
+        )
 
     @staticmethod
-    def _project(plan, rows, current, progress, feedback=None):
+    def _project(
+        plan,
+        rows,
+        current,
+        progress,
+        feedback=None,
+        official_publication_id=None,
+        publication_maximum=None,
+    ):
         feedback = {} if feedback is None else feedback
         items = tuple(
             TrainingItem(
@@ -818,25 +881,276 @@ class LearningService:
             else None,
             schedule=stored.schedule,
             previous_plan_id=stored.previous_plan_id,
+            official_publication_id=official_publication_id,
             max_hint_level=plan.max_hint_level,
+            publication_max_hint_level=publication_maximum,
         )
 
     async def set_hint_ceiling(self, principal, plan_id, policy: LearningHintCeiling, identity):
         async with self.sessions.begin() as session:
             await identity.require_active_session(session, principal)
-            updated = await session.scalar(
+            shared_maximum = (
+                select(TrainingPublication.max_hint_level)
+                .where(TrainingPublication.id == LearningPlan.publication_id)
+                .scalar_subquery()
+            )
+            maximum = await session.scalar(
                 update(LearningPlan)
                 .where(LearningPlan.id == plan_id, LearningPlan.owner_id == principal.account_id)
-                .values(max_hint_level=policy.max_hint_level)
-                .returning(LearningPlan.id)
+                .values(max_hint_level=func.least(policy.max_hint_level, shared_maximum))
+                .returning(LearningPlan.max_hint_level)
             )
-            if updated is None:
+            if maximum is None:
                 raise LearningUnavailable("training unavailable")
-            return policy
+            return LearningHintCeiling(max_hint_level=maximum)
 
     async def detail(self, principal, plan_id):
         async with self.sessions() as session:
             return await self._detail(session, principal, plan_id)
+
+    async def publish_official(
+        self, principal: Principal, plan_id: UUID, identity: AdministrationPort
+    ) -> TrainingPublicationDetail:
+        async with self.sessions.begin() as session:
+            await identity.require_administrator(session, principal)
+            return await self._publish(session, principal, plan_id, None)
+
+    async def publish_team(
+        self, principal: Principal, team_id: UUID, plan_id: UUID, identity: ActiveSessionPort
+    ) -> TrainingPublicationDetail:
+        async with self.sessions.begin() as session:
+            await require_team_role(session, identity, principal, team_id, captain=True)
+            return await self._publish(session, principal, plan_id, team_id)
+
+    async def _publish(
+        self, session, principal: Principal, plan_id: UUID, team_id: UUID | None
+    ) -> TrainingPublicationDetail:
+        await _lock_training_request(session, principal.account_id, plan_id)
+        plan = await self._owned_plan(session, principal, plan_id)
+        if plan is None:
+            raise TrainingSourceUnavailable("source training unavailable")
+        publication = await session.scalar(
+            select(TrainingPublication).where(
+                TrainingPublication.source_plan_id == plan.id,
+                TrainingPublication.team_id == team_id,
+            )
+        )
+        if publication is None:
+            versions = tuple(
+                await session.scalars(
+                    select(LearningPlanItem.version_id)
+                    .where(LearningPlanItem.plan_id == plan.id)
+                    .order_by(LearningPlanItem.position)
+                )
+            )
+            await self._publication_problems(session, versions)
+            publication = TrainingPublication(
+                id=uuid4(),
+                source_plan_id=plan.id,
+                title=plan.title,
+                team_id=team_id,
+                max_hint_level=plan.max_hint_level,
+            )
+            session.add(publication)
+            await session.flush()
+            session.add_all(
+                TrainingPublicationItemRow(
+                    training_id=publication.id, version_id=version, position=i
+                )
+                for i, version in enumerate(versions)
+            )
+            await session.flush()
+        return await self._publication_detail(session, publication)
+
+    @staticmethod
+    async def _publication_problems(session, version_ids: tuple[UUID, ...]):
+        current = await problems.learning_selected(session, set(version_ids), current_only=False)
+        if not version_ids or any(
+            version not in current or not current[version].available for version in version_ids
+        ):
+            raise LearningUnavailable("training includes unavailable problems")
+        return current
+
+    @staticmethod
+    async def _publication_items(session, training_id: UUID):
+        return tuple(
+            await session.scalars(
+                select(TrainingPublicationItemRow)
+                .where(TrainingPublicationItemRow.training_id == training_id)
+                .order_by(TrainingPublicationItemRow.position)
+            )
+        )
+
+    async def _publication_detail(
+        self, session, training: TrainingPublication
+    ) -> TrainingPublicationDetail:
+        rows = await self._publication_items(session, training.id)
+        current = await problems.learning_versions(session, {row.version_id for row in rows})
+        items = []
+        for row in rows:
+            problem = current.get(row.version_id)
+            if problem is None or not problem.available:
+                items.append(TrainingPublicationItem(position=row.position))
+            else:
+                items.append(
+                    TrainingPublicationItem(
+                        position=row.position,
+                        problem_version_id=problem.version_id,
+                        title=problem.title,
+                        difficulty=problem.difficulty,
+                    )
+                )
+        return TrainingPublicationDetail(
+            id=training.id,
+            title=training.title,
+            created_at=training.created_at,
+            item_count=len(items),
+            max_hint_level=training.max_hint_level,
+            items=tuple(items),
+        )
+
+    @staticmethod
+    async def _scoped_publication(session, training_id: UUID, team_id: UUID | None):
+        publication = await session.scalar(
+            select(TrainingPublication).where(
+                TrainingPublication.id == training_id, TrainingPublication.team_id == team_id
+            )
+        )
+        if publication is None:
+            raise TrainingSourceUnavailable("training publication unavailable")
+        return publication
+
+    async def official_detail(self, training_id: UUID) -> TrainingPublicationDetail:
+        async with self.sessions() as session:
+            publication = await self._scoped_publication(session, training_id, None)
+            return await self._publication_detail(session, publication)
+
+    async def team_training_detail(
+        self, principal: Principal, team_id: UUID, training_id: UUID, identity: ActiveSessionPort
+    ) -> TrainingPublicationDetail:
+        async with self.sessions.begin() as session:
+            await require_team_role(session, identity, principal, team_id)
+            publication = await self._scoped_publication(session, training_id, team_id)
+            return await self._publication_detail(session, publication)
+
+    async def team_review(
+        self, principal: Principal, team_id: UUID, training_id: UUID, identity: ActiveSessionPort
+    ) -> TeamTrainingReview:
+        async with self.sessions.begin() as session:
+            await require_team_role(session, identity, principal, team_id, captain=True)
+            publication = await self._scoped_publication(session, training_id, team_id)
+            rows = await self._publication_items(session, publication.id)
+            return await team_training_review(session, team_id, publication.id, rows)
+
+    async def official_page(self) -> TrainingPublicationPage:
+        async with self.sessions() as session:
+            return await self._publication_page(session, None)
+
+    async def team_training_page(
+        self, principal: Principal, team_id: UUID, identity: ActiveSessionPort
+    ) -> TrainingPublicationPage:
+        async with self.sessions.begin() as session:
+            await require_team_role(session, identity, principal, team_id)
+            return await self._publication_page(session, team_id)
+
+    @staticmethod
+    async def _publication_page(session, team_id: UUID | None) -> TrainingPublicationPage:
+        item_count = (
+            select(func.count())
+            .where(TrainingPublicationItemRow.training_id == TrainingPublication.id)
+            .scalar_subquery()
+        )
+        rows = (
+            await session.execute(
+                select(TrainingPublication, item_count)
+                .where(TrainingPublication.team_id == team_id)
+                .order_by(TrainingPublication.created_at.desc(), TrainingPublication.id.desc())
+                .limit(51)
+            )
+        ).all()
+        return TrainingPublicationPage(
+            items=tuple(
+                TrainingPublicationSummary(
+                    id=training.id,
+                    title=training.title,
+                    created_at=training.created_at,
+                    item_count=count,
+                )
+                for training, count in rows[:50]
+            ),
+            truncated=len(rows) > 50,
+        )
+
+    async def start_official(
+        self, principal: Principal, training_id: UUID, identity: ActiveSessionPort
+    ) -> TrainingDetail:
+        async with self.sessions.begin() as session:
+            await identity.require_active_session(session, principal)
+            publication = await self._scoped_publication(session, training_id, None)
+            return await self._start_publication(session, principal, publication)
+
+    async def start_team_training(
+        self, principal: Principal, team_id: UUID, training_id: UUID, identity: ActiveSessionPort
+    ) -> TrainingDetail:
+        async with self.sessions.begin() as session:
+            await require_team_role(session, identity, principal, team_id)
+            publication = await self._scoped_publication(session, training_id, team_id)
+            return await self._start_publication(session, principal, publication)
+
+    async def _start_publication(
+        self, session, principal: Principal, publication: TrainingPublication
+    ) -> TrainingDetail:
+        practice_kind = "official-training" if publication.team_id is None else "team-training"
+        request_id = uuid5(publication.id, f"{practice_kind}-practice")
+        request_digest = hashlib.sha256(
+            f"{practice_kind}-practice:{publication.id}".encode()
+        ).hexdigest()
+        await _lock_training_request(session, principal.account_id, request_id)
+        existing = await session.scalar(
+            select(LearningPlan).where(
+                LearningPlan.owner_id == principal.account_id,
+                LearningPlan.idempotency_key == request_id,
+            )
+        )
+        if existing is not None:
+            if existing.request_digest != request_digest:
+                raise IdempotencyConflict("practice request conflicts")
+            return await self._detail(session, principal, existing.id)
+        rows = await self._publication_items(session, publication.id)
+        versions = tuple(row.version_id for row in rows)
+        current = await self._publication_problems(session, versions)
+        parameters = StoredTrainingParameters(count=len(versions))
+        plan = LearningPlan(
+            id=uuid4(),
+            owner_id=principal.account_id,
+            idempotency_key=request_id,
+            request_digest=request_digest,
+            title=publication.title,
+            rule_version=f"{practice_kind}-v1",
+            publication_id=publication.id,
+            max_hint_level=publication.max_hint_level,
+            parameters=parameters.model_dump(mode="json"),
+        )
+        await self._persist_training(
+            session,
+            plan,
+            tuple(
+                RecommendedProblem(
+                    problem_id=problem.problem_id,
+                    problem_version_id=problem.version_id,
+                    slug=problem.slug,
+                    title=problem.title,
+                    tags=problem.tags,
+                    difficulty=problem.difficulty,
+                    metadata_revision=problem.metadata_revision or None,
+                    previously_accepted=False,
+                    reasons=(),
+                    evidence=(),
+                )
+                for problem in (current[version] for version in versions)
+            ),
+        )
+        return await self._detail(session, principal, plan.id)
 
     async def page(self, principal):
         async with self.sessions() as session:

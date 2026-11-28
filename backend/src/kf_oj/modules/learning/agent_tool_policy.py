@@ -5,14 +5,42 @@ from datetime import timedelta
 from typing import Protocol
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, or_, select, text, update
+from sqlalchemy import case, func, or_, select, text, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from kf_oj.contracts.agent_runtime import RunState
 from kf_oj.modules.identity.public import ActiveSessionPort, AuthenticationFailed, Principal
 from kf_oj.modules.learning.agent_models import AgentRunRow, AgentSessionRow, AgentTaskRow
-from kf_oj.modules.learning.agent_tool_models import AgentToolAttemptRow
+from kf_oj.modules.learning.agent_tool_models import AgentToolAttemptRow, ReviewEvaluationBudgetRow
 from kf_oj.runtime.tools import AgentToolGrant, Tool, ToolBudgetExceeded, ToolContext, ToolDenied
+
+REVIEW_EVALUATION_READS_PER_WINDOW = 6
+
+
+async def reserve_review_evaluation_read(
+    db: AsyncSession, owner_id: UUID, problem_version_id: UUID
+) -> bool:
+    budget = ReviewEvaluationBudgetRow
+    now = func.statement_timestamp()
+    reset = budget.window_started_at <= now - timedelta(hours=1)
+    # Unique scope and the row locked by the upsert apply the budget across workers.
+    charged = await db.scalar(
+        insert(budget)
+        .values(
+            owner_id=owner_id, problem_version_id=problem_version_id, window_started_at=now, reads=1
+        )
+        .on_conflict_do_update(
+            index_elements=[budget.owner_id, budget.problem_version_id],
+            set_={
+                "window_started_at": case((reset, now), else_=budget.window_started_at),
+                "reads": case((reset, 1), else_=budget.reads + 1),
+            },
+            where=or_(reset, budget.reads < REVIEW_EVALUATION_READS_PER_WINDOW),
+        )
+        .returning(budget.reads)
+    )
+    return charged is not None
 
 
 class AgentToolGrants(Protocol):

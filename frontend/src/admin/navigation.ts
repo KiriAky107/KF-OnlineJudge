@@ -4,6 +4,7 @@ export const adminSections = [
   { id: 'problem-difficulties', title: '难度档位', icon: 'rankings' },
   { id: 'skill-reviews', title: '技能审核', icon: 'trainings' },
   { id: 'skill-reports', title: '技能举报', icon: 'trainings' },
+  { id: 'learning-observations', title: '学习观察', icon: 'rankings' },
   { id: 'contests', title: '比赛管理', icon: 'contests' },
   { id: 'users', title: '用户管理', icon: 'teams' },
   { id: 'judges', title: '判题节点', icon: 'connection' },

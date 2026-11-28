@@ -147,6 +147,49 @@ fn diagnostic_compilation_requires_opt_in_and_exact_pinned_gnu_command() {
 }
 
 #[test]
+fn ubsan_requires_its_own_opt_in_and_closed_gnu_command() {
+    let mut config = registry();
+    config.allow_ubsan_compilation = true;
+    assert!(config.clone().validate().is_err());
+    let gnu = RuntimeIdentity {
+        toolchain_id: "gnu-cxx-v1".to_owned().try_into().unwrap(),
+        image_kind: ContractKind::GnuCxx,
+        image_revision: 1,
+        image_digest: "e".repeat(64).try_into().unwrap(),
+        runtime_version: "16.2.1+r23".to_owned().try_into().unwrap(),
+    };
+    config.runtime_identity = Some(gnu.clone());
+    let enabled = config.clone().validate().unwrap();
+    config.allow_ubsan_compilation = false;
+    config.allow_diagnostic_compilation = true;
+    let optimization_only = config.validate().unwrap();
+    for profile in [
+        ExecutionProfile::CompileCUbsan,
+        ExecutionProfile::CompileCppUbsan,
+    ] {
+        let mut spec: ExecutionSpec =
+            serde_json::from_str(include_str!("fixtures/spec.valid.json")).unwrap();
+        let (command, source) = profiles::gnu_compile_command(profile).unwrap();
+        assert_eq!(
+            &command[4..6],
+            &["-fsanitize=undefined", "-fno-sanitize-recover=undefined"]
+        );
+        spec.profile = profile;
+        spec.runtime_identity = Some(gnu.clone());
+        spec.argv = command.into_iter().map(String::from).collect();
+        spec.inputs[0].path = source.into();
+        spec.outputs = vec!["main".into()];
+        spec.env.clear();
+        spec.stdin_artifact = None;
+        assert!(spec.clone().validate_for_factory_client().is_ok());
+        assert!(optimization_only.for_request(&spec).is_err());
+        assert!(enabled.for_request(&spec).is_ok());
+        spec.argv[5] = "-fsanitize-recover=undefined".into();
+        assert!(spec.validate_for_factory_client().is_err());
+    }
+}
+
+#[test]
 fn registry_cannot_grant_unregistered_identity_profile_or_wider_stage_budget() {
     let mut c = registry();
     c.runtime_images[0].per_task_ceiling.memory_bytes = 64 << 20;

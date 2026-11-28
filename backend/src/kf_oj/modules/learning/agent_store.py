@@ -38,6 +38,7 @@ from kf_oj.modules.learning.agent_model_budget import (
     AgentModelLimits,
     finish_model_attempt,
     reserve_model_attempt,
+    reserve_model_continuation,
 )
 from kf_oj.modules.learning.agent_models import (
     AgentCheckpointRow,
@@ -255,6 +256,10 @@ class PostgresAgentStorage:
         workflow_input: StoredAgentLearningInput | None = None,
         receipt: AcceptedSession | None = None,
         source_excerpt: bytes | None = None,
+        freeze_workflow: (
+            Callable[[AsyncSession, StoredAgentLearningInput], Awaitable[StoredAgentLearningInput]]
+            | None
+        ) = None,
     ) -> AgentRun:
         if (workflow_input is None) != (receipt is None):
             raise ValueError("a queued learning workflow requires a session receipt")
@@ -297,6 +302,8 @@ class PostgresAgentStorage:
                     raise AgentRecordConflict("Agent request already has different inputs")
             elif workflow_input is not None:
                 assert receipt is not None
+                if freeze_workflow is not None:
+                    workflow_input = await freeze_workflow(db, workflow_input)
                 await db.execute(
                     insert(AgentWorkflowRow).values(
                         run_id=row.id, input=workflow_input.model_dump(mode="json")
@@ -582,6 +589,8 @@ class PostgresAgentStorage:
                 raise AgentRecordUnavailable("conversation cursor unavailable")
             owned = owned.where(tuple_(*position) < tuple_(*cursor))
         training = AgentWorkflowRow.input["training_set"]
+        model_hint = AgentWorkflowRow.result["model_hint"]
+        reasoning_kind = model_hint["reasoning_kind"].as_string()
         query = (
             owned.join(AgentWorkflowRow, AgentWorkflowRow.run_id == AgentRunRow.id)
             .outerjoin(AgentPlanLinkRow, AgentPlanLinkRow.run_id == AgentRunRow.id)
@@ -592,8 +601,11 @@ class PostgresAgentStorage:
                 AgentRunRow.state,
                 AgentRunRow.created_at,
                 _conversation_question().label("question"),
-                AgentWorkflowRow.result["model_hint"]["text"].as_string().label("answer"),
-                AgentWorkflowRow.result["model_hint"]["reasoning"].as_string().label("reasoning"),
+                model_hint["text"].as_string().label("answer"),
+                case((reasoning_kind == "text", model_hint["reasoning"].as_string())).label(
+                    "reasoning"
+                ),
+                case((reasoning_kind == "text", reasoning_kind)).label("reasoning_kind"),
                 training.label("training_request"),
                 AgentPlanLinkRow.plan_id.label("training_id"),
             )
@@ -708,11 +720,18 @@ class PostgresAgentStorage:
                 AgentWorkflowRow,
                 AgentFeedbackRow,
                 AgentPartialAnswerRow.text,
-                AgentPartialAnswerRow.reasoning,
+                case(
+                    (AgentPartialAnswerRow.reasoning_is_original, AgentPartialAnswerRow.reasoning)
+                ),
+                or_(
+                    AgentTaskRow.run_id.is_(None),
+                    AgentTaskRow.lease_expires_at > func.clock_timestamp(),
+                ),
             )
             .join(AgentWorkflowRow, AgentWorkflowRow.run_id == AgentRunRow.id)
             .outerjoin(AgentFeedbackRow, AgentFeedbackRow.run_id == AgentRunRow.id)
             .outerjoin(AgentPartialAnswerRow, AgentPartialAnswerRow.run_id == AgentRunRow.id)
+            .outerjoin(AgentTaskRow, AgentTaskRow.run_id == AgentRunRow.id)
             .where(AgentRunRow.id == run_id)
         )
         if lock:
@@ -720,17 +739,23 @@ class PostgresAgentStorage:
         found = (await db.execute(query)).one_or_none()
         if found is None:
             raise AgentRecordUnavailable("Agent workflow unavailable")
-        run, workflow, feedback, partial, partial_reasoning = found
+        run, workflow, feedback, partial, partial_reasoning, lease_current = found
         body = (
             StoredAgentLearningInput.model_validate(workflow.input)
             if workflow.input.get("chat") is not None
             else None
         )
         show_preview = (
-            body is not None
-            and body.chat is not None
-            and body.chat.bounded_hint_level() is None
-            and run.state == RunState.RUNNING
+            run.state == RunState.RUNNING
+            and lease_current
+            and (
+                (
+                    body is not None
+                    and body.chat is not None
+                    and body.chat.bounded_hint_level() is None
+                )
+                or workflow.input.get("review_question") is not None
+            )
         )
         return AgentExecution(
             run=_run_record(run),
@@ -822,16 +847,20 @@ class PostgresAgentStorage:
         *,
         verify: Callable[[AsyncSession], Awaitable[None]] | None = None,
     ) -> None:
-        column = "text" if channel == "answer" else "reasoning"
+        values = (
+            {"text": text}
+            if channel == "answer"
+            else {"reasoning": text, "reasoning_is_original": True}
+        )
         async with self._sessions.begin() as db:
             if verify is not None:
                 await verify(db)
-            await self._lock_run(db, running.run_id, running.revision)
-            preview = insert(AgentPartialAnswerRow).values(run_id=running.run_id, **{column: text})
+            await self.require_running(db, running)
+            preview = insert(AgentPartialAnswerRow).values(run_id=running.run_id, **values)
             await db.execute(
                 preview.on_conflict_do_update(
                     index_elements=[AgentPartialAnswerRow.run_id],
-                    set_={column: text},
+                    set_=values,
                 )
             )
 
@@ -857,6 +886,12 @@ class PostgresAgentStorage:
                 if task.lease_expires_at is None or task.lease_expires_at <= now:
                     raise AgentRecordConflict("Agent learning lease expired")
 
+        return row
+
+    async def require_running(self, db: AsyncSession, running: AgentRun) -> AgentRunRow:
+        row = await self._lock_run(db, running.run_id, running.revision)
+        if row.state != RunState.RUNNING:
+            raise AgentRecordConflict("Agent run is no longer active")
         return row
 
     async def transition(self, run_id: UUID, revision: int, following: RunState) -> AgentRun:
@@ -931,13 +966,11 @@ class PostgresAgentStorage:
         *,
         request_seconds: int = MODEL_REQUEST_SECONDS,
         previous_invocations: tuple[str, ...] = (),
-        discarded_invocation: str | None = None,
+        discarded_invocations: tuple[str, ...] = (),
     ) -> tuple[AgentStep | None, bool, dict | None]:
         """Resolve an existing model step before admitting any new request."""
-        run = await self._lock_run(db, running.run_id, running.revision)
-        if run.state != RunState.RUNNING:
-            raise AgentRecordConflict("only a running Agent run can call a model")
         await verify(db)
+        run = await self.require_running(db, running)
         existing = (
             await db.execute(
                 select(AgentStepRow, AgentCheckpointRow.output)
@@ -947,7 +980,7 @@ class PostgresAgentStorage:
         ).one_or_none()
         if existing is not None:
             step, output = existing
-            if step.invocation_version == discarded_invocation:
+            if step.invocation_version in discarded_invocations:
                 return _step_record(step), False, None
             if (
                 step.invocation_version not in (invocation, *previous_invocations)
@@ -976,6 +1009,18 @@ class PostgresAgentStorage:
             AgentStepRow(id=step.step_id, **step.model_dump(exclude={"schema_version", "step_id"}))
         )
         return step, True, None
+
+    async def begin_model_continuation(
+        self,
+        running: AgentRun,
+        limits: AgentModelLimits,
+        verify: Callable[[AsyncSession], Awaitable[None]],
+    ) -> bool:
+        async with self._sessions.begin() as db:
+            # Model continuations use the same account-before-run lock order as previews.
+            await verify(db)
+            run = await self.require_running(db, running)
+            return await reserve_model_continuation(db, run.id, self._owner_id, limits)
 
     async def take_source_excerpt(self, db: AsyncSession, running: AgentRun) -> bytes | None:
         return await db.scalar(

@@ -5,7 +5,8 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, StrictBool, StringConstraints, model_validator
 
-from kf_oj.contracts.judging import Counter, Identifier, Measurement, Verdict, WireModel
+from kf_oj.contracts.diagnostic_batch import BatchDiagnosticOutcome, BatchPurpose
+from kf_oj.contracts.judging import Counter, Identifier, Measurement, Verdict, Version, WireModel
 from kf_oj.contracts.judging_v2 import Language
 from kf_oj.contracts.submission_evidence import (
     MAX_SOURCE_EXCERPT_BYTES,
@@ -17,7 +18,14 @@ from kf_oj.contracts.submission_evidence import (
 
 MODEL_REQUEST_SECONDS = 15
 CHAT_MODEL_REQUEST_SECONDS = 120
+REVIEW_MODEL_REQUEST_SECONDS = CHAT_MODEL_REQUEST_SECONDS
+DEFAULT_MODEL_CONTEXT_BYTES = 48 * 1024
+MIN_MODEL_CONTEXT_BYTES = 8 * 1024
+MAX_MODEL_CONTEXT_BYTES = 256 * 1024
 ModelTopic = Literal["binary_search", "graph_traversal", "dynamic_programming"]
+ReviewResourceName = Literal[
+    "problem", "evaluations", "code", "batch_diagnostics", "recent_practice"
+]
 
 
 ModelStatus = Literal[
@@ -25,6 +33,7 @@ ModelStatus = Literal[
     "unavailable",
     "uncertain",
     "budget_exhausted",
+    "context_limit",
     "output_limit",
     "insufficient_evidence",
     "source_model_unavailable",
@@ -41,13 +50,10 @@ ModelReviewBasis = Literal[
 ReviewFocusCategory = Literal["wrong_answer", "compilation_error", "later_accepted"]
 ModelOutputChannel = Literal["answer", "reasoning"]
 ModelOutput = Callable[[ModelOutputChannel, str], Awaitable[None]]
-MAX_MODEL_HINT_CHARS = 6000
 PartialChatAnswer = Annotated[str, StringConstraints(min_length=1)]
 ChatReasoning = Annotated[str, StringConstraints(min_length=1)]
+ModelReasoningKind = Literal["text"]
 ModelAnswer = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-ModelHintText = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_MODEL_HINT_CHARS)
-]
 LearningQuestion = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=1200, pattern=r"^[^\x00]+$"),
@@ -83,6 +89,11 @@ class ReviewCodeFacts(WireModel):
     )
 
 
+class ReviewBatchOutcome(WireModel):
+    purpose: BatchPurpose
+    outcome: BatchDiagnosticOutcome
+
+
 class ReviewModelFacts(WireModel):
     question: LearningQuestion | None = Field(default=None, exclude_if=lambda value: value is None)
     finished: Annotated[int, Field(strict=True, ge=1, le=50)]
@@ -99,6 +110,19 @@ class ReviewModelFacts(WireModel):
     focus_options: Annotated[tuple[ReviewFocusCategory, ...], Field(max_length=3)] = Field(
         default=(), exclude_if=lambda value: not value
     )
+    batch_diagnostics: Annotated[tuple[ReviewBatchOutcome, ...], Field(max_length=8)] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
+
+
+ReviewEvaluationCategory = Literal[
+    "accepted", "compilation_error", "wrong_answer", "runtime_error", "resource_limit"
+]
+
+
+class ReviewEvaluationSummary(WireModel):
+    schema_version: Version = 1
+    category: ReviewEvaluationCategory | None
 
 
 PlanExerciseCount = Annotated[int, Field(strict=True, ge=0, le=7)]
@@ -134,6 +158,9 @@ class LearningChatRequest(WireModel):
     previous_run_id: Identifier | None = None
     training_id: Identifier | None = Field(default=None, exclude_if=lambda value: value is None)
     include_submission_details: StrictBool = False
+    practice_tool_only: StrictBool = Field(
+        default_factory=lambda: False, exclude_if=lambda value: not value
+    )
     hint_level: ProgressiveHintLevel | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -151,7 +178,7 @@ class LearningHintCeiling(WireModel):
 
 class LearningChatTurn(WireModel):
     question: LearningQuestion
-    answer: ModelHintText
+    answer: ModelAnswer
 
 
 LearningChatHistory = Annotated[tuple[LearningChatTurn, ...], Field(max_length=CHAT_HISTORY_LIMIT)]
@@ -180,13 +207,8 @@ class SourceExcerptModelFacts(SourceExcerptModelContext):
 
 
 class ChatSubmissionDetails(WireModel):
-    verdict: Verdict | None
     language: Language
-    compilation_status: str | None
-    cpu_time_us: Measurement | None
-    memory_peak_bytes: Measurement | None
-    accepted_cases: Measurement | None
-    executed_cases: Measurement | None
+    evaluation: ReviewEvaluationSummary
 
 
 class GuidedChatModelFacts(WireModel):
@@ -236,6 +258,8 @@ ModelFailureCode = Literal[
     "model_rate_limited",
     "model_provider_rejected",
     "model_invalid_response",
+    "model_budget_exhausted",
+    "model_context_limit",
     "model_output_limit",
 ]
 
@@ -262,7 +286,7 @@ class ModelTokenUsage(WireModel):
 
 
 class ReviewFocusSelection(WireModel):
-    text: ModelHintText
+    text: ModelAnswer
     focus: ReviewFocusCategory | None
 
 
@@ -271,13 +295,17 @@ class ReviewComparisonSelection(ReviewFocusSelection):
 
 
 class SourceExcerptReview(WireModel):
-    text: ModelHintText
+    text: ModelAnswer
     line: Counter
 
 
 class ModelHint(WireModel):
     text: ModelAnswer
     reasoning: ChatReasoning | None = Field(default=None, exclude_if=lambda value: value is None)
+    reasoning_kind: ModelReasoningKind | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
     model: Annotated[str, Field(min_length=1, max_length=96, pattern=r"^[A-Za-z0-9_.:-]+$")]
     response_id: Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.:-]+$")]
     latency_ms: Measurement
@@ -289,3 +317,13 @@ class ModelHint(WireModel):
         default=None, exclude_if=lambda value: value is None
     )
     source_line: Counter | None = Field(default=None, exclude_if=lambda value: value is None)
+    review_resources: Annotated[tuple[ReviewResourceName, ...], Field(max_length=4)] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def original_reasoning_only(cls, value: object) -> object:
+        if isinstance(value, dict) and value.get("reasoning_kind") != "text":
+            return {**value, "reasoning": None, "reasoning_kind": None}
+        return value

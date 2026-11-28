@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { components } from '../api/generated/schema'
+import LearningModelReasoning from './LearningModelReasoning.vue'
 import StatementMarkdown from './StatementMarkdown.vue'
 
 type Hint = components['schemas']['ModelHint']
@@ -14,7 +15,7 @@ withDefaults(
 const labels = {
   concept: { title: '模型提示', fallback: '规则提示', insufficient: '缺少可用的提示依据。' },
   review: {
-    title: '模型建议 · 待核对',
+    title: '模型回复',
     fallback: '规则复盘',
     insufficient: '当前没有足够的评测记录生成模型建议。',
   },
@@ -34,6 +35,11 @@ const labels = {
 <template>
   <section v-if="hint" :aria-label="labels[context].title" class="model-hint">
     <h4>{{ labels[context].title }}</h4>
+    <LearningModelReasoning
+      v-if="hint.reasoning"
+      :text="hint.reasoning"
+      :kind="hint.reasoning_kind"
+    />
     <StatementMarkdown v-if="markdown" :source="hint.text" :links="false" highlight-code />
     <p v-else>{{ hint.text }}</p>
     <p class="small muted">
@@ -54,6 +60,12 @@ const labels = {
   </p>
   <p v-else-if="status === 'budget_exhausted'" class="small muted">
     本次模型调用额度已满，已保留{{ labels[context].fallback }}。
+  </p>
+  <p v-else-if="status === 'context_limit'" class="small muted">
+    本次问题和必要证据超出上下文预算，已保留{{ labels[context].fallback }}。
+  </p>
+  <p v-else-if="status === 'output_limit'" class="small muted">
+    模型服务达到自身的输出上限，已保留{{ labels[context].fallback }}。
   </p>
   <p v-else-if="status === 'uncertain'" class="small muted">
     上次模型响应未能确认，已保留{{ labels[context].fallback }}。

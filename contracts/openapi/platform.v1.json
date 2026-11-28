@@ -110,6 +110,18 @@
             ],
             "title": "Reasoning"
           },
+          "reasoning_kind": {
+            "anyOf": [
+              {
+                "const": "text",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Kind"
+          },
           "run_id": {
             "format": "uuid",
             "title": "Run Id",
@@ -637,6 +649,155 @@
           "bytes"
         ],
         "title": "ArtifactReference",
+        "type": "object"
+      },
+      "BatchDiagnosticOption": {
+        "additionalProperties": false,
+        "properties": {
+          "manifest_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Sha256",
+            "type": "string"
+          },
+          "purpose": {
+            "enum": [
+              "differential",
+              "boundary"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest_sha256",
+          "title",
+          "purpose"
+        ],
+        "title": "BatchDiagnosticOption",
+        "type": "object"
+      },
+      "BatchDiagnosticOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDiagnosticOption"
+            },
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "options"
+        ],
+        "title": "BatchDiagnosticOptions",
+        "type": "object"
+      },
+      "BatchDiagnosticSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "outcome": {
+            "enum": [
+              "reference_pending",
+              "input_not_verified",
+              "reduction_verified",
+              "reduction_unverified",
+              "accepted",
+              "completed",
+              "compilation_error",
+              "wrong_answer",
+              "runtime_error",
+              "resource_limit"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "purpose": {
+            "enum": [
+              "differential",
+              "boundary"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "submission_id",
+          "problem_version_id",
+          "purpose",
+          "outcome"
+        ],
+        "title": "BatchDiagnosticSummary",
+        "type": "object"
+      },
+      "BatchDiagnosticView": {
+        "additionalProperties": false,
+        "properties": {
+          "queue_deadline": {
+            "format": "date-time",
+            "title": "Queue Deadline",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "running",
+              "cancel_pending",
+              "cancelled",
+              "expired",
+              "unavailable",
+              "observed",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatchDiagnosticSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "request_id",
+          "state",
+          "queue_deadline"
+        ],
+        "title": "BatchDiagnosticView",
         "type": "object"
       },
       "CancellationAccepted": {
@@ -1269,6 +1430,145 @@
         "title": "ConfigureSkill",
         "type": "object"
       },
+      "ConfirmBatchDiagnostic": {
+        "additionalProperties": false,
+        "properties": {
+          "manifest_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Sha256",
+            "type": "string"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "review_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Run Id"
+          },
+          "source_execution_confirmed": {
+            "const": true,
+            "title": "Source Execution Confirmed",
+            "type": "boolean"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "problem_version_id",
+          "manifest_sha256",
+          "source_execution_confirmed"
+        ],
+        "title": "ConfirmBatchDiagnostic",
+        "type": "object"
+      },
+      "ConfirmPersonalMistake": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmed": {
+            "const": true,
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "note": {
+            "maxLength": 600,
+            "pattern": "^[^\\x00]*$",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note",
+          "confirmed"
+        ],
+        "title": "ConfirmPersonalMistake",
+        "type": "object"
+      },
+      "ConfirmPublicSampleDiagnostic": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "optimization",
+            "enum": [
+              "optimization",
+              "ubsan"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "review_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Run Id"
+          },
+          "sample_ordinal": {
+            "maximum": 65535.0,
+            "minimum": 0.0,
+            "title": "Sample Ordinal",
+            "type": "integer"
+          },
+          "source_execution_confirmed": {
+            "const": true,
+            "title": "Source Execution Confirmed",
+            "type": "boolean"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "problem_version_id",
+          "sample_ordinal",
+          "source_execution_confirmed"
+        ],
+        "title": "ConfirmPublicSampleDiagnostic",
+        "type": "object"
+      },
+      "ConfirmTrainingPublication": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmed": {
+            "const": true,
+            "title": "Confirmed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirmed"
+        ],
+        "title": "ConfirmTrainingPublication",
+        "type": "object"
+      },
       "ContestAgentAccess": {
         "additionalProperties": false,
         "properties": {
@@ -1591,6 +1891,18 @@
       "CreateSelfTest": {
         "additionalProperties": false,
         "properties": {
+          "diagnostic_request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic Request Id"
+          },
           "idempotency_key": {
             "format": "uuid",
             "title": "Idempotency Key",
@@ -1603,6 +1915,19 @@
             "format": "uuid",
             "title": "Problem Version Id",
             "type": "string"
+          },
+          "public_sample_ordinal": {
+            "anyOf": [
+              {
+                "maximum": 65535.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Sample Ordinal"
           },
           "source": {
             "maxLength": 262144,
@@ -1709,6 +2034,35 @@
           "source"
         ],
         "title": "CreateSubmission",
+        "type": "object"
+      },
+      "CreateTeam": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "format": "uuid",
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 30,
+            "minLength": 2,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "name",
+          "description"
+        ],
+        "title": "CreateTeam",
         "type": "object"
       },
       "CreateTraining": {
@@ -1862,6 +2216,171 @@
           "username"
         ],
         "title": "CurrentUser",
+        "type": "object"
+      },
+      "DiagnosticMistakeEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "finding": {
+            "$ref": "#/components/schemas/UbsanFinding"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "sample_ordinal": {
+            "maximum": 65535.0,
+            "minimum": 0.0,
+            "title": "Sample Ordinal",
+            "type": "integer"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "submission_id",
+          "problem_version_id",
+          "sample_ordinal",
+          "finding"
+        ],
+        "title": "DiagnosticMistakeEvidence",
+        "type": "object"
+      },
+      "DiagnosticObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "o0": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Verdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "o2": {
+            "$ref": "#/components/schemas/Verdict"
+          }
+        },
+        "required": [
+          "o2",
+          "o0"
+        ],
+        "title": "DiagnosticObservation",
+        "type": "object"
+      },
+      "DiagnosticObservationCount": {
+        "additionalProperties": false,
+        "properties": {
+          "eligible_count": {
+            "title": "Eligible Count",
+            "type": "integer"
+          },
+          "finding_count": {
+            "title": "Finding Count",
+            "type": "integer"
+          },
+          "max_sandbox_budget_us": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Sandbox Budget Us"
+          },
+          "mean_claim_to_finish_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Claim To Finish Ms"
+          },
+          "method": {
+            "enum": [
+              "optimization",
+              "ubsan",
+              "differential",
+              "boundary"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "observed_count": {
+            "title": "Observed Count",
+            "type": "integer"
+          },
+          "untracked_count": {
+            "title": "Untracked Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "method",
+          "observed_count",
+          "untracked_count",
+          "eligible_count",
+          "finding_count",
+          "mean_claim_to_finish_ms",
+          "max_sandbox_budget_us"
+        ],
+        "title": "DiagnosticObservationCount",
+        "type": "object"
+      },
+      "DiagnosticObservations": {
+        "additionalProperties": false,
+        "properties": {
+          "cohort": {
+            "enum": [
+              "all",
+              "linked_review",
+              "unlinked"
+            ],
+            "title": "Cohort",
+            "type": "string"
+          },
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticObservationCount"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_at",
+          "end_at",
+          "cohort",
+          "items"
+        ],
+        "title": "DiagnosticObservations",
         "type": "object"
       },
       "DifficultyKey": {
@@ -2045,6 +2564,7 @@
                   "unavailable",
                   "uncertain",
                   "budget_exhausted",
+                  "context_limit",
                   "output_limit",
                   "insufficient_evidence",
                   "source_model_unavailable"
@@ -2234,6 +2754,7 @@
                   "unavailable",
                   "uncertain",
                   "budget_exhausted",
+                  "context_limit",
                   "output_limit",
                   "insufficient_evidence",
                   "source_model_unavailable"
@@ -2465,6 +2986,10 @@
             "title": "Include Submission Details",
             "type": "boolean"
           },
+          "practice_tool_only": {
+            "title": "Practice Tool Only",
+            "type": "boolean"
+          },
           "previous_run_id": {
             "anyOf": [
               {
@@ -2519,7 +3044,6 @@
         "additionalProperties": false,
         "properties": {
           "answer": {
-            "maxLength": 6000,
             "minLength": 1,
             "title": "Answer",
             "type": "string"
@@ -3059,7 +3583,7 @@
           "password": {
             "format": "password",
             "maxLength": 128,
-            "minLength": 12,
+            "minLength": 8,
             "title": "Password",
             "type": "string",
             "writeOnly": true
@@ -3499,6 +4023,191 @@
         "title": "MaintenanceReceipt",
         "type": "object"
       },
+      "MistakePractice": {
+        "additionalProperties": false,
+        "properties": {
+          "available_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 5.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Minutes"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/DiagnosticMistakeEvidence"
+          },
+          "focus": {
+            "title": "Focus",
+            "type": "string"
+          },
+          "gaps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MistakePracticeItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "review_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Minutes"
+          },
+          "source_available": {
+            "title": "Source Available",
+            "type": "boolean"
+          },
+          "source_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Title"
+          },
+          "verification_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Minutes"
+          }
+        },
+        "required": [
+          "evidence",
+          "source_title",
+          "source_available",
+          "focus",
+          "items",
+          "gaps"
+        ],
+        "title": "MistakePractice",
+        "type": "object"
+      },
+      "MistakePracticeItem": {
+        "additionalProperties": false,
+        "properties": {
+          "estimated_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Minutes"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "shared_tags": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": "Shared Tags",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "problem_version_id",
+          "title",
+          "shared_tags"
+        ],
+        "title": "MistakePracticeItem",
+        "type": "object"
+      },
+      "MistakePracticeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "available_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 5.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Minutes"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "skill_version_id": {
+            "format": "uuid",
+            "title": "Skill Version Id",
+            "type": "string"
+          },
+          "submission_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submission Id"
+          }
+        },
+        "required": [
+          "skill_version_id"
+        ],
+        "title": "MistakePracticeRequest",
+        "type": "object"
+      },
       "ModelHint": {
         "additionalProperties": false,
         "properties": {
@@ -3526,6 +4235,18 @@
               }
             ],
             "title": "Reasoning"
+          },
+          "reasoning_kind": {
+            "anyOf": [
+              {
+                "const": "text",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Kind"
           },
           "response_id": {
             "maxLength": 128,
@@ -3565,6 +4286,28 @@
               }
             ],
             "title": "Review Focus"
+          },
+          "review_resources": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "problem",
+                    "evaluations",
+                    "code",
+                    "batch_diagnostics",
+                    "recent_practice"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Resources"
           },
           "source_line": {
             "anyOf": [
@@ -3899,6 +4642,7 @@
                   "unavailable",
                   "uncertain",
                   "budget_exhausted",
+                  "context_limit",
                   "output_limit",
                   "insufficient_evidence",
                   "source_model_unavailable"
@@ -4005,6 +4749,177 @@
           "sessions_per_week"
         ],
         "title": "PeriodicReviewSchedule",
+        "type": "object"
+      },
+      "PersonalMistake": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "finding": {
+            "$ref": "#/components/schemas/UbsanFinding"
+          },
+          "note": {
+            "maxLength": 600,
+            "pattern": "^[^\\x00]*$",
+            "title": "Note",
+            "type": "string"
+          },
+          "problem_version_id": {
+            "format": "uuid",
+            "title": "Problem Version Id",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "sample_ordinal": {
+            "maximum": 65535.0,
+            "minimum": 0.0,
+            "title": "Sample Ordinal",
+            "type": "integer"
+          },
+          "submission_id": {
+            "format": "uuid",
+            "title": "Submission Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note",
+          "request_id",
+          "submission_id",
+          "problem_version_id",
+          "sample_ordinal",
+          "finding",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PersonalMistake",
+        "type": "object"
+      },
+      "PersonalMistakePage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalMistake"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before"
+          }
+        },
+        "required": [
+          "items",
+          "next_before"
+        ],
+        "title": "PersonalMistakePage",
+        "type": "object"
+      },
+      "PracticeAcceptanceCount": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_count": {
+            "title": "Accepted Count",
+            "type": "integer"
+          },
+          "attempted_count": {
+            "title": "Attempted Count",
+            "type": "integer"
+          },
+          "cohort": {
+            "enum": [
+              "direct",
+              "assistant_saved",
+              "shared"
+            ],
+            "title": "Cohort",
+            "type": "string"
+          },
+          "exercise_count": {
+            "title": "Exercise Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cohort",
+          "exercise_count",
+          "attempted_count",
+          "accepted_count"
+        ],
+        "title": "PracticeAcceptanceCount",
+        "type": "object"
+      },
+      "PracticeObservations": {
+        "additionalProperties": false,
+        "properties": {
+          "drafts": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingDraftCount"
+            },
+            "title": "Drafts",
+            "type": "array"
+          },
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "follow_up_days": {
+            "title": "Follow Up Days",
+            "type": "integer"
+          },
+          "practice": {
+            "items": {
+              "$ref": "#/components/schemas/PracticeAcceptanceCount"
+            },
+            "title": "Practice",
+            "type": "array"
+          },
+          "self_tests": {
+            "items": {
+              "$ref": "#/components/schemas/SelfTestComparisonCount"
+            },
+            "title": "Self Tests",
+            "type": "array"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_at",
+          "end_at",
+          "follow_up_days",
+          "drafts",
+          "practice",
+          "self_tests"
+        ],
+        "title": "PracticeObservations",
         "type": "object"
       },
       "PreparationKind": {
@@ -4864,6 +5779,102 @@
         "title": "PublicCaseResult",
         "type": "object"
       },
+      "PublicDiagnosticAvailability": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "registered_batches": {
+            "default": false,
+            "title": "Registered Batches",
+            "type": "boolean"
+          },
+          "ubsan": {
+            "default": false,
+            "title": "Ubsan",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "available"
+        ],
+        "title": "PublicDiagnosticAvailability",
+        "type": "object"
+      },
+      "PublicDiagnosticView": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "enum": [
+              "optimization",
+              "ubsan"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "observation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiagnosticObservation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "queue_deadline": {
+            "format": "date-time",
+            "title": "Queue Deadline",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "sample_ordinal": {
+            "maximum": 65535.0,
+            "minimum": 0.0,
+            "title": "Sample Ordinal",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "running",
+              "cancel_pending",
+              "cancelled",
+              "expired",
+              "unavailable",
+              "observed",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "ubsan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UbsanObservation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "request_id",
+          "state",
+          "queue_deadline",
+          "mode",
+          "sample_ordinal"
+        ],
+        "title": "PublicDiagnosticView",
+        "type": "object"
+      },
       "PublicJudgement": {
         "additionalProperties": false,
         "properties": {
@@ -5606,6 +6617,39 @@
         ],
         "title": "RunState",
         "type": "string"
+      },
+      "SelfTestComparisonCount": {
+        "additionalProperties": false,
+        "properties": {
+          "cohort": {
+            "enum": [
+              "direct_sample",
+              "diagnostic_sample"
+            ],
+            "title": "Cohort",
+            "type": "string"
+          },
+          "compared_count": {
+            "title": "Compared Count",
+            "type": "integer"
+          },
+          "completed_count": {
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "mismatch_count": {
+            "title": "Mismatch Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cohort",
+          "completed_count",
+          "compared_count",
+          "mismatch_count"
+        ],
+        "title": "SelfTestComparisonCount",
+        "type": "object"
       },
       "SelfTestDetail": {
         "additionalProperties": false,
@@ -6820,9 +7864,16 @@
             "title": "Review Question"
           },
           "skill_version_id": {
-            "format": "uuid",
-            "title": "Skill Version Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill Version Id"
           },
           "submission_id": {
             "anyOf": [
@@ -6848,8 +7899,7 @@
           }
         },
         "required": [
-          "request_id",
-          "skill_version_id"
+          "request_id"
         ],
         "title": "StartAgentRun",
         "type": "object"
@@ -7369,6 +8419,7 @@
                   "unavailable",
                   "uncertain",
                   "budget_exhausted",
+                  "context_limit",
                   "output_limit",
                   "insufficient_evidence",
                   "source_model_unavailable"
@@ -7648,6 +8699,206 @@
         "title": "TagStatistic",
         "type": "object"
       },
+      "TeamMemberView": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "captain",
+              "member",
+              "pending"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "username",
+          "role"
+        ],
+        "title": "TeamMemberView",
+        "type": "object"
+      },
+      "TeamMembersPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TeamMemberView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          }
+        },
+        "required": [
+          "items",
+          "next_offset"
+        ],
+        "title": "TeamMembersPage",
+        "type": "object"
+      },
+      "TeamMembershipView": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "captain",
+                  "member",
+                  "pending"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "title": "TeamMembershipView",
+        "type": "object"
+      },
+      "TeamPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TeamView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "TeamPage",
+        "type": "object"
+      },
+      "TeamTrainingReview": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TeamTrainingReviewItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "insufficient_data",
+              "ready"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "TeamTrainingReview",
+        "type": "object"
+      },
+      "TeamTrainingReviewItem": {
+        "additionalProperties": false,
+        "properties": {
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "topic": {
+            "enum": [
+              "correctness",
+              "resource_use",
+              "runtime",
+              "compilation",
+              "mixed"
+            ],
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position",
+          "title",
+          "topic"
+        ],
+        "title": "TeamTrainingReviewItem",
+        "type": "object"
+      },
+      "TeamView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "member_count": {
+            "title": "Member Count",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "member_count",
+          "created_at"
+        ],
+        "title": "TeamView",
+        "type": "object"
+      },
       "TestCase": {
         "additionalProperties": false,
         "properties": {
@@ -7748,6 +8999,18 @@
             "title": "Max Hint Level",
             "type": "string"
           },
+          "official_publication_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Official Publication Id"
+          },
           "parameters": {
             "$ref": "#/components/schemas/LearningParameters"
           },
@@ -7762,6 +9025,23 @@
               }
             ],
             "title": "Previous Plan Id"
+          },
+          "publication_max_hint_level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "L0",
+                  "L1",
+                  "L2",
+                  "L3"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Max Hint Level"
           },
           "rule_version": {
             "title": "Rule Version",
@@ -7808,6 +9088,34 @@
           "items"
         ],
         "title": "TrainingDetail",
+        "type": "object"
+      },
+      "TrainingDraftCount": {
+        "additionalProperties": false,
+        "properties": {
+          "draft_count": {
+            "title": "Draft Count",
+            "type": "integer"
+          },
+          "purpose": {
+            "enum": [
+              "focused_training",
+              "periodic_review"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "saved_count": {
+            "title": "Saved Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "purpose",
+          "draft_count",
+          "saved_count"
+        ],
+        "title": "TrainingDraftCount",
         "type": "object"
       },
       "TrainingExerciseReplacement": {
@@ -8177,6 +9485,162 @@
         "title": "TrainingPrerequisite",
         "type": "object"
       },
+      "TrainingPublicationDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_count": {
+            "title": "Item Count",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingPublicationItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "max_hint_level": {
+            "default": "L3",
+            "enum": [
+              "L0",
+              "L1",
+              "L2",
+              "L3"
+            ],
+            "title": "Max Hint Level",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "created_at",
+          "item_count",
+          "items"
+        ],
+        "title": "TrainingPublicationDetail",
+        "type": "object"
+      },
+      "TrainingPublicationItem": {
+        "additionalProperties": false,
+        "properties": {
+          "difficulty": {
+            "anyOf": [
+              {
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "problem_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Version Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "position"
+        ],
+        "title": "TrainingPublicationItem",
+        "type": "object"
+      },
+      "TrainingPublicationPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingPublicationSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "TrainingPublicationPage",
+        "type": "object"
+      },
+      "TrainingPublicationSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_count": {
+            "title": "Item Count",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "created_at",
+          "item_count"
+        ],
+        "title": "TrainingPublicationSummary",
+        "type": "object"
+      },
       "TrainingSearch": {
         "additionalProperties": false,
         "properties": {
@@ -8478,6 +9942,80 @@
         "title": "TrainingTiming",
         "type": "object"
       },
+      "UbsanFinding": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "enum": [
+              "signed_integer_overflow",
+              "division_by_zero",
+              "index_out_of_bounds",
+              "invalid_shift"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "column": {
+            "maximum": 262144.0,
+            "minimum": 1.0,
+            "title": "Column",
+            "type": "integer"
+          },
+          "line": {
+            "maximum": 262144.0,
+            "minimum": 1.0,
+            "title": "Line",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category",
+          "line",
+          "column"
+        ],
+        "title": "UbsanFinding",
+        "type": "object"
+      },
+      "UbsanObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "finding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UbsanFinding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/Verdict"
+          }
+        },
+        "required": [
+          "verdict",
+          "finding"
+        ],
+        "title": "UbsanObservation",
+        "type": "object"
+      },
+      "UpdatePersonalMistake": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "maxLength": 600,
+            "pattern": "^[^\\x00]*$",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "title": "UpdatePersonalMistake",
+        "type": "object"
+      },
       "UpdateRunFeedback": {
         "additionalProperties": false,
         "properties": {
@@ -8538,6 +10076,24 @@
           "document"
         ],
         "title": "UpdateSkillDraft",
+        "type": "object"
+      },
+      "UpdateTeamMember": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "approve",
+              "remove"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "UpdateTeamMember",
         "type": "object"
       },
       "UpdateTrainingFeedback": {
@@ -8748,6 +10304,111 @@
         "summary": "Settle",
         "tags": [
           "contest-ratings"
+        ]
+      }
+    },
+    "/api/v1/admin/learning/diagnostics": {
+      "get": {
+        "operationId": "diagnostic_observations_api_v1_admin_learning_diagnostics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cohort",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "linked_review",
+                "unlinked"
+              ],
+              "title": "Cohort",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticObservations"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Diagnostic Observations",
+        "tags": [
+          "admin-learning"
+        ]
+      }
+    },
+    "/api/v1/admin/learning/practice": {
+      "get": {
+        "operationId": "practice_observations_api_v1_admin_learning_practice_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PracticeObservations"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Practice Observations",
+        "tags": [
+          "admin-learning"
         ]
       }
     },
@@ -10539,6 +12200,393 @@
         ]
       }
     },
+    "/api/v1/learning/agent/diagnostic-batches/options": {
+      "get": {
+        "operationId": "diagnostic_batch_options_api_v1_learning_agent_diagnostic_batches_options_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Submission Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "problem_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Problem Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchDiagnosticOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Diagnostic Batch Options",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/diagnostic-batches/{request_id}": {
+      "get": {
+        "operationId": "diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchDiagnosticView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Diagnostic Batch",
+        "tags": [
+          "learning-agent"
+        ]
+      },
+      "put": {
+        "operationId": "confirm_diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmBatchDiagnostic"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchDiagnosticView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Diagnostic Batch",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/diagnostic-batches/{request_id}/cancel": {
+      "post": {
+        "operationId": "cancel_diagnostic_batch_api_v1_learning_agent_diagnostic_batches__request_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Diagnostic Batch",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/diagnostics/availability": {
+      "get": {
+        "operationId": "public_sample_diagnostic_availability_api_v1_learning_agent_diagnostics_availability_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicDiagnosticAvailability"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Public Sample Diagnostic Availability",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/diagnostics/{request_id}": {
+      "get": {
+        "operationId": "public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicDiagnosticView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Public Sample Diagnostic",
+        "tags": [
+          "learning-agent"
+        ]
+      },
+      "put": {
+        "operationId": "confirm_public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmPublicSampleDiagnostic"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicDiagnosticView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Public Sample Diagnostic",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/diagnostics/{request_id}/cancel": {
+      "post": {
+        "operationId": "cancel_public_sample_diagnostic_api_v1_learning_agent_diagnostics__request_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Public Sample Diagnostic",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/diagnostics/{request_id}/mistake": {
+      "put": {
+        "operationId": "confirm_personal_mistake_api_v1_learning_agent_diagnostics__request_id__mistake_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmPersonalMistake"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalMistake"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Personal Mistake",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
     "/api/v1/learning/agent/hint-ceiling": {
       "get": {
         "operationId": "hint_ceiling_api_v1_learning_agent_hint_ceiling_get",
@@ -10594,6 +12642,237 @@
           }
         },
         "summary": "Hint Ceiling",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/mistakes": {
+      "get": {
+        "operationId": "list_personal_mistakes_api_v1_learning_agent_mistakes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "maximum": 30,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalMistakePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Personal Mistakes",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/mistakes/practice": {
+      "post": {
+        "operationId": "practice_from_personal_mistake_api_v1_learning_agent_mistakes_practice_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MistakePracticeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MistakePractice"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Practice From Personal Mistake",
+        "tags": [
+          "learning-agent"
+        ]
+      }
+    },
+    "/api/v1/learning/agent/mistakes/{request_id}": {
+      "delete": {
+        "operationId": "withdraw_personal_mistake_api_v1_learning_agent_mistakes__request_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Withdraw Personal Mistake",
+        "tags": [
+          "learning-agent"
+        ]
+      },
+      "get": {
+        "operationId": "personal_mistake_api_v1_learning_agent_mistakes__request_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalMistake"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Personal Mistake",
+        "tags": [
+          "learning-agent"
+        ]
+      },
+      "patch": {
+        "operationId": "edit_personal_mistake_api_v1_learning_agent_mistakes__request_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePersonalMistake"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalMistake"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Edit Personal Mistake",
         "tags": [
           "learning-agent"
         ]
@@ -12156,6 +14435,113 @@
         ]
       }
     },
+    "/api/v1/official-trainings": {
+      "get": {
+        "operationId": "official_trainings_api_v1_official_trainings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingPublicationPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Official Trainings",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/official-trainings/{training_id}": {
+      "get": {
+        "operationId": "official_training_api_v1_official_trainings__training_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "training_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingPublicationDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Official Training",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/official-trainings/{training_id}/start": {
+      "post": {
+        "operationId": "start_official_training_api_v1_official_trainings__training_id__start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "training_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Official Training",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
     "/api/v1/problems": {
       "get": {
         "operationId": "list_problems_api_v1_problems_get",
@@ -12931,6 +15317,627 @@
         ]
       }
     },
+    "/api/v1/teams": {
+      "get": {
+        "operationId": "team_page_api_v1_teams_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 30,
+              "title": "Search",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Team Page",
+        "tags": [
+          "teams"
+        ]
+      },
+      "post": {
+        "operationId": "create_team_api_v1_teams_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTeam"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Team",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/teams/captained": {
+      "get": {
+        "operationId": "my_captained_teams_api_v1_teams_captained_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 30,
+              "title": "Search",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My Captained Teams",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/teams/{team_id}": {
+      "get": {
+        "operationId": "team_profile_api_v1_teams__team_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Team Profile",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/teams/{team_id}/members": {
+      "get": {
+        "operationId": "team_members_api_v1_teams__team_id__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "enum": [
+                "member",
+                "pending"
+              ],
+              "title": "Role",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMembersPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Team Members",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/teams/{team_id}/members/{account_id}": {
+      "put": {
+        "operationId": "manage_team_member_api_v1_teams__team_id__members__account_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTeamMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMembershipView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Manage Team Member",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/teams/{team_id}/membership": {
+      "delete": {
+        "operationId": "leave_team_api_v1_teams__team_id__membership_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Leave Team",
+        "tags": [
+          "teams"
+        ]
+      },
+      "get": {
+        "operationId": "my_team_membership_api_v1_teams__team_id__membership_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMembershipView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My Team Membership",
+        "tags": [
+          "teams"
+        ]
+      },
+      "put": {
+        "operationId": "request_team_membership_api_v1_teams__team_id__membership_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMembershipView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Team Membership",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/teams/{team_id}/trainings": {
+      "get": {
+        "operationId": "team_trainings_api_v1_teams__team_id__trainings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingPublicationPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Team Trainings",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/teams/{team_id}/trainings/{training_id}": {
+      "get": {
+        "operationId": "team_training_detail_api_v1_teams__team_id__trainings__training_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "training_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingPublicationDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Team Training Detail",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/teams/{team_id}/trainings/{training_id}/review": {
+      "get": {
+        "operationId": "team_training_review_api_v1_teams__team_id__trainings__training_id__review_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "training_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTrainingReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Team Training Review",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/teams/{team_id}/trainings/{training_id}/start": {
+      "post": {
+        "operationId": "start_team_training_api_v1_teams__team_id__trainings__training_id__start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "training_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Team Training",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
     "/api/v1/trainings": {
       "get": {
         "operationId": "trainings_api_v1_trainings_get",
@@ -13261,6 +16268,122 @@
           }
         },
         "summary": "Update Feedback",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/trainings/{training_id}/publish-official": {
+      "post": {
+        "operationId": "publish_official_training_api_v1_trainings__training_id__publish_official_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "training_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmTrainingPublication"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingPublicationDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish Official Training",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/trainings/{training_id}/publish-team/{team_id}": {
+      "post": {
+        "operationId": "publish_team_training_api_v1_trainings__training_id__publish_team__team_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "training_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmTrainingPublication"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingPublicationDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish Team Training",
         "tags": [
           "learning"
         ]

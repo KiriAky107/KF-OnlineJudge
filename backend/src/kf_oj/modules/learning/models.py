@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -26,6 +27,12 @@ class LearningPlan(CreatedAt, Base):
     __table_args__ = (
         UniqueConstraint("owner_id", "idempotency_key"),
         CheckConstraint("max_hint_level IN ('L0','L1','L2','L3')", name="hint_ceiling"),
+        Index(
+            "ix_learning_plans_publication_owner",
+            "publication_id",
+            "owner_id",
+            postgresql_where=text("publication_id IS NOT NULL"),
+        ),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True)
     owner_id: Mapped[UUID] = mapped_column(ForeignKey("accounts.id"), index=True)
@@ -35,6 +42,9 @@ class LearningPlan(CreatedAt, Base):
     rule_version: Mapped[str] = mapped_column(String(32))
     parameters: Mapped[dict] = mapped_column(JSONB)
     max_hint_level: Mapped[str] = mapped_column(String(2), server_default="L3")
+    publication_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("learning_training_publications.id", use_alter=True)
+    )
 
 
 class LearningPlanItem(Base):
@@ -50,6 +60,44 @@ class LearningPlanItem(Base):
     version_id: Mapped[UUID] = mapped_column(ForeignKey("problem_versions.id"))
     snapshot: Mapped[dict] = mapped_column(JSONB)
     note: Mapped[str] = mapped_column(Text, default="", server_default="")
+
+
+class TrainingPublication(CreatedAt, Base):
+    __tablename__ = "learning_training_publications"
+    __table_args__ = (
+        CheckConstraint("max_hint_level IN ('L0','L1','L2','L3')", name="hint_ceiling"),
+        UniqueConstraint("source_plan_id", "team_id", name="uq_training_publications_team_plan"),
+        Index(
+            "uq_training_publications_official_plan",
+            "source_plan_id",
+            unique=True,
+            postgresql_where=text("team_id IS NULL"),
+        ),
+        Index("ix_training_publications_scope_created", "team_id", "created_at", "id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    source_plan_id: Mapped[UUID] = mapped_column(ForeignKey("learning_plans.id"))
+    team_id: Mapped[UUID | None] = mapped_column(ForeignKey("teams.id"))
+    title: Mapped[str] = mapped_column(String(120))
+    max_hint_level: Mapped[str] = mapped_column(String(2), server_default="L3")
+
+
+class TrainingPublicationItemRow(Base):
+    __tablename__ = "learning_training_publication_items"
+    __table_args__ = (
+        CheckConstraint("position >= 0", name="position"),
+        # Renaming the table kept the original constraint name.
+        UniqueConstraint(
+            "training_id", "version_id", name="uq_learning_official_training_exercises_training_id"
+        ),
+    )
+
+    training_id: Mapped[UUID] = mapped_column(
+        ForeignKey("learning_training_publications.id"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(primary_key=True)
+    version_id: Mapped[UUID] = mapped_column(ForeignKey("problem_versions.id"))
 
 
 class ProblemNote(Base):
