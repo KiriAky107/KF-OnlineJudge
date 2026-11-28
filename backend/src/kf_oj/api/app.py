@@ -22,6 +22,7 @@ from kf_oj.api.v1.self_tests import router as self_test_router
 from kf_oj.api.v1.skill_drafts import router as skill_draft_router
 from kf_oj.api.v1.skill_publications import router as skill_publication_router
 from kf_oj.api.v1.submissions import router as submission_router
+from kf_oj.api.v1.teams import router as team_router
 from kf_oj.api.v1.worker_artifacts import router as worker_router
 from kf_oj.core.logging import configure_logging
 from kf_oj.core.settings import Settings
@@ -49,6 +50,7 @@ from kf_oj.modules.submissions.queries import SubmissionQueries
 from kf_oj.modules.submissions.self_tests import SelfTestService
 from kf_oj.modules.submissions.service import SubmissionService
 from kf_oj.modules.submissions.worker_access import WorkerAccess
+from kf_oj.modules.teams.service import TeamService
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -69,6 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 app.state.identity = IdentityService(
                     app.state.sessions, lifetime_seconds=settings.session_lifetime_seconds
                 )
+                app.state.teams = TeamService(app.state.sessions, app.state.identity)
                 app.state.submission_performance = SubmissionPerformanceQueries(app.state.sessions)
                 app.state.contest_ratings = ContestRatings(app.state.sessions, app.state.identity)
                 app.state.contest_schedules = ContestSchedules(
@@ -165,6 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.skill_drafts = None
             app.state.agent_learning = None
             app.state.learning = None
+            app.state.teams = None
             app.state.identity = None
             app.state.problems = None
             app.state.worker_access = None
@@ -208,6 +212,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "/api/v1/admin",
                 "/api/v1/learning",
                 "/api/v1/trainings",
+                "/api/v1/teams",
             )
         ):
             response.headers["Cache-Control"] = "no-store"
@@ -224,6 +229,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(contest_schedule_router, prefix="/api/v1")
     app.include_router(identity_router, prefix="/api/v1")
     app.include_router(learning_router, prefix="/api/v1")
+    app.include_router(team_router, prefix="/api/v1")
     app.include_router(agent_learning_router, prefix="/api/v1")
     app.include_router(skill_draft_router, prefix="/api/v1")
     app.include_router(skill_publication_router, prefix="/api/v1")

@@ -63,6 +63,12 @@ export const router = createRouter({
       component: () => import('../views/SkillLibraryView.vue'),
     },
     {
+      path: '/trainings/official/:id',
+      name: 'official-training-detail',
+      meta: { title: '官方训练' },
+      component: () => import('../views/TrainingPublicationView.vue'),
+    },
+    {
       path: '/trainings/:id',
       name: 'training-detail',
       meta: { title: '训练详情' },
@@ -108,6 +114,18 @@ export const router = createRouter({
       path: '/teams/create',
       meta: { title: '创建团队' },
       component: () => import('../views/CreateTeamView.vue'),
+    },
+    {
+      path: '/teams/:id',
+      name: 'team-detail',
+      meta: { title: '团队详情' },
+      component: () => import('../views/TeamDetailView.vue'),
+    },
+    {
+      path: '/teams/:teamId/trainings/:id',
+      name: 'team-training-detail',
+      meta: { title: '团队训练' },
+      component: () => import('../views/TrainingPublicationView.vue'),
     },
     {
       path: '/users/:username',
