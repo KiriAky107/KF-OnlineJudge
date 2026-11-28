@@ -32,6 +32,7 @@ fn selected(config: &RuntimeConfig, image: &RegisteredImage) -> RuntimeConfig {
     c.runtime_images.clear();
     c.image_root = image.image_root.clone();
     c.image_kind = image.image_kind;
+    c.allow_ubsan_compilation = false;
     c.runtime_identity = Some(image.runtime_identity.clone());
     c.per_task_ceiling = image.per_task_ceiling.clone();
     c

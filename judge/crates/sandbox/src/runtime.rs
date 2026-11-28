@@ -37,6 +37,8 @@ impl ImageKind {
                     | P::CompileCpp
                     | P::CompileCDiagnostic
                     | P::CompileCppDiagnostic
+                    | P::CompileCUbsan
+                    | P::CompileCppUbsan
             ) | (Self::LinuxCPython313X86_64V1, P::PythonCheck | P::PythonRun)
                 | (Self::LinuxOpenJdk21X86_64V1, P::JavaCompile | P::JavaRun)
         )
@@ -98,6 +100,9 @@ pub struct RuntimeConfig {
     /// Authorize the closed diagnostic compiler profiles on a pinned GNU image.
     #[serde(default, skip_serializing_if = "kf_contracts::judging::is_false")]
     pub allow_diagnostic_compilation: bool,
+    /// Enable the fixed UBSan compiler command on a separately verified GNU image.
+    #[serde(default, skip_serializing_if = "kf_contracts::judging::is_false")]
+    pub allow_ubsan_compilation: bool,
     /// Additional immutable images share this factory's identity/delegation
     /// pools and aggregate budget. A request supplies only an exact identity.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -153,6 +158,7 @@ impl ValidatedRuntimeConfig {
                 self.0.image_kind,
                 self.0.runtime_identity.clone(),
                 self.0.allow_diagnostic_compilation,
+                self.0.allow_ubsan_compilation,
             )
     }
 
@@ -206,6 +212,15 @@ impl RuntimeConfig {
                     "missing_or_mismatched_identity",
                 ));
             }
+        }
+        if self.allow_ubsan_compilation
+            && (self.image_kind != ImageKind::LinuxGnuCxxX86_64V1
+                || self.runtime_identity.is_none())
+        {
+            return Err(invalid(
+                "allow_ubsan_compilation",
+                "pinned_gnu_image_required",
+            ));
         }
         for (field, value) in [
             ("state_root", &self.state_root),

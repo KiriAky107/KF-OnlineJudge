@@ -37,6 +37,8 @@ struct Acquire {
         deserialize_with = "health_version"
     )]
     health_version: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_configuration_sha256: Option<String>,
 }
 
 /// Private handoff over the existing root factory lifeline. The worker's
@@ -116,6 +118,17 @@ impl WireMessage for Acquire {
                 Some(1) => self.run_id == "health-check" && !self.check_stopped,
                 Some(_) => false,
             }
+            && self
+                .expected_configuration_sha256
+                .as_ref()
+                .is_none_or(|digest| {
+                    self.check_stopped
+                        && self.run_id == "stop-check"
+                        && digest.len() == 64
+                        && digest
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                })
     }
 }
 impl WireMessage for Allocation {
@@ -148,6 +161,15 @@ impl FactoryClient {
     /// Root-authenticated global drain proof. No task/path/command is selected.
     /// False/unknown never releases execution authority at Coordinator.
     pub fn stopped(&self) -> io::Result<bool> {
+        self.check_stopped(None)
+    }
+
+    /// The same drain proof, bound by the root peer to its original configuration.
+    pub fn stopped_for_configuration(&self, digest: &str) -> io::Result<bool> {
+        self.check_stopped(Some(digest.into()))
+    }
+
+    fn check_stopped(&self, expected_configuration_sha256: Option<String>) -> io::Result<bool> {
         if rustix::process::geteuid().as_raw() < 1000 || rustix::process::getegid().as_raw() < 1000
         {
             return Err(denied());
@@ -157,6 +179,7 @@ impl FactoryClient {
             run_id: "stop-check".into(),
             check_stopped: true,
             health_version: None,
+            expected_configuration_sha256,
         })?;
         match channel.receive::<Allocation>()? {
             Allocation::Stopped { cleanup_complete } => Ok(cleanup_complete),
@@ -174,6 +197,7 @@ impl FactoryClient {
             run_id: "health-check".into(),
             check_stopped: false,
             health_version: Some(1),
+            expected_configuration_sha256: None,
         })?;
         match channel.receive::<Allocation>()? {
             Allocation::Health { status } => Ok(status),
@@ -266,6 +290,7 @@ impl FactoryClient {
                     run_id: spec.run_id.clone(),
                     check_stopped: false,
                     health_version: None,
+                    expected_configuration_sha256: None,
                 })?;
                 let pid = match channel.receive::<Allocation>()? {
                     Allocation::Ready { run_id, helper_pid } if run_id == spec.run_id => helper_pid,
@@ -611,6 +636,18 @@ pub fn serve_with_limit(
                 continue;
             }
             if request.check_stopped {
+                if let Some(expected) = request.expected_configuration_sha256 {
+                    let current = execution::read_bounded_file(
+                        config_path,
+                        crate::runtime::MAX_CONFIG_BYTES,
+                    )?;
+                    if expected != configuration_sha256
+                        || format!("{:x}", Sha256::digest(current)) != expected
+                    {
+                        let _ = channel.send(&Allocation::Refused {});
+                        continue;
+                    }
+                }
                 if !active.is_empty() {
                     let _ = channel.send(&Allocation::Stopped {
                         cleanup_complete: false,
@@ -839,11 +876,31 @@ mod tests {
         );
     }
     #[test]
+    fn expected_configuration_can_only_bind_a_stop_check() {
+        let digest = "b".repeat(64);
+        let stop = Acquire {
+            run_id: "stop-check".into(),
+            check_stopped: true,
+            health_version: None,
+            expected_configuration_sha256: Some(digest),
+        };
+        assert!(stop.valid());
+        assert!(
+            !Acquire {
+                check_stopped: false,
+                ..stop
+            }
+            .valid()
+        );
+    }
+
+    #[test]
     fn health_is_explicitly_versioned_and_old_allocation_bytes_are_unchanged() {
         let allocation = Acquire {
             run_id: "a-1".into(),
             check_stopped: false,
             health_version: None,
+            expected_configuration_sha256: None,
         };
         assert_eq!(
             serde_json::to_string(&allocation).unwrap(),

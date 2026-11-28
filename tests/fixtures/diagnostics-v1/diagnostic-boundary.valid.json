@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "kind": "diagnostic.boundary-measurements",
+  "binding": {
+    "evaluation_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+    "attempt_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000002",
+    "worker_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000003",
+    "fencing_version": 1
+  },
+  "manifest_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "cases": [
+    {
+      "case_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000004",
+      "outcome": "completed",
+      "cpu_time_us": 9103,
+      "memory_peak_bytes": 1642496
+    },
+    {
+      "case_id": "aaaaaaaa-aaaa-4aaa-8aaa-000000000005",
+      "outcome": "time_limit",
+      "cpu_time_us": 1000283,
+      "memory_peak_bytes": 1667072
+    }
+  ]
+}

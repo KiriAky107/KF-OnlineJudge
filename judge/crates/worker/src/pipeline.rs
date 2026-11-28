@@ -222,6 +222,10 @@ impl<'a, A: ArtifactPort> Attempt<'a, A> {
         self.control = Some(Box::new(control));
         self
     }
+    pub(crate) fn cap_deadline(mut self, deadline: Instant) -> Self {
+        self.deadline = self.deadline.min(deadline);
+        self
+    }
     pub(crate) fn staging_path(&self) -> &Path {
         &self.staging
     }

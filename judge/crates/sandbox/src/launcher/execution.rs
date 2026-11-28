@@ -4,7 +4,7 @@ use crate::{
     io::ChildPipes,
     isolation::process_tree::{ExecObservation, ExecPlan, NamespaceEnd, Reaper},
     outcome::Termination,
-    spec::{ExecutionSpec, SpecPolicy},
+    spec::ExecutionSpec,
 };
 use serde::{Deserialize, Serialize};
 use std::{io, time::Duration};
@@ -18,8 +18,9 @@ pub struct TreeRecord {
     pub empty: bool,
 }
 pub(crate) fn serve(channel: &mut ControlChannel, request: ExecutionSpec) -> io::Result<()> {
+    // This private channel carries the supervisor's already-authorized request.
     let spec = request
-        .validate(&SpecPolicy::default())
+        .validate_for_factory_client()
         .map_err(|_| io::Error::other("exec request validation"))?;
     channel.execution_deadline(spec.spec().limits.wall_time_us)?;
     let stdio = ChildPipes {

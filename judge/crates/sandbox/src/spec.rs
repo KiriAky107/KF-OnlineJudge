@@ -20,6 +20,8 @@ pub enum ExecutionProfile {
     CompileCpp,
     CompileCDiagnostic,
     CompileCppDiagnostic,
+    CompileCUbsan,
+    CompileCppUbsan,
     PythonCheck,
     PythonRun,
     JavaCompile,
@@ -38,7 +40,9 @@ impl ExecutionProfile {
             Self::CompileC
             | Self::CompileCpp
             | Self::CompileCDiagnostic
-            | Self::CompileCppDiagnostic => Some("/usr/bin"),
+            | Self::CompileCppDiagnostic
+            | Self::CompileCUbsan
+            | Self::CompileCppUbsan => Some("/usr/bin"),
         }
     }
 
@@ -47,11 +51,17 @@ impl ExecutionProfile {
     }
 
     pub fn gnu_compiler(self) -> bool {
-        matches!(self, Self::CompileC | Self::CompileCpp) || self.diagnostic_compiler()
+        matches!(self, Self::CompileC | Self::CompileCpp)
+            || self.diagnostic_compiler()
+            || self.ubsan_compiler()
     }
 
     pub(crate) fn diagnostic_compiler(self) -> bool {
         matches!(self, Self::CompileCDiagnostic | Self::CompileCppDiagnostic)
+    }
+
+    pub(crate) fn ubsan_compiler(self) -> bool {
+        matches!(self, Self::CompileCUbsan | Self::CompileCppUbsan)
     }
 
     pub fn managed_runtime(self) -> bool {
@@ -104,7 +114,9 @@ impl ResourceLimits {
             ExecutionProfile::CompileC
             | ExecutionProfile::CompileCpp
             | ExecutionProfile::CompileCDiagnostic
-            | ExecutionProfile::CompileCppDiagnostic => Self {
+            | ExecutionProfile::CompileCppDiagnostic
+            | ExecutionProfile::CompileCUbsan
+            | ExecutionProfile::CompileCppUbsan => Self {
                 cpu_time_us: 10_000_000,
                 wall_time_us: 30_000_000,
                 memory_bytes: 512 * MIB,
@@ -187,6 +199,7 @@ pub struct SpecPolicy {
     image_kind: Option<crate::runtime::ImageKind>,
     runtime_identity: Option<kf_contracts::judging_v2::RuntimeIdentity>,
     allow_diagnostic_compilation: bool,
+    allow_ubsan_compilation: bool,
 }
 
 impl Default for SpecPolicy {
@@ -196,6 +209,7 @@ impl Default for SpecPolicy {
             image_kind: None,
             runtime_identity: None,
             allow_diagnostic_compilation: false,
+            allow_ubsan_compilation: false,
         }
     }
 }
@@ -208,6 +222,7 @@ impl SpecPolicy {
             image_kind: None,
             runtime_identity: None,
             allow_diagnostic_compilation: false,
+            allow_ubsan_compilation: false,
         })
     }
 
@@ -216,10 +231,12 @@ impl SpecPolicy {
         kind: crate::runtime::ImageKind,
         identity: Option<kf_contracts::judging_v2::RuntimeIdentity>,
         allow_diagnostic_compilation: bool,
+        allow_ubsan_compilation: bool,
     ) -> Self {
         self.image_kind = Some(kind);
         self.runtime_identity = identity;
         self.allow_diagnostic_compilation = allow_diagnostic_compilation;
+        self.allow_ubsan_compilation = allow_ubsan_compilation;
         self
     }
 }
@@ -379,11 +396,12 @@ fn validate_limits(limits: &ResourceLimits, cap: &ResourceLimits) -> Result<(), 
 }
 
 impl ExecutionSpec {
-    /// Validate request structure for the factory transport and its report.
+    /// Validate request structure in transport and when checking its report.
     /// The privileged factory checks its own image, limits and diagnostic policy.
     pub fn validate_for_factory_client(self) -> Result<ValidatedSpec, SpecError> {
         let policy = SpecPolicy {
             allow_diagnostic_compilation: self.profile.diagnostic_compiler(),
+            allow_ubsan_compilation: self.profile.ubsan_compiler(),
             ..SpecPolicy::default()
         };
         self.validate(&policy)
@@ -392,16 +410,20 @@ impl ExecutionSpec {
     pub fn validate(self, policy: &SpecPolicy) -> Result<ValidatedSpec, SpecError> {
         identifier(&self.run_id, "run_id")?;
         let diagnostic = self.profile.diagnostic_compiler();
-        if diagnostic && !policy.allow_diagnostic_compilation {
+        let ubsan = self.profile.ubsan_compiler();
+        if diagnostic && !policy.allow_diagnostic_compilation
+            || ubsan && !policy.allow_ubsan_compilation
+        {
             return Err(error("profile", ValidationCode::UnsupportedExecutable));
         }
         let language = match self.profile {
             ExecutionProfile::Native
             | ExecutionProfile::CompileC
-            | ExecutionProfile::CompileCDiagnostic => kf_contracts::judging_v2::Language::C17,
-            ExecutionProfile::CompileCpp | ExecutionProfile::CompileCppDiagnostic => {
-                kf_contracts::judging_v2::Language::Cpp20
-            }
+            | ExecutionProfile::CompileCDiagnostic
+            | ExecutionProfile::CompileCUbsan => kf_contracts::judging_v2::Language::C17,
+            ExecutionProfile::CompileCpp
+            | ExecutionProfile::CompileCppDiagnostic
+            | ExecutionProfile::CompileCppUbsan => kf_contracts::judging_v2::Language::Cpp20,
             ExecutionProfile::PythonCheck | ExecutionProfile::PythonRun => {
                 kf_contracts::judging_v2::Language::Python313
             }
@@ -409,7 +431,8 @@ impl ExecutionSpec {
                 kf_contracts::judging_v2::Language::Java21
             }
         };
-        if (diagnostic || self.profile.managed_runtime()) && self.runtime_identity.is_none()
+        if (diagnostic || ubsan || self.profile.managed_runtime())
+            && self.runtime_identity.is_none()
             || self
                 .runtime_identity
                 .as_ref()
@@ -506,7 +529,10 @@ impl ExecutionSpec {
                 .is_some_and(|relative| input_paths.contains(relative)),
             ExecutionProfile::CompileC => executable == "/usr/bin/gcc",
             ExecutionProfile::CompileCpp => executable == "/usr/bin/g++",
-            ExecutionProfile::CompileCDiagnostic | ExecutionProfile::CompileCppDiagnostic => {
+            ExecutionProfile::CompileCDiagnostic
+            | ExecutionProfile::CompileCppDiagnostic
+            | ExecutionProfile::CompileCUbsan
+            | ExecutionProfile::CompileCppUbsan => {
                 if !crate::profiles::matches_diagnostic_compile(&self) {
                     return Err(error("profile", ValidationCode::InvalidArgv));
                 }

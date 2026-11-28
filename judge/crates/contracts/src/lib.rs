@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub mod diagnostic;
 pub mod judging;
 pub mod judging_v2;
 pub mod judging_versions;

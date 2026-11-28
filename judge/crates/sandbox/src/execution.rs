@@ -211,7 +211,13 @@ fn verify_image(config: &RuntimeConfig, image: &OwnedFd) -> io::Result<bool> {
     let bytes = read_pinned(manifest, crate::image::MAX_CATALOG_BYTES)?;
     if let Some(identity) = &config.runtime_identity {
         let mount = crate::image::immutable_mount(image)?;
-        crate::image::verify(image, identity, &bytes, mount)?;
+        crate::image::verify(
+            image,
+            identity,
+            &bytes,
+            mount,
+            config.allow_ubsan_compilation,
+        )?;
         return Ok(mount.is_some());
     }
     let m: serde_json::Value =
